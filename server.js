@@ -42,6 +42,9 @@ const DEFAULT_ACTIVE_DAYS = ['Mon', 'Thu'];
 // Override manuel : null = suit le planning par défaut, true = forcé ON, false = forcé OFF
 let manualOverride = null;
 
+// Mode test : si true, ignore l'attente des horaires ouvrés (réponse immédiate même hors horaires)
+let ignoreBusinessHours = false;
+
 // Phrase exacte envoyée quand le bot ne sait pas répondre (déclenche une alerte pour Ismaël)
 const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !";
 
@@ -81,12 +84,14 @@ function isBotDayActive(weekday) {
   return DEFAULT_ACTIVE_DAYS.includes(weekday);
 }
 
-// Calcule le délai (en ms) jusqu'à 8h30 le lendemain (heure Guadeloupe)
+// Calcule le délai (en ms) jusqu'au PROCHAIN 8h30 (aujourd'hui si on est avant 8h30, sinon demain)
 function msUntilNext8am(now) {
   const guadNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
   const target = new Date(guadNow);
-  target.setDate(target.getDate() + 1);
   target.setHours(8, 30, 0, 0);
+  if (target.getTime() <= guadNow.getTime()) {
+    target.setDate(target.getDate() + 1); // 8h30 déjà passé aujourd'hui → viser demain
+  }
   return target.getTime() - guadNow.getTime();
 }
 
@@ -200,8 +205,9 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Si en dehors des horaires ouvrés (8h30-17h30), on attend le lendemain 8h avant de répondre
-    if (!isWithinBusinessHours(nowCheck)) {
+    // Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
+    // (sauf en mode test, où on ignore cette attente)
+    if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
       const delay = msUntilNext8am(new Date());
       console.log(`Hors horaires ouvrés — réponse programmée dans ${Math.round(delay / 60000)} min`);
       await sleep(delay);
@@ -379,6 +385,20 @@ app.get('/admin/statut', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const mode = manualOverride === null ? 'AUTOMATIQUE (lundi/jeudi)' : manualOverride ? 'FORCÉ ACTIF' : 'FORCÉ INACTIF';
   res.send(`Statut actuel : ${mode}`);
+});
+
+// TEST UNIQUEMENT : ignore l'attente des horaires ouvrés (réponse immédiate, peu importe l'heure)
+app.get('/admin/test-horaires-on', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  ignoreBusinessHours = true;
+  res.send('🧪 Mode test activé : le bot répond immédiatement peu importe l\'heure');
+});
+
+// Remet la vérification normale des horaires ouvrés
+app.get('/admin/test-horaires-off', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  ignoreBusinessHours = false;
+  res.send('✅ Mode test désactivé : le bot respecte à nouveau les horaires ouvrés (8h30-17h30)');
 });
 
 // TEST UNIQUEMENT : force l'envoi immédiat du récap (jour auto d'aujourd'hui + session manuelle en cours)
