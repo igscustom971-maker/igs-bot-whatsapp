@@ -8,13 +8,6 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// Autorise les appels depuis une page externe (le panneau de contrôle mobile)
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET');
-  next();
-});
-
 // ============================================
 // CONFIGURATION (à mettre dans variables d'environnement Render)
 // ============================================
@@ -492,6 +485,152 @@ app.get('/admin/test-recap', async (req, res) => {
 app.get('/cron/keepalive', async (req, res) => {
   await checkDailyRecapDue();
   res.send('OK');
+});
+
+// ============================================
+// PANNEAU DE CONTRÔLE MOBILE (même serveur = pas de souci de sécurité cross-domaine)
+// ============================================
+app.get('/panel', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IGS Bot - Contrôle</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #1a1d24;
+    --accent: #25d366;
+    --danger: #e5484d;
+    --text: #f4f4f5;
+    --muted: #9ca3af;
+    --border: #2a2d35;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 8px 0 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .status-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 20px;
+    min-height: 52px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .status-box.loading { color: var(--muted); }
+  .section-title {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 20px 0 10px;
+    font-weight: 600;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button {
+    border: none;
+    border-radius: 14px;
+    padding: 16px 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  button:active { transform: scale(0.96); opacity: 0.85; }
+  .btn-emoji { font-size: 22px; }
+  .btn-activer { background: var(--accent); }
+  .btn-desactiver { background: var(--danger); }
+  .btn-auto { background: #3b82f6; }
+  .btn-statut { background: #6b7280; }
+  .btn-test { background: #8b5cf6; }
+  .btn-full { grid-column: 1 / -1; }
+  footer { text-align: center; color: var(--muted); font-size: 11px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🤖 IGS Bot WhatsApp</h1>
+  <div class="subtitle">Panneau de contrôle rapide</div>
+
+  <div class="status-box loading" id="status">Chargement du statut...</div>
+
+  <div class="section-title">Activation</div>
+  <div class="grid">
+    <button class="btn-activer" onclick="callAdmin('activer')">
+      <span class="btn-emoji">✅</span> Activer maintenant
+    </button>
+    <button class="btn-desactiver" onclick="callAdmin('desactiver')">
+      <span class="btn-emoji">🛑</span> Désactiver
+    </button>
+    <button class="btn-auto btn-full" onclick="callAdmin('auto')">
+      <span class="btn-emoji">🔄</span> Remettre en automatique
+    </button>
+  </div>
+
+  <div class="section-title">Infos</div>
+  <div class="grid">
+    <button class="btn-statut btn-full" onclick="callAdmin('statut')">
+      <span class="btn-emoji">📊</span> Voir le statut actuel
+    </button>
+  </div>
+
+  <div class="section-title">Outils de test</div>
+  <div class="grid">
+    <button class="btn-test" onclick="callAdmin('test-recap')">
+      <span class="btn-emoji">📋</span> Forcer le récap
+    </button>
+    <button class="btn-test" onclick="callAdmin('test-horaires-on')">
+      <span class="btn-emoji">🧪</span> Ignorer horaires
+    </button>
+    <button class="btn-test btn-full" onclick="callAdmin('test-horaires-off')">
+      <span class="btn-emoji">⏰</span> Respecter horaires (normal)
+    </button>
+  </div>
+
+  <footer>igs-bot-whatsapp</footer>
+</div>
+
+<script>
+var TOKEN = '${ADMIN_TOKEN || ""}';
+
+function callAdmin(action) {
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/' + action + '?token=' + TOKEN)
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function(err) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+callAdmin('statut');
+</script>
+</body>
+</html>`);
 });
 
 // ============================================
