@@ -85,11 +85,17 @@ function isBotDayActive(weekday) {
   return DEFAULT_ACTIVE_DAYS.includes(weekday);
 }
 
+// Fermeture prolongée réglable depuis le panel (en mémoire, se réinitialise à chaque redéploiement,
+// contrairement à CLOSED_UNTIL qui est une variable d'environnement plus robuste)
+let closureOverrideUntil = null;
+
 // Est-ce qu'on est en période de fermeture prolongée (congés) ? Prioritaire sur tout le reste
+// Vérifie à la fois la variable d'environnement CLOSED_UNTIL et l'override réglé depuis le panel
 function isClosedForBreak(now) {
-  if (!CLOSED_UNTIL) return false;
   const todayKey = getGuadeloupeDateKey(now);
-  return todayKey <= CLOSED_UNTIL;
+  if (CLOSED_UNTIL && todayKey <= CLOSED_UNTIL) return true;
+  if (closureOverrideUntil && todayKey <= closureOverrideUntil) return true;
+  return false;
 }
 
 // Calcule le délai (en ms) jusqu'au PROCHAIN 8h30 (aujourd'hui si on est avant 8h30, sinon demain)
@@ -440,11 +446,31 @@ app.get('/admin/auto', async (req, res) => {
 // Affiche le statut actuel du bot
 app.get('/admin/statut', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
-  if (isClosedForBreak(new Date())) {
-    return res.send(`🔒 FERMETURE PROLONGÉE jusqu'au ${CLOSED_UNTIL} inclus (bot totalement inactif, peu importe le reste)`);
+  const todayKey = getGuadeloupeDateKey(new Date());
+  if (CLOSED_UNTIL && todayKey <= CLOSED_UNTIL) {
+    return res.send(`🔒 FERMETURE (Render) jusqu'au ${CLOSED_UNTIL} inclus`);
+  }
+  if (closureOverrideUntil && todayKey <= closureOverrideUntil) {
+    return res.send(`🔒 FERMETURE (panel) jusqu'au ${closureOverrideUntil} inclus`);
   }
   const mode = manualOverride === null ? 'AUTOMATIQUE (lundi/jeudi)' : manualOverride ? 'FORCÉ ACTIF' : 'FORCÉ INACTIF';
   res.send(`Statut actuel : ${mode}`);
+});
+
+// Ferme le bot jusqu'à une date donnée (format YYYY-MM-DD), réglable depuis le panel
+app.get('/admin/fermer', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const date = req.query.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).send('Date invalide, format attendu : YYYY-MM-DD');
+  closureOverrideUntil = date;
+  res.send(`🔒 Fermeture activée jusqu'au ${date} inclus`);
+});
+
+// Lève la fermeture réglée depuis le panel (ne touche pas à CLOSED_UNTIL sur Render, si utilisée)
+app.get('/admin/lever-fermeture', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  closureOverrideUntil = null;
+  res.send('🔓 Fermeture (panel) levée. Si le bot reste fermé, vérifie la variable CLOSED_UNTIL sur Render.');
 });
 
 // TEST UNIQUEMENT : ignore l'attente des horaires ouvrés (réponse immédiate, peu importe l'heure)
@@ -592,6 +618,19 @@ app.get('/panel', (req, res) => {
     </button>
   </div>
 
+  <div class="section-title">Fermeture prolongée</div>
+  <div style="display:flex; gap:8px; margin-bottom:10px;">
+    <input type="date" id="closeDate" style="flex:1; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px;">
+  </div>
+  <div class="grid">
+    <button class="btn-desactiver" onclick="fermerJusqua()">
+      <span class="btn-emoji">🔒</span> Fermer jusqu'à cette date
+    </button>
+    <button class="btn-auto" onclick="callAdmin('lever-fermeture')">
+      <span class="btn-emoji">🔓</span> Lever la fermeture
+    </button>
+  </div>
+
   <div class="section-title">Outils de test</div>
   <div class="grid">
     <button class="btn-test" onclick="callAdmin('test-recap')">
@@ -616,6 +655,24 @@ function callAdmin(action) {
   statusBox.classList.add('loading');
   statusBox.textContent = 'Chargement...';
   fetch('/admin/' + action + '?token=' + TOKEN)
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function(err) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function fermerJusqua() {
+  var date = document.getElementById('closeDate').value;
+  if (!date) { alert('Choisis une date d\\'abord'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/fermer?token=' + TOKEN + '&date=' + date)
     .then(function(res) { return res.text(); })
     .then(function(text) {
       statusBox.classList.remove('loading');
