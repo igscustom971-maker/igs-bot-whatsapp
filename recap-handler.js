@@ -6,7 +6,7 @@
 // ============================================
 
 const RECAP_KEYWORDS = /^(r[ée]cap|planning)$/i;
-const EMPTY_RECAP = 'Récap pour la commande aujd :\n\nRien en cours 👌';
+const EMPTY_RECAP = 'Récap des commandes du jour :\n\nRien en cours 👌';
 const ERROR_MESSAGE = '⚠️ Récap indisponible pour le moment, réessaie dans une minute.';
 
 // Est-ce que le texte reçu est une demande de récap ?
