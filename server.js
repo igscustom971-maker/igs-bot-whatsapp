@@ -19,6 +19,7 @@ const DUALHOOK_API_KEY = process.env.DUALHOOK_API_KEY; // clé dh_live_... gén�
 const EMAIL_TO = process.env.EMAIL_TO || 'contact@igscustom.fr'; // gardé en fallback, non utilisé pour l'instant
 const RECAP_PHONE_NUMBER = process.env.RECAP_PHONE_NUMBER; // ton numéro perso, format international sans + (ex: 590690XXXXXX)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // ta clé secrète perso pour activer/désactiver le bot
+const CLOSED_UNTIL = process.env.CLOSED_UNTIL; // format YYYY-MM-DD : bot totalement désactivé jusqu'à cette date incluse (survit aux redéploiements)
 
 // Stockage temporaire des conversations en cours (en mémoire)
 // Pour une vraie prod, utiliser une vraie DB (Postgres, etc.)
@@ -82,6 +83,13 @@ function isWithinBusinessHours({ hour, minute }) {
 function isBotDayActive(weekday) {
   if (manualOverride !== null) return manualOverride;
   return DEFAULT_ACTIVE_DAYS.includes(weekday);
+}
+
+// Est-ce qu'on est en période de fermeture prolongée (congés) ? Prioritaire sur tout le reste
+function isClosedForBreak(now) {
+  if (!CLOSED_UNTIL) return false;
+  const todayKey = getGuadeloupeDateKey(now);
+  return todayKey <= CLOSED_UNTIL;
 }
 
 // Calcule le délai (en ms) jusqu'au PROCHAIN 8h30 (aujourd'hui si on est avant 8h30, sinon demain)
@@ -236,6 +244,12 @@ app.post('/webhook', async (req, res) => {
     if (!text) return; // on ignore les messages non-textuels pour l'instant
 
     console.log(`Message reçu de ${from}: ${text}`);
+
+    // Priorité absolue : fermeture prolongée en cours (congés) ? Le bot ne répond à rien, peu importe le reste
+    if (isClosedForBreak(new Date())) {
+      console.log(`Fermeture prolongée en cours (jusqu'au ${CLOSED_UNTIL}) — message laissé pour traitement manuel`);
+      return;
+    }
 
     // Vérifier si le bot doit intervenir aujourd'hui (planning ou override manuel)
     const nowCheck = getGuadeloupeTime(new Date());
@@ -426,6 +440,9 @@ app.get('/admin/auto', async (req, res) => {
 // Affiche le statut actuel du bot
 app.get('/admin/statut', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  if (isClosedForBreak(new Date())) {
+    return res.send(`🔒 FERMETURE PROLONGÉE jusqu'au ${CLOSED_UNTIL} inclus (bot totalement inactif, peu importe le reste)`);
+  }
   const mode = manualOverride === null ? 'AUTOMATIQUE (lundi/jeudi)' : manualOverride ? 'FORCÉ ACTIF' : 'FORCÉ INACTIF';
   res.send(`Statut actuel : ${mode}`);
 });
