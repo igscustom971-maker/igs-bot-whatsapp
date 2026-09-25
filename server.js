@@ -2,9 +2,11 @@
 // IGS CUSTOM BAR - BOT WHATSAPP
 // Serveur Node.js : reçoit messages via Dualhook,
 // répond avec Claude API, envoie récap par email
+// + récap production à la demande d'Ismaël (voir recap-handler.js)
 // ============================================
 
 const express = require('express');
+const { isRecapRequest, handleProductionRecap } = require('./recap-handler');
 const app = express();
 app.use(express.json());
 
@@ -20,6 +22,7 @@ const EMAIL_TO = process.env.EMAIL_TO || 'contact@igscustom.fr'; // gardé en fa
 const RECAP_PHONE_NUMBER = process.env.RECAP_PHONE_NUMBER; // ton numéro perso, format international sans + (ex: 590690XXXXXX)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // ta clé secrète perso pour activer/désactiver le bot
 const CLOSED_UNTIL = process.env.CLOSED_UNTIL; // format YYYY-MM-DD : bot totalement désactivé jusqu'à cette date incluse (survit aux redéploiements)
+// RECAP_FLOW_URL (URL du flow Power Automate du récap production) est lue directement dans recap-handler.js
 
 // Stockage temporaire des conversations en cours (en mémoire)
 // Pour une vraie prod, utiliser une vraie DB (Postgres, etc.)
@@ -250,6 +253,18 @@ app.post('/webhook', async (req, res) => {
     if (!text) return; // on ignore les messages non-textuels pour l'instant
 
     console.log(`Message reçu de ${from}: ${text}`);
+
+    // Messages d'Ismaël (numéro perso) : traités AVANT tout le reste
+    // - "récap" ou "planning" → récap production (quel que soit le jour, l'heure ou la fermeture)
+    // - tout autre message → ignoré, le bot ne répond jamais à Ismaël comme à un client
+    if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
+      if (isRecapRequest(text)) {
+        await handleProductionRecap(from, sendWhatsAppMessage);
+      } else {
+        console.log('Message d\'Ismaël (hors récap) ignoré par le bot');
+      }
+      return;
+    }
 
     // Priorité absolue : fermeture prolongée en cours (congés) ? Le bot ne répond à rien, peu importe le reste
     if (isClosedForBreak(new Date())) {
