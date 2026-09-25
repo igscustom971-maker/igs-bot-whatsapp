@@ -103,7 +103,7 @@ function getGuadeloupeDateKey(date) {
 // Formate une liste de résumés courts en texte lisible pour le récap WhatsApp
 function formatRecap(title, entries) {
   if (entries.length === 0) return null;
-  const body = entries.map(e => `• ${e.summary}`).join('\n');
+  const body = entries.map(e => `${e.urgent ? '🚨' : '•'} ${e.summary} (${e.from})`).join('\n');
   return `${title}\n\n${body}`;
 }
 
@@ -168,6 +168,7 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 - Remise dégressive : à partir de 10m, -15% ; à partir de 20m, -20%
 - Le client envoie son visuel en PNG ou PDF détouré à contact@igscustom.fr (on peut aussi fournir un modèle Canva aux bonnes dimensions)
 - Délai de production : 24 à 48h
+- IMPORTANT : même pour les planches, il y a TOUJOURS un devis (ou lien de paiement) envoyé par mail avant de lancer la prod. Ne JAMAIS dire "pas besoin de devis" ou "tarif fixe, pas de devis". Le client doit régler avant que la production démarre
 
 **Livraison / retrait** (valable pour TOUS les produits) :
 - Retrait boutique Pointe-à-Pitre : lundi au vendredi, 14h30 à 17h30
@@ -177,18 +178,17 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 
 ⚠️ DEUX FLOWS SELON LA SITUATION :
 
-**FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT) :**
+**FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT mais avec devis quand même) :**
 Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impression, ou DTF :
 1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3)
-2. PAS de nom, PAS d'email
-3. Réponds "C'est noté, on t'envoie un message dès que c'est prêt" (varie la formulation mais garde "c'est noté")
-4. Si le client demande comment payer : propose "lien de paiement" ou "sur place"
-5. Rappelle le retrait boutique si besoin : lundi-vendredi, 14h30-17h30
+2. Demande aussi un email pour lui envoyer le devis ou le lien de paiement. PAS besoin de nom
+3. Réponds en confirmant que c'est noté et qu'un devis (ou lien de paiement) va lui être envoyé par mail sous peu, avant le lancement en prod. Varie la formulation mais mentionne toujours le devis/paiement
+4. Rappelle le retrait boutique si besoin : lundi-vendredi, 14h30-17h30
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
 1. Demande UNIQUEMENT la quantité, et une précision minimale sur le produit si besoin pour comprendre la demande (ex: t-shirt ou polo, recto ou recto-dos)
-2. Une fois cette info obtenue, réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !" (rien d'autre, ne demande PAS de nom ni d'email)
-3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé), réponds aussi EXACTEMENT et UNIQUEMENT cette même phrase
+2. Une fois cette info obtenue, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis"). Ne demande PAS de nom ni d'email, c'est Ismaël qui reprendra contact directement
+3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
 
 Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative, jamais un "non" sec.`;
 
@@ -277,14 +277,14 @@ app.post('/webhook', async (req, res) => {
     await sendWhatsAppMessage(from, reply);
 
     // Logger un résumé court pour le récap groupé, uniquement au moment clé
-    // (escalation vers Ismaël OU commande planche confirmée), pas à chaque message
+    // (bot vraiment bloqué OU devis/commande à préparer), pas à chaque message
     const isEscalation = reply.includes(FALLBACK_PHRASE);
-    const isPlancheConfirmed = /c'est noté/i.test(reply);
+    const isDevisOrPlanche = /devis|c'est noté/i.test(reply) && !isEscalation;
 
-    if ((isEscalation || isPlancheConfirmed) && !conversations[from]._loggedForRecap) {
+    if ((isEscalation || isDevisOrPlanche) && !conversations[from]._loggedForRecap) {
       conversations[from]._loggedForRecap = true; // évite les doublons sur la même conversation
       const summary = await summarizeForRecap(conversations[from]);
-      const logEntry = { from, summary };
+      const logEntry = { from, summary, urgent: isEscalation };
 
       if (manualOverride === true) {
         manualLog.push(logEntry);
