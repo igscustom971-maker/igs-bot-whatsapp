@@ -8,6 +8,13 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
+// Autorise les appels depuis une page externe (le panneau de contrôle mobile)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET');
+  next();
+});
+
 // ============================================
 // CONFIGURATION (à mettre dans variables d'environnement Render)
 // ============================================
