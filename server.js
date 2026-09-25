@@ -14,8 +14,8 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 const DUALHOOK_VERIFY_TOKEN = process.env.DUALHOOK_VERIFY_TOKEN;
-const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN; // token Meta pour envoyer messages
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const DUALHOOK_API_KEY = process.env.DUALHOOK_API_KEY; // clé dh_live_... générée dans Dualhook
 const EMAIL_TO = process.env.EMAIL_TO || 'contact@igscustom.fr';
 
 // Stockage temporaire des conversations en cours (en mémoire)
@@ -141,14 +141,14 @@ async function callClaudeAPI(conversationHistory) {
 }
 
 // ============================================
-// 4. ENVOI MESSAGE WHATSAPP (via Meta Cloud API)
+// 4. ENVOI MESSAGE WHATSAPP (via Dualhook, qui relaie vers Meta)
 // ============================================
 async function sendWhatsAppMessage(to, text) {
-  await fetch(`https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+  await fetch(`https://api.dualhook.com/v25.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+      'Authorization': `Bearer ${DUALHOOK_API_KEY}`,
     },
     body: JSON.stringify({
       messaging_product: 'whatsapp',
