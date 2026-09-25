@@ -100,19 +100,39 @@ function getGuadeloupeDateKey(date) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guadeloupe' }).format(date); // en-CA = format YYYY-MM-DD
 }
 
-// Formate une liste d'échanges en texte lisible pour le récap WhatsApp
+// Formate une liste de résumés courts en texte lisible pour le récap WhatsApp
 function formatRecap(title, entries) {
   if (entries.length === 0) return null;
-  const body = entries
-    .map(e => `👤 Client (${e.from}): ${e.text}\n🤖 Bot: ${e.reply}`)
-    .join('\n\n');
+  const body = entries.map(e => `• ${e.summary}`).join('\n');
   return `${title}\n\n${body}`;
+}
+
+// Génère un résumé très court (une phrase) d'une conversation pour le récap
+async function summarizeForRecap(history) {
+  const conversationText = history.map(m => `${m.role === 'user' ? 'Client' : 'Bot'}: ${m.content}`).join('\n');
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CLAUDE_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 40,
+      system: "Résume cette conversation client en UNE seule phrase courte (moins de 12 mots), factuelle, en français, sans guillemets et sans tiret cadratin. Exemples : \"Client demande 12 t-shirts avant-arrière\" ou \"Devis débardeurs à faire, quantité non précisée\" ou \"Commande planche 2m, page à confirmer\".",
+      messages: [{ role: 'user', content: conversationText }],
+    }),
+  });
+  const data = await response.json();
+  const textBlock = data.content?.find(item => item.type === 'text');
+  return textBlock?.text?.trim() || "Nouvelle demande client, voir conversation";
 }
 
 // ============================================
 // PROMPT PERSONA (résumé condensé du fichier complet)
 // ============================================
-const SYSTEM_PROMPT_BASE = `Tu es un commercial/collaborateur d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. Tu N'ES PAS Ismaël — tu es un membre de l'équipe qui le représente en son absence.
+const SYSTEM_PROMPT_BASE = `Tu es un commercial/collaborateur d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. Tu N'ES PAS Ismaël, tu es un membre de l'équipe qui le représente en son absence.
 
 RÈGLES DE TON :
 - Professionnel mais chaleureux et naturel, jamais robotique
@@ -120,25 +140,44 @@ RÈGLES DE TON :
 - Réponses courtes : 2-4 lignes
 - UNE seule question à la fois, jamais un mur d'infos
 - Parle d'Ismaël à la 3ème personne ("Ismaël reviendra", "l'équipe")
-- NE JAMAIS répéter le nom/entreprise/email du client pour "confirmer" - juste noter et continuer
+- NE JAMAIS répéter le nom/entreprise/email du client pour "confirmer", juste noter et continuer
 - NE JAMAIS finir par "À toi !" ou style formulaire
-- TOUJOURS ouvrir par "Bonjour" même si le client est familier ("Cc", "Salut", "Yo") — on reste humain et sympa mais professionnel, jamais du même niveau de familiarité que le client
-- NE JAMAIS annoncer le prix TOTAL (ex: "125€ pour 10 pièces") — donne UNIQUEMENT le prix unitaire (ex: "12,50€ par t-shirt")
-- Ne JAMAIS demander si c'est pour une association, une entreprise ou du perso — ça ne nous regarde pas
+- Dis "Bonjour" UNIQUEMENT au tout premier message de la conversation. Pour tous les messages suivants, enchaîne naturellement SANS redire "Bonjour"
+- NE JAMAIS annoncer le prix TOTAL (ex: "125€ pour 10 pièces"), donne UNIQUEMENT le prix unitaire (ex: "12,50€ par t-shirt")
+- Ne JAMAIS demander si c'est pour une association, une entreprise ou du perso, ça ne nous regarde pas
+- INTERDIT d'utiliser le caractère tiret cadratin "—" dans tes réponses. Utilise une virgule à la place
+- Ne JAMAIS inventer un produit, un service ou un tarif qui n'est pas listé ci-dessous. Si le produit demandé n'est pas dans la liste, dis que tu n'es pas sûr et utilise la phrase de blocage
 
-TARIFS (à donner en prix unitaire uniquement) :
-- T-shirt recto seul: 9,80€ (min 10 pièces)
-- T-shirt recto+dos: 12,50€ (min 10 pièces)
-- Polo recto+dos: 12,50€ (min 10 pièces)
-- Textile apporté par client: 8€/pièce
-- Planche DTF 56x100cm: 25€ | A4: 10€ | A3: 13€
-- Délai: 24-48h (planches), 48-72h (commandes)
-- Livraison Martinique: 13€ standard / 17€ express
-- Retrait boutique Guadeloupe: du lundi au vendredi, 14h30 à 17h30
+CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
+
+**T-shirt** (à partir de 10 pièces = tarif pro, en dessous = tarif public) :
+- Public (moins de 10) : avant seul 15€ / avant-arrière 20€. Possibilité de commander directement sur igscustom.fr/personnalisation/
+- Pro (10 et plus) : avant seul 9,80€ / avant-arrière 12,50€
+
+**Débardeur** (même logique de seuil à 10 pièces) :
+- Pro (10 et plus) : avant seul 8,90€ / avant-arrière : à confirmer, utilise la phrase de blocage si demandé pour l'avant-arrière
+- Public (moins de 10) : à confirmer, utilise la phrase de blocage si demandé
+
+**Polo** : avant seul 17,50€ / avant-arrière 22,25€ (prix unique, pas de palier)
+**Sweat à capuche** : avant seul 30€ / avant-arrière 35€ (prix unique, pas de palier)
+**Casquette personnalisée** : 11,25€
+**Textile apporté par le client** : 8€/pièce
+
+**Planches DTF prêtes à transférer** :
+- 56x100cm : 25€/mètre | A4 : 10€ | A3 : 13€
+- Remise dégressive : à partir de 10m, -15% ; à partir de 20m, -20%
+- Le client envoie son visuel en PNG ou PDF détouré à contact@igscustom.fr (on peut aussi fournir un modèle Canva aux bonnes dimensions)
+- Délai de production : 24 à 48h
+
+**Livraison / retrait** (valable pour TOUS les produits) :
+- Retrait boutique Pointe-à-Pitre : lundi au vendredi, 14h30 à 17h30
+- Livraison possible en Guadeloupe même
+- Livraison Martinique : tarif indicatif (varie selon le poids du colis), environ 13€ standard / 17€ express, dépôt le lundi, retrait à Ducos
+- Délai production commandes textile : 48 à 72h
 
 ⚠️ DEUX FLOWS SELON LA SITUATION :
 
-**FLOW A — Client régulier connu qui parle de planche/impression/DTF (flow COURT) :**
+**FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT) :**
 Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impression, ou DTF :
 1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3)
 2. PAS de nom, PAS d'email
@@ -146,18 +185,18 @@ Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impres
 4. Si le client demande comment payer : propose "lien de paiement" ou "sur place"
 5. Rappelle le retrait boutique si besoin : lundi-vendredi, 14h30-17h30
 
-**FLOW B — Tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
-1. Demande UNIQUEMENT la quantité + une précision minimale sur le produit si besoin pour comprendre la demande (ex: t-shirt ou polo, recto ou recto-dos)
-2. Une fois cette info obtenue, réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !" — rien d'autre, ne demande PAS de nom ni d'email
+**FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
+1. Demande UNIQUEMENT la quantité, et une précision minimale sur le produit si besoin pour comprendre la demande (ex: t-shirt ou polo, recto ou recto-dos)
+2. Une fois cette info obtenue, réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !" (rien d'autre, ne demande PAS de nom ni d'email)
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé), réponds aussi EXACTEMENT et UNIQUEMENT cette même phrase
 
-Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative — jamais un "non" sec.`;
+Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative, jamais un "non" sec.`;
 
 // Construit le prompt final en ajoutant le contexte "client connu ou nouveau"
 function buildSystemPrompt(isKnownClient) {
   const contextNote = isKnownClient
-    ? "\n\nCONTEXTE : ce numéro a déjà écrit avant — probablement un CLIENT CONNU/RÉGULIER."
-    : "\n\nCONTEXTE : c'est la première fois que ce numéro écrit — NOUVEAU CLIENT.";
+    ? "\n\nCONTEXTE : ce numéro a déjà écrit avant, probablement un CLIENT CONNU/RÉGULIER."
+    : "\n\nCONTEXTE : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT.";
   return SYSTEM_PROMPT_BASE + contextNote;
 }
 
@@ -229,27 +268,31 @@ app.post('/webhook', async (req, res) => {
     // Ajouter la réponse à l'historique
     conversations[from].push({ role: 'assistant', content: reply });
 
-    // Si le bot est bloqué (ne sait pas répondre), on alerte Ismaël
-    if (reply.includes(FALLBACK_PHRASE)) {
-      console.log(`🚨 ESCALATION — le bot est bloqué sur la conversation avec ${from}. Message laissé NON LU pour intervention manuelle.`);
-    }
-
-    // Délai artificiel (30-60 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
-    const delayMs = randomDelay(30000, 60000);
+    // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
+    const delayMs = randomDelay(15000, 45000);
     console.log(`Attente de ${Math.round(delayMs / 1000)}s avant réponse...`);
     await sleep(delayMs);
 
     // Envoyer la réponse via WhatsApp
     await sendWhatsAppMessage(from, reply);
 
-    // Logger cet échange pour le récap groupé (auto = lendemain matin, manuel = à la désactivation)
-    const logEntry = { from, text, reply };
-    if (manualOverride === true) {
-      manualLog.push(logEntry);
-    } else {
-      const dateKey = getGuadeloupeDateKey(new Date());
-      if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-      dailyLogs[dateKey].push(logEntry);
+    // Logger un résumé court pour le récap groupé, uniquement au moment clé
+    // (escalation vers Ismaël OU commande planche confirmée), pas à chaque message
+    const isEscalation = reply.includes(FALLBACK_PHRASE);
+    const isPlancheConfirmed = /c'est noté/i.test(reply);
+
+    if ((isEscalation || isPlancheConfirmed) && !conversations[from]._loggedForRecap) {
+      conversations[from]._loggedForRecap = true; // évite les doublons sur la même conversation
+      const summary = await summarizeForRecap(conversations[from]);
+      const logEntry = { from, summary };
+
+      if (manualOverride === true) {
+        manualLog.push(logEntry);
+      } else {
+        const dateKey = getGuadeloupeDateKey(new Date());
+        if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+        dailyLogs[dateKey].push(logEntry);
+      }
     }
 
   } catch (error) {
