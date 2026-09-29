@@ -255,17 +255,18 @@ app.post('/webhook', async (req, res) => {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
     const message = change?.value?.messages?.[0];
-
-    if (!message) return; // pas un message entrant (ex: statut de livraison)
+    const echo = change?.value?.message_echoes?.[0]; // vraie structure Meta pour les échos Coexistence
 
     // Détection d'un écho WhatsApp Coexistence : message envoyé par Ismaël DEPUIS SON APP
-    // (Meta inclut un champ "to" dans ce cas, contrairement à un vrai message client entrant)
-    if (message.to) {
-      const clientNumber = message.to;
+    // (arrive dans un champ "message_echoes" séparé, pas dans "messages")
+    if (echo) {
+      const clientNumber = echo.to;
       lastIsmaelReplyAt[clientNumber] = Date.now();
       console.log(`Écho détecté : Ismaël a répondu manuellement à ${clientNumber}`);
-      return; // ce n'est pas un message client, rien d'autre à faire
+      return;
     }
+
+    if (!message) return; // pas un message entrant (ex: statut de livraison)
 
     const from = message.from; // numéro du client
     const text = message.text?.body;
@@ -347,6 +348,9 @@ async function handleIncomingText(from, text) {
   const isKnownClient = seenNumbers.has(from);
   seenNumbers.add(from); // on le mémorise pour la prochaine fois
 
+  // On mémorise le moment de ce message précis, pour la vérification d'écho juste avant l'envoi
+  const thisMessageAt = Date.now();
+
   // Récupérer ou initialiser l'historique de conversation
   if (!conversations[from]) {
     conversations[from] = [];
@@ -363,6 +367,13 @@ async function handleIncomingText(from, text) {
   const delayMs = randomDelay(15000, 45000);
   console.log(`Attente de ${Math.round(delayMs / 1000)}s avant réponse...`);
   await sleep(delayMs);
+
+  // Double vérification juste avant l'envoi : si Ismaël a répondu manuellement PENDANT
+  // ce délai d'attente, on annule l'envoi du bot pour éviter une réponse en double
+  if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
+    console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
+    return;
+  }
 
   // Envoyer la réponse via WhatsApp
   await sendWhatsAppMessage(from, reply);
