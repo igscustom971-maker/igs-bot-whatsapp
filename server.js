@@ -2,11 +2,9 @@
 // IGS CUSTOM BAR - BOT WHATSAPP
 // Serveur Node.js : reçoit messages via Dualhook,
 // répond avec Claude API, envoie récap par email
-// + récap production à la demande d'Ismaël (voir recap-handler.js)
 // ============================================
 
 const express = require('express');
-const { isRecapRequest, handleProductionRecap } = require('./recap-handler');
 const app = express();
 app.use(express.json());
 
@@ -22,7 +20,6 @@ const EMAIL_TO = process.env.EMAIL_TO || 'contact@igscustom.fr'; // gardé en fa
 const RECAP_PHONE_NUMBER = process.env.RECAP_PHONE_NUMBER; // ton numéro perso, format international sans + (ex: 590690XXXXXX)
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // ta clé secrète perso pour activer/désactiver le bot
 const CLOSED_UNTIL = process.env.CLOSED_UNTIL; // format YYYY-MM-DD : bot totalement désactivé jusqu'à cette date incluse (survit aux redéploiements)
-// RECAP_FLOW_URL (URL du flow Power Automate du récap production) est lue directement dans recap-handler.js
 
 // Stockage temporaire des conversations en cours (en mémoire)
 // Pour une vraie prod, utiliser une vraie DB (Postgres, etc.)
@@ -38,6 +35,19 @@ let manualLog = [];
 // Numéros déjà vus (= probablement réguliers). Simple mémoire en RAM,
 // fiable tant que le serveur reste éveillé (voir cron job de keep-alive).
 const seenNumbers = new Set();
+
+// Buffer de messages en attente par client, pour regrouper les messages rapprochés
+// (ex: client qui envoie 3 messages en 20 secondes) en une seule réponse
+const pendingBuffers = {}; // { [from]: { texts: [...], timer } }
+const DEBOUNCE_MS = 8000; // attend 8 sec de silence avant de traiter les messages accumulés
+
+// Messages reçus pendant que le bot était inactif (jour non actif / désactivé manuellement),
+// à traiter dès que le bot redevient actif. PAS utilisé pendant une fermeture prolongée (congés).
+const backlogMessages = {}; // { [from]: [text, text, ...] }
+
+// Pour savoir si Ismaël a déjà répondu manuellement depuis son app (via l'écho WhatsApp Coexistence)
+const lastInboundAt = {};   // { [from]: timestamp du dernier message client }
+const lastIsmaelReplyAt = {}; // { [from]: timestamp de la dernière réponse manuelle d'Ismaël détectée }
 
 // Jours où le bot répond automatiquement (jours "off" d'Ismaël)
 // Mercredi n'est PAS dans la liste : activation uniquement via lien manuel ce jour-là
@@ -178,6 +188,7 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 **Polo** : avant seul 17,50€ / avant-arrière 22,25€ (prix unique, pas de palier)
 **Sweat à capuche** : avant seul 30€ / avant-arrière 35€ (prix unique, pas de palier)
 **Casquette personnalisée** : 11,25€
+**Timbale / éco cup / gobelet personnalisé** (termes équivalents utilisés aux Antilles) : impression DTF UV directe, 2,30€/pièce. Pour une demande "stickers/autocollants sur mes propres timbales" (planche DTF à coller soi-même), le prix dépend des dimensions, utilise la phrase de blocage pour laisser Ismaël chiffrer précisément
 **Textile apporté par le client** : 8€/pièce
 
 **Planches DTF prêtes à transférer** :
@@ -247,93 +258,161 @@ app.post('/webhook', async (req, res) => {
 
     if (!message) return; // pas un message entrant (ex: statut de livraison)
 
+    // Détection d'un écho WhatsApp Coexistence : message envoyé par Ismaël DEPUIS SON APP
+    // (Meta inclut un champ "to" dans ce cas, contrairement à un vrai message client entrant)
+    if (message.to) {
+      const clientNumber = message.to;
+      lastIsmaelReplyAt[clientNumber] = Date.now();
+      console.log(`Écho détecté : Ismaël a répondu manuellement à ${clientNumber}`);
+      return; // ce n'est pas un message client, rien d'autre à faire
+    }
+
     const from = message.from; // numéro du client
     const text = message.text?.body;
 
     if (!text) return; // on ignore les messages non-textuels pour l'instant
 
     console.log(`Message reçu de ${from}: ${text}`);
+    lastInboundAt[from] = Date.now();
 
-    // Messages d'Ismaël (numéro perso) : traités AVANT tout le reste
-    // - "récap" ou "planning" → récap production (quel que soit le jour, l'heure ou la fermeture)
-    // - tout autre message → ignoré, le bot ne répond jamais à Ismaël comme à un client
-    if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
-      if (isRecapRequest(text)) {
-        await handleProductionRecap(from, sendWhatsAppMessage);
-      } else {
-        console.log('Message d\'Ismaël (hors récap) ignoré par le bot');
-      }
-      return;
-    }
-
-    // Priorité absolue : fermeture prolongée en cours (congés) ? Le bot ne répond à rien, peu importe le reste
+    // Priorité absolue : fermeture prolongée en cours (congés) ? Le bot ne répond à rien,
+    // et on ne met PAS en rattrapage (trop risqué de tout traiter d'un coup après des semaines)
     if (isClosedForBreak(new Date())) {
       console.log(`Fermeture prolongée en cours (jusqu'au ${CLOSED_UNTIL}) — message laissé pour traitement manuel`);
       return;
     }
 
-    // Vérifier si le bot doit intervenir aujourd'hui (planning ou override manuel)
+    // Le bot est-il actif aujourd'hui (planning ou override manuel) ?
     const nowCheck = getGuadeloupeTime(new Date());
     if (!isBotDayActive(nowCheck.weekday)) {
-      console.log(`Bot inactif ce jour (${nowCheck.weekday}) — message laissé pour traitement manuel par Ismaël`);
+      console.log(`Bot inactif ce jour (${nowCheck.weekday}) — message mis en attente de rattrapage`);
+      if (!backlogMessages[from]) backlogMessages[from] = [];
+      backlogMessages[from].push(text);
       return;
     }
 
-    // Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
-    // (sauf en mode test, où on ignore cette attente)
-    if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
-      const delay = msUntilNext8am(new Date());
-      console.log(`Hors horaires ouvrés — réponse programmée dans ${Math.round(delay / 60000)} min`);
-      await sleep(delay);
-    }
-
-    // Détecter si c'est un client déjà connu (a déjà écrit avant)
-    const isKnownClient = seenNumbers.has(from);
-    seenNumbers.add(from); // on le mémorise pour la prochaine fois
-
-    // Récupérer ou initialiser l'historique de conversation
-    if (!conversations[from]) {
-      conversations[from] = [];
-    }
-    conversations[from].push({ role: 'user', content: text });
-
-    // Appeler Claude API (avec le contexte "client connu ou non")
-    const reply = await callClaudeAPI(conversations[from], isKnownClient);
-
-    // Ajouter la réponse à l'historique
-    conversations[from].push({ role: 'assistant', content: reply });
-
-    // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
-    const delayMs = randomDelay(15000, 45000);
-    console.log(`Attente de ${Math.round(delayMs / 1000)}s avant réponse...`);
-    await sleep(delayMs);
-
-    // Envoyer la réponse via WhatsApp
-    await sendWhatsAppMessage(from, reply);
-
-    // Logger un résumé court pour le récap groupé, uniquement au moment clé
-    // (bot vraiment bloqué OU devis/commande à préparer), pas à chaque message
-    const isEscalation = reply.includes(FALLBACK_PHRASE);
-    const isDevisOrPlanche = /devis|c'est noté/i.test(reply) && !isEscalation;
-
-    if ((isEscalation || isDevisOrPlanche) && !conversations[from]._loggedForRecap) {
-      conversations[from]._loggedForRecap = true; // évite les doublons sur la même conversation
-      const summary = await summarizeForRecap(conversations[from]);
-      const logEntry = { from, summary, urgent: isEscalation };
-
-      if (manualOverride === true) {
-        manualLog.push(logEntry);
-      } else {
-        const dateKey = getGuadeloupeDateKey(new Date());
-        if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-        dailyLogs[dateKey].push(logEntry);
-      }
-    }
+    // Bot actif : on traite via le buffer de regroupement (anti-spam de messages rapprochés)
+    bufferIncomingMessage(from, text);
 
   } catch (error) {
     console.error('Erreur traitement message:', error);
   }
 });
+
+// Ajoute un message au buffer d'un client, et programme le traitement groupé
+// après DEBOUNCE_MS de silence (pour regrouper les messages envoyés coup sur coup)
+function bufferIncomingMessage(from, text) {
+  if (!pendingBuffers[from]) {
+    pendingBuffers[from] = { texts: [], timer: null };
+  }
+  pendingBuffers[from].texts.push(text);
+
+  if (pendingBuffers[from].timer) clearTimeout(pendingBuffers[from].timer);
+  pendingBuffers[from].timer = setTimeout(() => {
+    const combinedText = pendingBuffers[from].texts.join('\n');
+    delete pendingBuffers[from];
+    processMessageNow(from, combinedText).catch(err => console.error('Erreur traitement bufferisé:', err));
+  }, DEBOUNCE_MS);
+}
+
+// Traite un message (ou un lot de messages regroupés) : gère l'attente horaires ouvrés puis répond
+async function processMessageNow(from, text) {
+  const nowCheck = getGuadeloupeTime(new Date());
+
+  // Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
+  // (sauf en mode test, où on ignore cette attente)
+  if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
+    const delay = msUntilNext8am(new Date());
+    console.log(`Hors horaires ouvrés — réponse programmée dans ${Math.round(delay / 60000)} min`);
+    await sleep(delay);
+
+    // Après l'attente, on revérifie : si le jour suivant n'est PAS un jour actif
+    // (ex: message jeudi soir, mais vendredi n'est pas auto), on bascule en rattrapage
+    // au lieu de répondre automatiquement
+    const afterWait = getGuadeloupeTime(new Date());
+    if (isClosedForBreak(new Date()) || !isBotDayActive(afterWait.weekday)) {
+      console.log(`Jour suivant non actif — message basculé en rattrapage pour ${from}`);
+      if (!backlogMessages[from]) backlogMessages[from] = [];
+      backlogMessages[from].push(text);
+      return;
+    }
+  }
+
+  await handleIncomingText(from, text);
+}
+
+// Traitement effectif : appelle Claude, applique le délai naturel, envoie la réponse, logge le récap
+async function handleIncomingText(from, text) {
+  // Détecter si c'est un client déjà connu (a déjà écrit avant)
+  const isKnownClient = seenNumbers.has(from);
+  seenNumbers.add(from); // on le mémorise pour la prochaine fois
+
+  // Récupérer ou initialiser l'historique de conversation
+  if (!conversations[from]) {
+    conversations[from] = [];
+  }
+  conversations[from].push({ role: 'user', content: text });
+
+  // Appeler Claude API (avec le contexte "client connu ou non")
+  const reply = await callClaudeAPI(conversations[from], isKnownClient);
+
+  // Ajouter la réponse à l'historique
+  conversations[from].push({ role: 'assistant', content: reply });
+
+  // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
+  const delayMs = randomDelay(15000, 45000);
+  console.log(`Attente de ${Math.round(delayMs / 1000)}s avant réponse...`);
+  await sleep(delayMs);
+
+  // Envoyer la réponse via WhatsApp
+  await sendWhatsAppMessage(from, reply);
+
+  // Logger un résumé court pour le récap groupé, uniquement au moment clé
+  // (bot vraiment bloqué OU devis/commande à préparer), pas à chaque message
+  const isEscalation = reply.includes(FALLBACK_PHRASE);
+  const isDevisOrPlanche = /devis|c'est noté/i.test(reply) && !isEscalation;
+
+  if ((isEscalation || isDevisOrPlanche) && !conversations[from]._loggedForRecap) {
+    conversations[from]._loggedForRecap = true; // évite les doublons sur la même conversation
+    const summary = await summarizeForRecap(conversations[from]);
+    const logEntry = { from, summary, urgent: isEscalation };
+
+    if (manualOverride === true) {
+      manualLog.push(logEntry);
+    } else {
+      const dateKey = getGuadeloupeDateKey(new Date());
+      if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+      dailyLogs[dateKey].push(logEntry);
+    }
+  }
+}
+
+// Traite les messages en rattrapage (reçus pendant que le bot était inactif),
+// appelé dès que le bot redevient actif (activation manuelle ou passage en auto).
+// Ne traite QUE les conversations où Ismaël n'a pas déjà répondu manuellement depuis.
+async function flushBacklogIfActive() {
+  if (isClosedForBreak(new Date())) return; // jamais de rattrapage pendant une fermeture prolongée
+
+  const nowCheck = getGuadeloupeTime(new Date());
+  if (!isBotDayActive(nowCheck.weekday)) return; // toujours inactif, rien à faire
+
+  const numbers = Object.keys(backlogMessages);
+  for (const from of numbers) {
+    const texts = backlogMessages[from];
+    delete backlogMessages[from];
+    if (!texts || texts.length === 0) continue;
+
+    // Si Ismaël a répondu manuellement APRÈS le dernier message de ce client, on ne fait rien
+    const alreadyAnswered = lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > (lastInboundAt[from] || 0);
+    if (alreadyAnswered) {
+      console.log(`Rattrapage ignoré pour ${from} : déjà répondu manuellement par Ismaël`);
+      continue;
+    }
+
+    console.log(`Rattrapage de ${texts.length} message(s) en attente pour ${from}`);
+    await processMessageNow(from, texts.join('\n'));
+  }
+}
 
 // ============================================
 // 3. APPEL CLAUDE API
@@ -433,10 +512,11 @@ async function sendRecap(text) {
 // ============================================
 
 // Force le bot à répondre, peu importe le jour (ex: vendredi matin si besoin)
-app.get('/admin/activer', (req, res) => {
+app.get('/admin/activer', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   manualOverride = true;
   manualLog = []; // nouvelle session manuelle, on repart d'un log vide
+  await flushBacklogIfActive(); // traite les messages en attente depuis la dernière activité
   res.send('✅ Bot ACTIVÉ manuellement (répond peu importe le jour)');
 });
 
@@ -455,6 +535,7 @@ app.get('/admin/auto', async (req, res) => {
   const wasManualActive = manualOverride === true;
   manualOverride = null;
   if (wasManualActive) await flushManualRecap();
+  await flushBacklogIfActive(); // au cas où on retombe pile sur un jour auto actif
   res.send('🔄 Bot remis en mode AUTOMATIQUE (planning lundi/jeudi)' + (wasManualActive ? ' — récap envoyé' : ''));
 });
 
@@ -502,6 +583,15 @@ app.get('/admin/test-horaires-off', (req, res) => {
   res.send('✅ Mode test désactivé : le bot respecte à nouveau les horaires ouvrés (8h30-17h30)');
 });
 
+// Affiche les messages actuellement en attente de rattrapage (debug/vérification)
+app.get('/admin/backlog', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numbers = Object.keys(backlogMessages);
+  if (numbers.length === 0) return res.send('Aucun message en attente de rattrapage.');
+  const lines = numbers.map(from => `${from} (${backlogMessages[from].length} msg): ${backlogMessages[from].join(' | ')}`);
+  res.send('📥 En attente de rattrapage :\n\n' + lines.join('\n'));
+});
+
 // TEST UNIQUEMENT : force l'envoi immédiat du récap (jour auto d'aujourd'hui + session manuelle en cours)
 // Pratique pendant la phase de test, sans attendre le lendemain matin ou une désactivation
 app.get('/admin/test-recap', async (req, res) => {
@@ -521,10 +611,12 @@ app.get('/admin/test-recap', async (req, res) => {
   res.send(sent > 0 ? `✅ ${sent} récap(s) de test envoyé(s)` : 'Rien à envoyer pour l\'instant (aucun échange enregistré aujourd\'hui)');
 });
 
-// Route appelée par le Cron Job Render toutes les X minutes : garde le serveur éveillé
+// Route appelée par UptimeRobot toutes les 5 minutes : garde le serveur éveillé
 // + vérifie si un récap auto (mardi/vendredi matin) est dû
+// + traite le rattrapage si on vient de basculer naturellement sur un jour actif
 app.get('/cron/keepalive', async (req, res) => {
   await checkDailyRecapDue();
+  await flushBacklogIfActive();
   res.send('OK');
 });
 
@@ -650,6 +742,9 @@ app.get('/panel', (req, res) => {
   <div class="grid">
     <button class="btn-test" onclick="callAdmin('test-recap')">
       <span class="btn-emoji">📋</span> Forcer le récap
+    </button>
+    <button class="btn-test" onclick="callAdmin('backlog')">
+      <span class="btn-emoji">📥</span> Voir le rattrapage
     </button>
     <button class="btn-test" onclick="callAdmin('test-horaires-on')">
       <span class="btn-emoji">🧪</span> Ignorer horaires
