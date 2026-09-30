@@ -8,6 +8,10 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
+// Récap production (Excel via Power Automate), déclenché quand Ismaël écrit "récap"/"planning"
+// depuis son numéro perso, indépendant du bot client
+const { isRecapRequest, handleProductionRecap } = require('./recap-handler');
+
 // ============================================
 // CONFIGURATION (à mettre dans variables d'environnement Render)
 // ============================================
@@ -320,6 +324,19 @@ app.post('/webhook', async (req, res) => {
     const text = message.text?.body;
 
     if (!text) return; // on ignore les messages non-textuels pour l'instant
+
+    // PRIORITÉ ABSOLUE : si c'est Ismaël qui écrit depuis son propre numéro perso,
+    // ce n'est jamais un client. Seul "récap"/"planning" déclenche le récap production
+    // (Excel via Power Automate) ; tout le reste venant de ce numéro est ignoré par le bot client.
+    if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
+      if (isRecapRequest(text)) {
+        console.log(`Demande de récap production reçue d'Ismaël (${from})`);
+        await handleProductionRecap(from, sendWhatsAppMessage);
+      } else {
+        console.log(`Message d'Ismaël sur son propre numéro (hors récap), ignoré par le bot client`);
+      }
+      return;
+    }
 
     console.log(`Message reçu de ${from}: ${text}`);
     lastInboundAt[from] = Date.now();
