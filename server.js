@@ -856,6 +856,37 @@ app.post('/admin/importer-historique', express.json({ limit: '5mb' }), async (re
   res.send(`✅ ${trimmed.length} message(s) importé(s) pour ${numero}, limite d'historique passée à 200 pour ce client`);
 });
 
+// TEST UNIQUEMENT : simule la réponse du bot pour un numéro donné avec un message fictif,
+// en utilisant le VRAI historique stocké pour ce numéro. RIEN n'est envoyé sur WhatsApp,
+// RIEN n'est ajouté à l'historique réel. Sert à vérifier que le bot a bien le bon contexte.
+app.post('/admin/simuler', express.json(), async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const { numero, message } = req.body;
+  if (!numero || !message) return res.status(400).send('Champs manquants (numero, message requis)');
+
+  try {
+    const customLimit = await db.getHistoryLimit(numero);
+    const history = await db.getHistory(numero, customLimit || undefined);
+    const isKnownClient = history.length > 0;
+    const fullHistory = [...history, { role: 'user', content: message }];
+
+    const rawReply = await callClaudeAPI(fullHistory, isKnownClient, numero);
+    const isUrgent = rawReply.includes(URGENT_MARKER);
+    const reply = rawReply.replace(URGENT_MARKER, '').trim();
+
+    res.send(
+      `🧪 SIMULATION (rien envoyé, rien enregistré)\n\n` +
+      `Historique chargé : ${history.length} message(s)\n` +
+      `Message testé : "${message}"\n\n` +
+      `Réponse du bot :\n${reply}` +
+      (isUrgent ? `\n\n🚨 Aurait déclenché une alerte urgente` : '')
+    );
+  } catch (err) {
+    console.error('Erreur simulation:', err);
+    res.status(500).send('Erreur pendant la simulation, vérifie les logs.');
+  }
+});
+
 // ============================================
 // PANNEAU DE CONTRÔLE MOBILE (même serveur = pas de souci de sécurité cross-domaine)
 // ============================================
@@ -1007,6 +1038,15 @@ app.get('/panel', (req, res) => {
     </button>
   </div>
 
+  <div class="section-title">Simuler une réponse (sans rien envoyer)</div>
+  <input id="simNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <textarea id="simMessage" placeholder="Message fictif à tester (ex: Bonjour, du nouveau pour ma commande ?)" style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <div class="grid">
+    <button class="btn-auto btn-full" onclick="simulerReponse()">
+      <span class="btn-emoji">🧪</span> Simuler la réponse
+    </button>
+  </div>
+
   <div class="section-title">Outils de test</div>
   <div class="grid">
     <button class="btn-test" onclick="callAdmin('test-recap')">
@@ -1129,6 +1169,29 @@ function importerHistorique() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: TOKEN, numero: numero, nomEquipe: nomEquipe, texte: texte })
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function simulerReponse() {
+  var numero = document.getElementById('simNumero').value;
+  var message = document.getElementById('simMessage').value;
+  if (!numero || !message) { alert('Remplis le numéro et le message'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Simulation en cours...';
+  fetch('/admin/simuler', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, numero: numero, message: message })
   })
     .then(function(res) { return res.text(); })
     .then(function(text) {
