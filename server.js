@@ -1030,7 +1030,7 @@ app.get('/panel', (req, res) => {
 
   <div class="section-title">Importer un historique (clients importants)</div>
   <input id="importNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <input id="importNomEquipe" type="text" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <input id="importNomEquipe" type="text" value="Igs Custom bar" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
   <textarea id="importTexte" placeholder="Colle ici le contenu du fichier .txt exporté depuis WhatsApp..." style="width:100%; min-height:100px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:13px; font-family:inherit; margin-bottom:10px;"></textarea>
   <div class="grid">
     <button class="btn-auto btn-full" onclick="importerHistorique()">
