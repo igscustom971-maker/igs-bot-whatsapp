@@ -12,6 +12,9 @@ app.use(express.json());
 // depuis son numéro perso, indépendant du bot client
 const { isRecapRequest, handleProductionRecap } = require('./recap-handler');
 
+// Supabase : historique de conversation persistant, prénoms clients, notes de contexte, réglages
+const db = require('./supabase');
+
 // ============================================
 // CONFIGURATION (à mettre dans variables d'environnement Render)
 // ============================================
@@ -25,10 +28,6 @@ const RECAP_PHONE_NUMBER = process.env.RECAP_PHONE_NUMBER; // ton numéro perso,
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // ta clé secrète perso pour activer/désactiver le bot
 const CLOSED_UNTIL = process.env.CLOSED_UNTIL; // format YYYY-MM-DD : bot totalement désactivé jusqu'à cette date incluse (survit aux redéploiements)
 
-// Stockage temporaire des conversations en cours (en mémoire)
-// Pour une vraie prod, utiliser une vraie DB (Postgres, etc.)
-const conversations = {};
-
 // Logs des échanges du jour, groupés par date (pour le récap du lendemain matin)
 const dailyLogs = {}; // { "2026-09-28": [{from, text, reply}, ...] }
 const recapSentDates = new Set(); // évite de renvoyer le même récap plusieurs fois
@@ -36,9 +35,10 @@ const recapSentDates = new Set(); // évite de renvoyer le même récap plusieur
 // Log des échanges pendant une session d'activation manuelle (flush à la désactivation)
 let manualLog = [];
 
-// Numéros déjà vus (= probablement réguliers). Simple mémoire en RAM,
-// fiable tant que le serveur reste éveillé (voir cron job de keep-alive).
-const seenNumbers = new Set();
+// Dédoublonnage des alertes (urgence / récap) par conversation : reste en mémoire,
+// se réinitialise au redéploiement (impact mineur : au pire une alerte reposée après redéploiement)
+const urgentAlertedSet = new Set();
+const loggedForRecapSet = new Set();
 
 // Buffer de messages en attente par client, pour regrouper les messages rapprochés
 // (ex: client qui envoie 3 messages en 20 secondes) en une seule réponse
@@ -65,6 +65,10 @@ let ignoreBusinessHours = false;
 
 // Phrase exacte envoyée quand le bot ne sait pas répondre (déclenche une alerte pour Ismaël)
 const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !";
+
+// Marqueur invisible que Claude ajoute en fin de réponse pour signaler une urgence réelle
+// (jamais montré au client, détecté puis retiré avant l'envoi WhatsApp)
+const URGENT_MARKER = '###URGENT###';
 
 // Utilitaires pour le délai artificiel (simuler une frappe humaine)
 function sleep(ms) {
@@ -142,12 +146,12 @@ function formatRecap(title, entries) {
   let body = '';
   if (urgentEntries.length > 0) {
     body += `🚨 À TRAITER EN PRIORITÉ (bot bloqué)\n`;
-    body += urgentEntries.map(e => `• ${e.summary} (${e.from})`).join('\n');
+    body += urgentEntries.map(e => `• ${e.summary} (${e.display || e.from})`).join('\n');
   }
   if (normalEntries.length > 0) {
     if (body) body += '\n\n';
     body += `📋 DEVIS / COMMANDES À PRÉPARER\n`;
-    body += normalEntries.map(e => `• ${e.summary} (${e.from})`).join('\n');
+    body += normalEntries.map(e => `• ${e.summary} (${e.display || e.from})`).join('\n');
   }
 
   return `${title}\n\n${body}`;
@@ -185,6 +189,39 @@ Exemples :
   return textBlock?.text?.trim() || "Nouvelle demande client, voir conversation";
 }
 
+// Détecte si le client a donné son prénom/nom quelque part dans la conversation
+async function extractClientName(history) {
+  const conversationText = history.map(m => `${m.role === 'user' ? 'Client' : 'Bot'}: ${m.content}`).join('\n');
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CLAUDE_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 20,
+      system: "Le client a-t-il donné son prénom ou son nom à un moment dans cette conversation ? Réponds UNIQUEMENT par ce prénom/nom (ex: \"Sandrine\"), ou par \"INCONNU\" si ce n'est pas mentionné. Rien d'autre.",
+      messages: [{ role: 'user', content: conversationText }],
+    }),
+  });
+  const data = await response.json();
+  const textBlock = data.content?.find(item => item.type === 'text');
+  const name = textBlock?.text?.trim();
+  return name && name.toUpperCase() !== 'INCONNU' ? name : null;
+}
+
+// Résout le libellé d'affichage d'un client pour le récap : prénom connu + numéro, ou juste le numéro
+async function resolveClientDisplay(from, history) {
+  let name = await db.getClientName(from);
+  if (!name) {
+    name = await extractClientName(history);
+    if (name) await db.upsertClientName(from, name);
+  }
+  return name ? `${name} - ${from}` : from;
+}
+
 // ============================================
 // PROMPT PERSONA (résumé condensé du fichier complet)
 // ============================================
@@ -206,6 +243,7 @@ RÈGLES DE TON :
 - Ne JAMAIS annoncer une date précise (ex: "on reprend le 1er octobre") sauf si cette info précise t'est donnée explicitement dans ce prompt. Si tu n'es pas sûr d'une date, reste vague ("on revient vers vous très vite", "dès que possible") plutôt que d'inventer ou de répéter une ancienne info qui a pu changer
 - Adapte ton registre à celui du client : si le client est familier/détendu (tutoiement, ton décontracté), tu peux tutoyer et être plus familier en retour, c'est aussi souvent un signe de client régulier. Si le client est plutôt formel, reste au vouvoiement
 - Sur le recto/verso (ou une autre précision similaire) : si tu as posé la question UNE fois et que le client ne répond pas clairement dessus (il enchaîne sur autre chose), NE PAS insister ni reposer la question. Pars du principe que c'est recto-verso par défaut et continue naturellement, ça évite de paraître insistant
+- Évite de répéter la même idée deux fois dans la même réponse (ex: dire "je transmets à l'équipe" puis reformuler la même chose juste après). Dis les choses une fois, clairement, et passe à la suite
 
 CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 
@@ -223,13 +261,17 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 **Casquette personnalisée** : 11,25€
 **Timbale / éco cup / gobelet personnalisé** (termes équivalents utilisés aux Antilles) : impression DTF UV directe, 2,30€/pièce. Pour une demande "stickers/autocollants sur mes propres timbales" (planche DTF à coller soi-même), le prix dépend des dimensions, utilise la phrase de blocage pour laisser l'équipe chiffrer précisément
 **Textile apporté par le client** : 8€/pièce
+**Tote bag personnalisé** : généralement IGS fournit le tote bag (rare que le client fournisse le sien). Pro (10 et plus) : 8,35€/pièce. Public (moins de 10) : 12€/pièce
+**Goodies (gourdes/mugs, stylos, porte-clés)** : pas de tarif fixe listé, propose de faire un devis sur mesure selon quantité et besoin précis, comme pour n'importe quel produit personnalisable. NE JAMAIS dire "on ne propose pas ça" pour ces catégories (gourde, mug, stylo, porte-clé), elles font partie de l'offre. "Bic" est juste un nom de marque pour un stylo, c'est la même chose
 
 **Planches DTF prêtes à transférer** :
 - 56x100cm : 25€/mètre | A4 : 10€ | A3 : 13€
 - Remise dégressive : à partir de 10m, -15% ; à partir de 20m, -20%
 - Le client envoie son visuel en PNG ou PDF détouré à contact@igscustom.fr (on peut aussi fournir un modèle Canva aux bonnes dimensions)
 - Délai de production : 24 à 48h
-- IMPORTANT : même pour les planches, il y a TOUJOURS un devis (ou lien de paiement) envoyé par mail avant de lancer la prod. Ne JAMAIS dire "pas besoin de devis" ou "tarif fixe, pas de devis". Le client doit régler avant que la production démarre
+- Si le client ne précise pas de métrage, pars sur 1m par défaut sauf indication contraire de sa part
+- Devis/lien de paiement envoyé par mail avant la prod, MAIS paiement possible SUR PLACE (espèces ou TPE) à la récupération. On n'est PAS obligé d'attendre le règlement pour lancer une planche en production (contrairement au textile personnalisé, voir plus bas)
+- REDIMENSIONNEMENT : si le client envoie UN SEUL visuel déjà composé (une planche déjà montée) et demande juste d'ajuster les proportions à la taille demandée, c'est OK, on peut le faire. Mais si le client envoie plusieurs images séparées (ex: 5 fichiers différents) en demandant de les disposer/dimensionner nous-mêmes sur la planche (ex: "4 ronds en 6cm et 3 en 27cm"), ce n'est PAS un service qu'on fait, ça crée des erreurs de commande. Dans ce cas, explique que le client doit composer sa planche lui-même (on peut lui fournir un modèle Canva aux bonnes dimensions pour l'aider)
 
 **Livraison / retrait** (dépend de la localisation du client, voir CONTEXTE ci-dessous) :
 - Client en Guadeloupe : retrait boutique possible à Pointe-à-Pitre (lundi au vendredi, 14h30 à 17h30), ou livraison en Guadeloupe même
@@ -239,25 +281,35 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 ⚠️ LE VRAI PROCESS DE COMMANDE (textile personnalisé) À RESPECTER :
 1. Prise d'informations de base : zone de flocage, type de textile/produit, quantité, nom, et email (nécessaires pour établir et envoyer le devis, c'est TOUT ce que toi tu collectes)
 2. Devis envoyé par l'équipe
-3. Une fois le devis payé, un formulaire est envoyé automatiquement par mail pour récupérer tailles, couleurs et visuels
-4. BAT (bon à tirer) réalisé et validé
-5. Production, puis livraison
+3. Pour le textile (pas les planches), le règlement est TOUJOURS fait avant de lancer la commande/production
+4. Une fois le devis payé, un formulaire est envoyé automatiquement par mail pour récupérer tailles, couleurs et visuels
+5. BAT (bon à tirer) réalisé et validé
+6. Production, puis livraison
 
 TRÈS IMPORTANT : toi tu t'arrêtes à l'étape 1. Le nom et l'email sont nécessaires pour le devis, demande-les normalement. Mais NE JAMAIS demander les tailles, couleurs ou visuels pendant la conversation, tout ça arrive automatiquement après paiement du devis via le formulaire, ce serait redondant. Une fois que tu as zone + produit + quantité + nom + email, confirme qu'un devis va être envoyé et arrête-toi là.
+
+SI LE CLIENT A DU MAL À COMMANDER SUR LE SITE WEB (ex: une option qu'il veut n'est pas disponible dans le configurateur en ligne) : propose de lui faire le devis et le BAT directement avec l'équipe plutôt que de le laisser bloqué sur le site. Ne te contente pas d'expliquer la limite, offre la solution.
 
 ⚠️ DEUX FLOWS SELON LA SITUATION :
 
 **FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT mais avec devis quand même) :**
 Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impression, ou DTF :
-1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3)
+1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3, ou pars sur 1m par défaut si non précisé)
 2. Demande aussi un email pour envoyer le devis ou le lien de paiement. PAS besoin de nom pour ce flow court planche
-3. Réponds en confirmant que c'est noté et qu'un devis (ou lien de paiement) va être envoyé par mail sous peu, avant le lancement en prod. Varie la formulation mais mentionne toujours le devis/paiement
+3. Réponds en confirmant que c'est noté et qu'un devis (ou lien de paiement) va être envoyé par mail sous peu. Précise que le règlement peut se faire sur place si besoin
 4. Rappelle les infos de retrait/livraison adaptées à sa localisation (voir CATALOGUE ci-dessus) si besoin
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
 1. Demande la zone de flocage, le produit, la quantité, puis le nom et l'email pour établir le devis (voir le VRAI PROCESS ci-dessus, rien de plus, pas de tailles/couleurs/visuels)
 2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
+
+⚠️ DÉTECTION D'URGENCE RÉELLE (très important) :
+Tu n'as PAS d'accès à l'historique des commandes ni aux conversations passées au-delà de cette conversation WhatsApp en cours. Si le client :
+- fait référence à une commande ou modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier")
+- réclame une action immédiate ou dans un délai très court (ex: "il me faut ça avant midi", "c'est urgent", "vous deviez me revenir")
+- semble faire un rappel/une relance sur quelque chose que tu ne peux pas retrouver dans cette conversation
+Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante (ex: "C'est noté, je fais remonter ça tout de suite à l'équipe"), MAIS ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client)
 
 Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative, jamais un "non" sec.`;
 
@@ -269,15 +321,26 @@ function detectRegion(from) {
 }
 
 // Construit le prompt final en ajoutant le contexte "client connu ou nouveau" + région
-function buildSystemPrompt(isKnownClient, from) {
-  const clientNote = isKnownClient
+// + note de contexte spécifique au client + contexte général, tous deux éditables depuis le panel
+async function buildSystemPrompt(isKnownClient, from) {
+  const clientKnownNote = isKnownClient
     ? "CONTEXTE CLIENT : ce numéro a déjà écrit avant, probablement un CLIENT CONNU/RÉGULIER."
     : "CONTEXTE CLIENT : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT.";
+
   const region = detectRegion(from);
   const regionNote = region !== 'inconnue'
     ? `\nCONTEXTE LOCALISATION : ce client est en ${region}. Adapte les infos de retrait/livraison en conséquence (voir CATALOGUE).`
     : '';
-  return SYSTEM_PROMPT_BASE + '\n\n' + clientNote + regionNote;
+
+  const [extraInstructions, clientNote] = await Promise.all([
+    db.getSetting('extra_instructions'),
+    db.getClientNote(from),
+  ]);
+
+  const extraNote = extraInstructions ? `\n\nINSTRUCTIONS SUPPLÉMENTAIRES (ajoutées depuis le panel) :\n${extraInstructions}` : '';
+  const clientSpecificNote = clientNote ? `\n\nNOTE SPÉCIFIQUE À CE CLIENT :\n${clientNote}` : '';
+
+  return SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote + clientSpecificNote;
 }
 
 // ============================================
@@ -409,24 +472,38 @@ async function processMessageNow(from, text) {
 
 // Traitement effectif : appelle Claude, applique le délai naturel, envoie la réponse, logge le récap
 async function handleIncomingText(from, text) {
-  // Détecter si c'est un client déjà connu (a déjà écrit avant)
-  const isKnownClient = seenNumbers.has(from);
-  seenNumbers.add(from); // on le mémorise pour la prochaine fois
-
   // On mémorise le moment de ce message précis, pour la vérification d'écho juste avant l'envoi
   const thisMessageAt = Date.now();
 
-  // Récupérer ou initialiser l'historique de conversation
-  if (!conversations[from]) {
-    conversations[from] = [];
-  }
-  conversations[from].push({ role: 'user', content: text });
+  // Récupérer l'historique persistant depuis Supabase (100 par défaut, 200 pour un client importé)
+  const customLimit = await db.getHistoryLimit(from);
+  const history = await db.getHistory(from, customLimit || undefined);
+  const isKnownClient = history.length > 0; // déjà des échanges enregistrés = client connu
+
+  // Sauvegarder le message client, puis reconstituer l'historique complet pour l'appel Claude
+  await db.appendMessage(from, 'user', text);
+  const fullHistory = [...history, { role: 'user', content: text }];
 
   // Appeler Claude API (avec le contexte "client connu ou non")
-  const reply = await callClaudeAPI(conversations[from], isKnownClient, from);
+  const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
 
-  // Ajouter la réponse à l'historique
-  conversations[from].push({ role: 'assistant', content: reply });
+  // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
+  const isUrgent = rawReply.includes(URGENT_MARKER);
+  const reply = rawReply.replace(URGENT_MARKER, '').trim();
+
+  // Sauvegarder la réponse (sans le marqueur) dans l'historique persistant
+  await db.appendMessage(from, 'assistant', reply);
+  fullHistory.push({ role: 'assistant', content: reply });
+
+  // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
+  // Une seule alerte par conversation pour éviter le spam si l'urgence persiste sur plusieurs messages
+  if (isUrgent && RECAP_PHONE_NUMBER && !urgentAlertedSet.has(from)) {
+    urgentAlertedSet.add(from);
+    const urgentDisplay = await resolveClientDisplay(from, fullHistory);
+    const urgentSummary = await summarizeForRecap(fullHistory);
+    await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT, intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
+    console.log(`Alerte urgente envoyée pour ${from}`);
+  }
 
   // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
   const delayMs = randomDelay(15000, 45000);
@@ -448,10 +525,11 @@ async function handleIncomingText(from, text) {
   const isEscalation = reply.includes(FALLBACK_PHRASE);
   const isDevisOrPlanche = /devis|c'est noté/i.test(reply) && !isEscalation;
 
-  if ((isEscalation || isDevisOrPlanche) && !conversations[from]._loggedForRecap) {
-    conversations[from]._loggedForRecap = true; // évite les doublons sur la même conversation
-    const summary = await summarizeForRecap(conversations[from]);
-    const logEntry = { from, summary, urgent: isEscalation };
+  if ((isEscalation || isDevisOrPlanche) && !loggedForRecapSet.has(from)) {
+    loggedForRecapSet.add(from); // évite les doublons sur la même conversation
+    const summary = await summarizeForRecap(fullHistory);
+    const display = await resolveClientDisplay(from, fullHistory);
+    const logEntry = { from, display, summary, urgent: isEscalation };
 
     if (manualOverride === true) {
       manualLog.push(logEntry);
@@ -494,6 +572,7 @@ async function flushBacklogIfActive() {
 // 3. APPEL CLAUDE API
 // ============================================
 async function callClaudeAPI(conversationHistory, isKnownClient, from) {
+  const systemPrompt = await buildSystemPrompt(isKnownClient, from);
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -504,7 +583,7 @@ async function callClaudeAPI(conversationHistory, isKnownClient, from) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
-      system: buildSystemPrompt(isKnownClient, from),
+      system: systemPrompt,
       messages: conversationHistory,
     }),
   });
@@ -659,6 +738,41 @@ app.get('/admin/test-horaires-off', (req, res) => {
   res.send('✅ Mode test désactivé : le bot respecte à nouveau les horaires ouvrés (8h30-17h30)');
 });
 
+// Enregistre une instruction de contexte générale, injectée dans le prompt de tous les clients
+// (ex: une consigne ponctuelle, sans avoir à toucher au code ni redéployer)
+app.get('/admin/contexte', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const texte = req.query.texte || '';
+  await db.setSetting('extra_instructions', texte);
+  res.send(texte ? `✅ Contexte général mis à jour :\n\n${texte}` : '✅ Contexte général effacé');
+});
+
+// Affiche le contexte général actuellement actif
+app.get('/admin/contexte-voir', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const texte = await db.getSetting('extra_instructions');
+  res.send(texte ? `Contexte général actuel :\n\n${texte}` : 'Aucun contexte général actif pour le moment.');
+});
+
+// Enregistre une note de contexte pour UN client précis (par numéro)
+app.get('/admin/note-client', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numero = (req.query.numero || '').trim();
+  const texte = req.query.texte || '';
+  if (!numero) return res.status(400).send('Numéro manquant (paramètre "numero")');
+  await db.upsertClientNote(numero, texte);
+  res.send(texte ? `✅ Note enregistrée pour ${numero} :\n\n${texte}` : `✅ Note effacée pour ${numero}`);
+});
+
+// Affiche la note de contexte actuelle d'un client précis
+app.get('/admin/note-client-voir', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numero = (req.query.numero || '').trim();
+  if (!numero) return res.status(400).send('Numéro manquant (paramètre "numero")');
+  const texte = await db.getClientNote(numero);
+  res.send(texte ? `Note actuelle pour ${numero} :\n\n${texte}` : `Aucune note pour ${numero}.`);
+});
+
 // Affiche les messages actuellement en attente de rattrapage (debug/vérification)
 app.get('/admin/backlog', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
@@ -694,6 +808,52 @@ app.get('/cron/keepalive', async (req, res) => {
   await checkDailyRecapDue();
   await flushBacklogIfActive();
   res.send('OK');
+});
+
+// ============================================
+// IMPORT D'HISTORIQUE WHATSAPP EXPORTÉ
+// Format WhatsApp : "JJ/MM/AAAA, HH:MM - Nom: message" (les lignes suivantes sans ce motif
+// sont considérées comme la suite du message précédent)
+// ============================================
+function parseWhatsAppExport(rawText, teamLabel) {
+  const lineRegex = /^\u200E?(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s(\d{1,2}:\d{2}(?:\s?[APap][Mm])?)\s-\s([^:]+):\s(.*)$/;
+  const lines = rawText.split(/\r?\n/);
+  const messages = [];
+  const normalizedTeamLabel = teamLabel.trim().toLowerCase();
+
+  for (const line of lines) {
+    const match = line.match(lineRegex);
+    if (match) {
+      const sender = match[3].trim();
+      const content = match[4].trim();
+      const role = sender.toLowerCase() === normalizedTeamLabel ? 'assistant' : 'user';
+      messages.push({ role, content });
+    } else if (messages.length > 0 && line.trim()) {
+      // Ligne de continuation d'un message multi-lignes
+      messages[messages.length - 1].content += '\n' + line.trim();
+    }
+  }
+  return messages;
+}
+
+app.post('/admin/importer-historique', express.json({ limit: '5mb' }), async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const { numero, nomEquipe, texte } = req.body;
+  if (!numero || !nomEquipe || !texte) {
+    return res.status(400).send('Champs manquants (numero, nomEquipe, texte requis)');
+  }
+
+  const parsed = parseWhatsAppExport(texte, nomEquipe);
+  if (parsed.length === 0) {
+    return res.send('⚠️ Aucun message reconnu dans le texte fourni. Vérifie le format et le nom d\'équipe.');
+  }
+
+  // On ne garde que les 200 derniers messages pour rester cohérent avec la nouvelle limite
+  const trimmed = parsed.slice(-200);
+  await db.bulkAppendMessages(numero, trimmed);
+  await db.setHistoryLimit(numero, 200);
+
+  res.send(`✅ ${trimmed.length} message(s) importé(s) pour ${numero}, limite d'historique passée à 200 pour ce client`);
 });
 
 // ============================================
@@ -814,6 +974,39 @@ app.get('/panel', (req, res) => {
     </button>
   </div>
 
+  <div class="section-title">Contexte général (injecté dans le prompt du bot)</div>
+  <textarea id="contexteGeneral" placeholder="Ex: Attention, rupture de stock sur les polos noirs cette semaine..." style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <div class="grid">
+    <button class="btn-auto" onclick="sauverContexte()">
+      <span class="btn-emoji">💾</span> Enregistrer
+    </button>
+    <button class="btn-statut" onclick="callAdmin('contexte-voir')">
+      <span class="btn-emoji">👁️</span> Voir l'actuel
+    </button>
+  </div>
+
+  <div class="section-title">Note pour un client précis</div>
+  <input id="noteNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <textarea id="noteTexte" placeholder="Ex: Cliente régulière, tutoiement ok, anniversaire le 27/10..." style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <div class="grid">
+    <button class="btn-auto" onclick="sauverNoteClient()">
+      <span class="btn-emoji">💾</span> Enregistrer
+    </button>
+    <button class="btn-statut" onclick="voirNoteClient()">
+      <span class="btn-emoji">👁️</span> Voir la note
+    </button>
+  </div>
+
+  <div class="section-title">Importer un historique (clients importants)</div>
+  <input id="importNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <input id="importNomEquipe" type="text" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <textarea id="importTexte" placeholder="Colle ici le contenu du fichier .txt exporté depuis WhatsApp..." style="width:100%; min-height:100px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:13px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <div class="grid">
+    <button class="btn-auto btn-full" onclick="importerHistorique()">
+      <span class="btn-emoji">📥</span> Importer cet historique
+    </button>
+  </div>
+
   <div class="section-title">Outils de test</div>
   <div class="grid">
     <button class="btn-test" onclick="callAdmin('test-recap')">
@@ -865,6 +1058,84 @@ function fermerJusqua() {
       statusBox.textContent = text;
     })
     .catch(function(err) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function sauverContexte() {
+  var texte = document.getElementById('contexteGeneral').value;
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/contexte?token=' + TOKEN + '&texte=' + encodeURIComponent(texte))
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function sauverNoteClient() {
+  var numero = document.getElementById('noteNumero').value;
+  var texte = document.getElementById('noteTexte').value;
+  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/note-client?token=' + TOKEN + '&numero=' + encodeURIComponent(numero) + '&texte=' + encodeURIComponent(texte))
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function voirNoteClient() {
+  var numero = document.getElementById('noteNumero').value;
+  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/note-client-voir?token=' + TOKEN + '&numero=' + encodeURIComponent(numero))
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function importerHistorique() {
+  var numero = document.getElementById('importNumero').value;
+  var nomEquipe = document.getElementById('importNomEquipe').value;
+  var texte = document.getElementById('importTexte').value;
+  if (!numero || !nomEquipe || !texte) { alert('Remplis les 3 champs (numéro, ton nom, texte)'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Import en cours...';
+  fetch('/admin/importer-historique', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, numero: numero, nomEquipe: nomEquipe, texte: texte })
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
       statusBox.classList.remove('loading');
       statusBox.textContent = 'Erreur de connexion, réessaie.';
     });
