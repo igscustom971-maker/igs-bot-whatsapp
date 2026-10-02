@@ -1,0 +1,165 @@
+// ============================================
+// IGS BOT - MODULE SUPABASE
+// Historique de conversation (100 derniers messages), prénoms clients,
+// notes de contexte, réglages persistants (survivent aux redéploiements)
+// ============================================
+
+const { createClient } = require('@supabase/supabase-js');
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_SERVICE_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+} else {
+  console.warn('SUPABASE_URL / SUPABASE_SERVICE_KEY non configurées : historique et notes désactivés');
+}
+
+const HISTORY_LIMIT = 100;
+
+// Récupère la limite d'historique propre à un client (ex: 200 pour un client importé),
+// ou null si aucune limite spécifique n'est définie (on utilisera la limite par défaut)
+async function getHistoryLimit(phoneNumber) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('clients')
+    .select('history_limit')
+    .eq('phone_number', phoneNumber)
+    .maybeSingle();
+  if (error) {
+    console.error('Supabase getHistoryLimit erreur:', error.message);
+    return null;
+  }
+  return data?.history_limit || null;
+}
+
+// Définit une limite d'historique propre à un client (utilisé après un import manuel)
+async function setHistoryLimit(phoneNumber, limit) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('clients')
+    .upsert({ phone_number: phoneNumber, history_limit: limit, updated_at: new Date().toISOString() });
+  if (error) console.error('Supabase setHistoryLimit erreur:', error.message);
+}
+
+// Insère plusieurs messages d'un coup (import d'un historique exporté WhatsApp)
+async function bulkAppendMessages(phoneNumber, messages) {
+  if (!supabase || messages.length === 0) return;
+  const rows = messages.map(m => ({ phone_number: phoneNumber, role: m.role, content: m.content }));
+  const { error } = await supabase.from('conversations').insert(rows);
+  if (error) console.error('Supabase bulkAppendMessages erreur:', error.message);
+}
+
+// Récupère les N derniers messages d'un client, triés du plus ancien au plus récent
+// (format { role, content } directement utilisable par l'API Claude)
+async function getHistory(phoneNumber, limit = HISTORY_LIMIT) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('role, content, created_at')
+    .eq('phone_number', phoneNumber)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.error('Supabase getHistory erreur:', error.message);
+    return [];
+  }
+  return data.reverse().map(row => ({ role: row.role, content: row.content }));
+}
+
+// Ajoute un message à l'historique d'un client
+async function appendMessage(phoneNumber, role, content) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('conversations')
+    .insert({ phone_number: phoneNumber, role, content });
+  if (error) console.error('Supabase appendMessage erreur:', error.message);
+}
+
+// Récupère le prénom connu d'un client (ou null)
+async function getClientName(phoneNumber) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('clients')
+    .select('name')
+    .eq('phone_number', phoneNumber)
+    .maybeSingle();
+  if (error) {
+    console.error('Supabase getClientName erreur:', error.message);
+    return null;
+  }
+  return data?.name || null;
+}
+
+// Enregistre/maj le prénom d'un client
+async function upsertClientName(phoneNumber, name) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('clients')
+    .upsert({ phone_number: phoneNumber, name, updated_at: new Date().toISOString() });
+  if (error) console.error('Supabase upsertClientName erreur:', error.message);
+}
+
+// Récupère la note de contexte d'un client (ou chaîne vide)
+async function getClientNote(phoneNumber) {
+  if (!supabase) return '';
+  const { data, error } = await supabase
+    .from('client_notes')
+    .select('note')
+    .eq('phone_number', phoneNumber)
+    .maybeSingle();
+  if (error) {
+    console.error('Supabase getClientNote erreur:', error.message);
+    return '';
+  }
+  return data?.note || '';
+}
+
+// Enregistre/maj la note de contexte d'un client (depuis le panel)
+async function upsertClientNote(phoneNumber, note) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('client_notes')
+    .upsert({ phone_number: phoneNumber, note, updated_at: new Date().toISOString() });
+  if (error) console.error('Supabase upsertClientNote erreur:', error.message);
+}
+
+// Lit un réglage général (clé/valeur)
+async function getSetting(key) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from('bot_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+  if (error) {
+    console.error('Supabase getSetting erreur:', error.message);
+    return null;
+  }
+  return data?.value ?? null;
+}
+
+// Écrit un réglage général (depuis le panel)
+async function setSetting(key, value) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from('bot_settings')
+    .upsert({ key, value, updated_at: new Date().toISOString() });
+  if (error) console.error('Supabase setSetting erreur:', error.message);
+}
+
+module.exports = {
+  getHistory,
+  appendMessage,
+  getClientName,
+  upsertClientName,
+  getClientNote,
+  upsertClientNote,
+  getSetting,
+  setSetting,
+  getHistoryLimit,
+  setHistoryLimit,
+  bulkAppendMessages,
+};
