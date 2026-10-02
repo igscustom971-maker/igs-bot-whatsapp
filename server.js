@@ -6,7 +6,7 @@
 
 const express = require('express');
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // limite augmentée pour accepter les longs historiques importés
 
 // Récap production (Excel via Power Automate), déclenché quand Ismaël écrit "récap"/"planning"
 // depuis son numéro perso, indépendant du bot client
@@ -836,7 +836,7 @@ function parseWhatsAppExport(rawText, teamLabel) {
   return messages;
 }
 
-app.post('/admin/importer-historique', express.json({ limit: '5mb' }), async (req, res) => {
+app.post('/admin/importer-historique', async (req, res) => {
   if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const { numero, nomEquipe, texte } = req.body;
   if (!numero || !nomEquipe || !texte) {
@@ -1031,7 +1031,8 @@ app.get('/panel', (req, res) => {
   <div class="section-title">Importer un historique (clients importants)</div>
   <input id="importNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
   <input id="importNomEquipe" type="text" value="Igs Custom bar" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <textarea id="importTexte" placeholder="Colle ici le contenu du fichier .txt exporté depuis WhatsApp..." style="width:100%; min-height:100px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:13px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <input id="importFichier" type="file" accept=".txt" style="width:100%; color:#f4f4f5; font-size:13px; margin-bottom:8px;">
+  <textarea id="importTexte" placeholder="...ou colle ici le contenu du fichier .txt exporté depuis WhatsApp" style="width:100%; min-height:100px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:13px; font-family:inherit; margin-bottom:10px;"></textarea>
   <div class="grid">
     <button class="btn-auto btn-full" onclick="importerHistorique()">
       <span class="btn-emoji">📥</span> Importer cet historique
@@ -1156,6 +1157,16 @@ function voirNoteClient() {
       statusBox.textContent = 'Erreur de connexion, réessaie.';
     });
 }
+
+document.getElementById('importFichier').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(evt) {
+    document.getElementById('importTexte').value = evt.target.result;
+  };
+  reader.readAsText(file, 'UTF-8');
+});
 
 function importerHistorique() {
   var numero = document.getElementById('importNumero').value;
