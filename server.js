@@ -855,7 +855,19 @@ function parseWhatsAppExport(rawText, teamLabel) {
       messages[messages.length - 1].content += '\n' + line.trim();
     }
   }
-  return messages;
+  // On retire les messages au contenu vide (ex: média/ligne système mal interprétée),
+  // puis on fusionne les rôles consécutifs identiques (l'API Claude exige une alternance stricte)
+  const cleaned = messages.filter(m => m.content && m.content.trim().length > 0);
+  const result = [];
+  for (const m of cleaned) {
+    const last = result[result.length - 1];
+    if (last && last.role === m.role) {
+      last.content += '\n' + m.content;
+    } else {
+      result.push({ role: m.role, content: m.content });
+    }
+  }
+  return result;
 }
 
 app.post('/admin/importer-historique', async (req, res) => {
