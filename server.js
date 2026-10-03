@@ -141,6 +141,17 @@ function isBotDayActive(weekday) {
   return DEFAULT_ACTIVE_DAYS.includes(weekday);
 }
 
+// Jours où le bot s'arrête à 13h (l'équipe présente l'après-midi prend le relais, pour éviter
+// tout conflit bot/humain). Uniquement en mode AUTOMATIQUE (une activation manuelle l'ignore).
+const EARLY_CUTOFF_DAYS = ['Mon', 'Thu'];
+const EARLY_CUTOFF_HOUR = 13;
+
+// Est-on dans la fenêtre "après-midi, équipe présente, bot en veille" (lundi/jeudi après 13h) ?
+function isHumanHandoffWindow(weekday, hour) {
+  if (manualOverride !== null) return false; // une activation manuelle ignore cette coupure
+  return EARLY_CUTOFF_DAYS.includes(weekday) && hour >= EARLY_CUTOFF_HOUR;
+}
+
 // Fermeture prolongée réglable depuis le panel (en mémoire, se réinitialise à chaque redéploiement,
 // contrairement à CLOSED_UNTIL qui est une variable d'environnement plus robuste)
 let closureOverrideUntil = null;
@@ -225,6 +236,30 @@ Exemples :
 }
 
 // Détecte si le client a donné son prénom/nom quelque part dans la conversation
+// Évalue uniquement si un message nécessite une intervention urgente, SANS générer de réponse
+// client (utilisé pendant la fenêtre "équipe présente l'après-midi", où le bot ne répond pas
+// mais continue de surveiller les situations qui demandent Ismaël)
+async function checkUrgentOnly(history, newText) {
+  const conversationText = history.map(m => `${m.role === 'user' ? 'Client' : 'Équipe'}: ${m.content}`).join('\n') + `\nClient: ${newText}`;
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': CLAUDE_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 10,
+      system: "Ce message de client nécessite-t-il une intervention humaine urgente ? OUI si : demande de statut de commande non confirmé récemment, modification sur une commande en cours, demande avec délai très court/urgent explicite, plainte/réclamation, demande d'annulation, négociation de prix/remise, ou relance sur une promesse non tenue. Réponds UNIQUEMENT par OUI ou NON, rien d'autre.",
+      messages: [{ role: 'user', content: conversationText }],
+    }),
+  });
+  const data = await response.json();
+  const textBlock = data.content?.find(item => item.type === 'text');
+  return (textBlock?.text || '').trim().toUpperCase().startsWith('OUI');
+}
+
 async function extractClientName(history) {
   const conversationText = history.map(m => `${m.role === 'user' ? 'Client' : 'Bot'}: ${m.content}`).join('\n');
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -440,7 +475,15 @@ app.post('/webhook', async (req, res) => {
       lastIsmaelReplyAt[clientNumber] = Date.now();
       urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
       loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
-      console.log(`Écho détecté : Ismaël a répondu manuellement à ${clientNumber}`);
+
+      // On enregistre aussi le CONTENU de la réponse manuelle dans l'historique (pas juste l'horodatage),
+      // pour que le bot et les récaps aient une vraie vision des échanges gérés par l'équipe
+      const echoText = echo.text?.body;
+      if (echoText) {
+        await db.appendMessage(clientNumber, 'assistant', echoText);
+      }
+
+      console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
       return;
     }
 
@@ -489,6 +532,44 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
+    // Fenêtre "équipe présente l'après-midi" (lundi/jeudi après 13h, en mode auto) :
+    // le bot ne répond PAS au client (pour laisser la personne présente gérer),
+    // mais surveille quand même si la situation est urgente et alerte Ismaël si besoin
+    if (isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
+      if (text !== MEDIA_NO_TEXT_MARKER) {
+        const customLimit = await db.getHistoryLimit(from);
+        const history = await db.getHistory(from, customLimit || undefined);
+        const urgent = await checkUrgentOnly(history, text);
+
+        if (urgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
+          urgentAlertedAt.set(from, Date.now());
+          // On persiste ce message précis (c'est le seul moment où on l'enregistre, pour ne pas le dupliquer
+          // si jamais il repart aussi en rattrapage classique)
+          await db.appendMessage(from, 'user', text);
+          const fullHist = [...history, { role: 'user', content: text }];
+          const display = await resolveClientDisplay(from, fullHist);
+          const summary = await summarizeForRecap(fullHist);
+          if (canSendUrgentNow()) {
+            urgentCountToday++;
+            await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT (équipe présente, bot en veille)\n\n${summary}\n\nClient : ${display}`);
+            console.log(`Alerte urgente (fenêtre après-midi) envoyée pour ${from}`);
+          } else {
+            const dateKey = getGuadeloupeDateKey(new Date());
+            if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+            dailyLogs[dateKey].push({ from, display, summary, urgent: true });
+          }
+          return;
+        }
+      }
+
+      // Pas urgent (ou média sans texte) : on laisse l'équipe gérer, pas de réponse du bot.
+      // Le message n'est PAS pré-enregistré ici pour éviter un doublon s'il repart en rattrapage classique.
+      console.log(`Fenêtre après-midi équipe présente (${nowCheck.weekday}) — message laissé pour l'équipe, pas de réponse bot`);
+      if (!backlogMessages[from]) backlogMessages[from] = [];
+      backlogMessages[from].push(text);
+      return;
+    }
+
     // Bot actif : on traite via le buffer de regroupement (anti-spam de messages rapprochés)
     bufferIncomingMessage(from, text);
 
@@ -513,9 +594,61 @@ function bufferIncomingMessage(from, text) {
   }, DEBOUNCE_MS);
 }
 
+// Lundi et jeudi, le bot s'arrête à 13h : l'équipe présente l'après-midi prend le relais en direct.
+// Le bot ne répond PAS au client dans ce créneau, mais vérifie quand même discrètement l'urgence.
+function isMonThuAfternoonHandoff(weekday, hour) {
+  return (weekday === 'Mon' || weekday === 'Thu') && hour >= 13;
+}
+
+// Traite un message reçu pendant la coupure 13h (lundi/jeudi) : pas de réponse au client,
+// juste une vérification d'urgence silencieuse + un log pour le débrief du lendemain matin
+async function handleAfternoonHandoff(from, text) {
+  console.log(`Coupure 13h (lundi/jeudi) — message de ${from} laissé à l'équipe présente, vérification urgence silencieuse`);
+
+  await db.appendMessage(from, 'user', text);
+  const customLimit = await db.getHistoryLimit(from);
+  const fullHistory = await db.getHistory(from, customLimit || undefined); // inclut déjà le message qu'on vient d'ajouter
+  const isKnownClient = fullHistory.length > 1;
+
+  const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
+  const isUrgent = rawReply.includes(URGENT_MARKER);
+
+  if (isUrgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
+    urgentAlertedAt.set(from, Date.now());
+    const urgentDisplay = await resolveClientDisplay(from, fullHistory);
+    const urgentSummary = await summarizeForRecap(fullHistory);
+
+    if (canSendUrgentNow()) {
+      urgentCountToday++;
+      await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT (pendant coupure 13h), intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
+      console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
+    } else {
+      console.log(`Limite de ${MAX_URGENT_PER_DAY} alertes/jour atteinte, ${from} loggé au récap sans ping immédiat`);
+    }
+  }
+
+  // Dans tous les cas, on note pour le débrief du lendemain matin (pas de doublon si déjà loggé récemment)
+  if (shouldTrigger(loggedForRecapAt, from)) {
+    loggedForRecapAt.set(from, Date.now());
+    const display = await resolveClientDisplay(from, fullHistory);
+    const summary = await summarizeForRecap(fullHistory);
+    const dateKey = getGuadeloupeDateKey(new Date());
+    if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+    dailyLogs[dateKey].push({ from, display, summary: `(reçu l'après-midi, équipe présente) ${summary}`, urgent: isUrgent });
+  }
+
+  // IMPORTANT : aucune réponse envoyée au client, c'est l'équipe présente qui gère en direct
+}
+
 // Traite un message (ou un lot de messages regroupés) : gère l'attente horaires ouvrés puis répond
 async function processMessageNow(from, text) {
   const nowCheck = getGuadeloupeTime(new Date());
+
+  // Coupure 13h lundi/jeudi : priorité sur tout le reste
+  if (!ignoreBusinessHours && isMonThuAfternoonHandoff(nowCheck.weekday, nowCheck.hour)) {
+    await handleAfternoonHandoff(from, text);
+    return;
+  }
 
   // Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
   // (sauf en mode test, où on ignore cette attente)
