@@ -37,8 +37,15 @@ let manualLog = [];
 
 // Dédoublonnage des alertes (urgence / récap) par conversation : reste en mémoire,
 // se réinitialise au redéploiement (impact mineur : au pire une alerte reposée après redéploiement)
-const urgentAlertedSet = new Set();
-const loggedForRecapSet = new Set();
+const urgentAlertedAt = new Map(); // { [from]: timestamp de la dernière alerte urgente envoyée }
+const loggedForRecapAt = new Map(); // { [from]: timestamp du dernier log récap }
+const DEDUPE_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h : au-delà, on considère que c'est une nouvelle situation
+
+// Est-ce qu'on doit (re)déclencher une alerte/log pour ce numéro ? (jamais déclenché, ou expiré depuis le cooldown)
+function shouldTrigger(map, key) {
+  const last = map.get(key);
+  return !last || (Date.now() - last > DEDUPE_COOLDOWN_MS);
+}
 
 // Buffer de messages en attente par client, pour regrouper les messages rapprochés
 // (ex: client qui envoie 3 messages en 20 secondes) en une seule réponse
@@ -304,12 +311,17 @@ Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impres
 2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
 
+⚠️ NE JAMAIS AFFIRMER UN STATUT DE COMMANDE (RÈGLE ABSOLUE) :
+Même si l'historique de cette conversation contient d'anciens échanges mentionnant une commande, TU N'AS AUCUN MOYEN DE SAVOIR où en est réellement la production aujourd'hui (pas d'accès à Odoo, pas de visibilité en temps réel). Un ancien message disant "ce sera prêt le X" ou "entre 14h30 et 17h30" ne veut PAS dire que c'est le cas MAINTENANT.
+Donc : si le client demande si sa commande est prête, où elle en est, si elle a été reçue/expédiée/payée, ou toute question sur l'état ACTUEL d'une commande, NE REPONDS JAMAIS par une confirmation déduite de l'historique (ex: ne dis jamais "oui c'est bon, tu peux passer" en te basant sur un ancien message qui disait ça pour une autre commande ou un autre jour). C'est systématiquement un cas d'urgence (voir marqueur ###URGENT### ci-dessous), car seule l'équipe a la vraie info à jour.
+
 ⚠️ DÉTECTION D'URGENCE RÉELLE (très important) :
-Tu n'as PAS d'accès à l'historique des commandes ni aux conversations passées au-delà de cette conversation WhatsApp en cours. Si le client :
+Tu n'as PAS d'accès à l'état réel des commandes ni de visibilité à jour au-delà de ce qui est explicitement écrit dans les tout derniers messages de cette conversation. Si le client :
+- demande le statut actuel d'une commande (prête ? reçue ? expédiée ? payée ?) sans que ce statut exact vienne d'être confirmé dans les tout derniers messages de cette conversation
 - fait référence à une commande ou modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier")
 - réclame une action immédiate ou dans un délai très court (ex: "il me faut ça avant midi", "c'est urgent", "vous deviez me revenir")
-- semble faire un rappel/une relance sur quelque chose que tu ne peux pas retrouver dans cette conversation
-Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante (ex: "C'est noté, je fais remonter ça tout de suite à l'équipe"), MAIS ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client)
+- semble faire un rappel/une relance sur quelque chose que tu ne peux pas confirmer avec certitude
+Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante SANS RIEN AFFIRMER sur le fond (ex: "Je vérifie ça tout de suite avec l'équipe et je reviens vers vous"), MAIS ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client)
 
 Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative, jamais un "non" sec.`;
 
@@ -377,6 +389,8 @@ app.post('/webhook', async (req, res) => {
     if (echo) {
       const clientNumber = echo.to;
       lastIsmaelReplyAt[clientNumber] = Date.now();
+      urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
+      loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
       console.log(`Écho détecté : Ismaël a répondu manuellement à ${clientNumber}`);
       return;
     }
@@ -496,9 +510,9 @@ async function handleIncomingText(from, text) {
   fullHistory.push({ role: 'assistant', content: reply });
 
   // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
-  // Une seule alerte par conversation pour éviter le spam si l'urgence persiste sur plusieurs messages
-  if (isUrgent && RECAP_PHONE_NUMBER && !urgentAlertedSet.has(from)) {
-    urgentAlertedSet.add(from);
+  // Dédoublonné 12h ou jusqu'à une réponse manuelle d'Ismaël, selon ce qui arrive en premier
+  if (isUrgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
+    urgentAlertedAt.set(from, Date.now());
     const urgentDisplay = await resolveClientDisplay(from, fullHistory);
     const urgentSummary = await summarizeForRecap(fullHistory);
     await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT, intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
@@ -525,8 +539,8 @@ async function handleIncomingText(from, text) {
   const isEscalation = reply.includes(FALLBACK_PHRASE);
   const isDevisOrPlanche = /devis|c'est noté/i.test(reply) && !isEscalation;
 
-  if ((isEscalation || isDevisOrPlanche) && !loggedForRecapSet.has(from)) {
-    loggedForRecapSet.add(from); // évite les doublons sur la même conversation
+  if ((isEscalation || isDevisOrPlanche) && shouldTrigger(loggedForRecapAt, from)) {
+    loggedForRecapAt.set(from, Date.now()); // dédoublonné 12h ou jusqu'à une réponse manuelle
     const summary = await summarizeForRecap(fullHistory);
     const display = await resolveClientDisplay(from, fullHistory);
     const logEntry = { from, display, summary, urgent: isEscalation };
