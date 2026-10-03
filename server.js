@@ -604,7 +604,13 @@ async function callClaudeAPI(conversationHistory, isKnownClient, from) {
 
   const data = await response.json();
   const textBlock = data.content?.find(item => item.type === 'text');
-  return textBlock?.text || "Désolé, un souci technique. L'équipe revient vers vous très vite !";
+
+  if (!textBlock) {
+    console.error(`Claude API erreur (status ${response.status}):`, JSON.stringify(data));
+    return "Désolé, un souci technique. L'équipe revient vers vous très vite !";
+  }
+
+  return textBlock.text;
 }
 
 // ============================================
