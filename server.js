@@ -302,12 +302,12 @@ SI LE CLIENT A DU MAL À COMMANDER SUR LE SITE WEB (ex: une option qu'il veut n'
 **FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT mais avec devis quand même) :**
 Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impression, ou DTF :
 1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3, ou pars sur 1m par défaut si non précisé)
-2. Demande aussi un email pour envoyer le devis ou le lien de paiement. PAS besoin de nom pour ce flow court planche
+2. Demande aussi un email pour envoyer le devis ou le lien de paiement, SAUF si le contexte indique "CLIENT CONNU" (on a déjà ses coordonnées de côté, ne redemande rien). PAS besoin de nom pour ce flow court planche
 3. Réponds en confirmant que c'est noté et qu'un devis (ou lien de paiement) va être envoyé par mail sous peu. Précise que le règlement peut se faire sur place si besoin
 4. Rappelle les infos de retrait/livraison adaptées à sa localisation (voir CATALOGUE ci-dessus) si besoin
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
-1. Demande la zone de flocage, le produit, la quantité, puis le nom et l'email pour établir le devis (voir le VRAI PROCESS ci-dessus, rien de plus, pas de tailles/couleurs/visuels)
+1. Demande la zone de flocage, le produit, la quantité, puis le nom et l'email pour établir le devis (voir le VRAI PROCESS ci-dessus, rien de plus, pas de tailles/couleurs/visuels). EXCEPTION : si le contexte indique "CLIENT CONNU" (déjà échangé avant, déjà commandé ou déjà eu un devis), ne redemande PAS le nom ni l'email, on les a déjà de notre côté. Demande uniquement ce qui concerne cette nouvelle demande (zone, produit, quantité)
 2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
 
@@ -350,9 +350,14 @@ async function buildSystemPrompt(isKnownClient, from) {
   ]);
 
   const extraNote = extraInstructions ? `\n\nINSTRUCTIONS SUPPLÉMENTAIRES (ajoutées depuis le panel) :\n${extraInstructions}` : '';
-  const clientSpecificNote = clientNote ? `\n\nNOTE SPÉCIFIQUE À CE CLIENT :\n${clientNote}` : '';
 
-  return SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote + clientSpecificNote;
+  // La note spécifique au client est placée EN TÊTE du prompt (position la plus prioritaire),
+  // avec une mention explicite qu'elle prime sur les règles générales en cas de contradiction
+  const clientSpecificBlock = clientNote
+    ? `⚠️⚠️ NOTE SPÉCIFIQUE À CE CLIENT, PRIORITÉ ABSOLUE ⚠️⚠️\nCette note prime sur TOUTES les règles générales ci-dessous en cas de contradiction (ex: si elle dit de ne pas demander l'email, tu ne le demandes pas, même si une règle générale plus bas dit le contraire) :\n${clientNote}\n\n---\n\n`
+    : '';
+
+  return clientSpecificBlock + SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote;
 }
 
 // ============================================
@@ -775,6 +780,16 @@ app.get('/admin/contexte-voir', async (req, res) => {
   res.send(texte ? `Contexte général actuel :\n\n${texte}` : 'Aucun contexte général actif pour le moment.');
 });
 
+// Ajoute du texte à la suite du contexte général existant, SANS l'écraser
+app.post('/admin/contexte-ajouter', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const nouveauTexte = req.body.texte || '';
+  const actuel = await db.getSetting('extra_instructions');
+  const combine = actuel ? `${actuel}\n\n${nouveauTexte}` : nouveauTexte;
+  await db.setSetting('extra_instructions', combine);
+  res.send(`✅ Ajouté. Contexte général complet désormais :\n\n${combine}`);
+});
+
 // Enregistre une note de contexte pour UN client précis (par numéro)
 // En POST avec corps JSON pour ne jamais être limité par la longueur d'URL
 app.post('/admin/note-client', async (req, res) => {
@@ -1042,10 +1057,13 @@ app.get('/panel', (req, res) => {
   <div class="section-title">Contexte général (injecté dans le prompt du bot)</div>
   <textarea id="contexteGeneral" placeholder="Ex: Attention, rupture de stock sur les polos noirs cette semaine..." style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
   <div class="grid">
-    <button class="btn-auto" onclick="sauverContexte()">
-      <span class="btn-emoji">💾</span> Enregistrer
+    <button class="btn-desactiver" onclick="sauverContexte()">
+      <span class="btn-emoji">🔄</span> Remplacer tout
     </button>
-    <button class="btn-statut" onclick="callAdmin('contexte-voir')">
+    <button class="btn-auto" onclick="ajouterContexte()">
+      <span class="btn-emoji">➕</span> Ajouter à la suite
+    </button>
+    <button class="btn-statut btn-full" onclick="callAdmin('contexte-voir')">
       <span class="btn-emoji">👁️</span> Voir l'actuel
     </button>
   </div>
@@ -1144,6 +1162,28 @@ function sauverContexte() {
   statusBox.classList.add('loading');
   statusBox.textContent = 'Chargement...';
   fetch('/admin/contexte', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, texte: texte })
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(text) {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = text;
+    })
+    .catch(function() {
+      statusBox.classList.remove('loading');
+      statusBox.textContent = 'Erreur de connexion, réessaie.';
+    });
+}
+
+function ajouterContexte() {
+  var texte = document.getElementById('contexteGeneral').value;
+  if (!texte) { alert('Écris d\\'abord quelque chose à ajouter'); return; }
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  fetch('/admin/contexte-ajouter', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token: TOKEN, texte: texte })
