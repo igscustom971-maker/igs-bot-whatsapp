@@ -754,9 +754,10 @@ app.get('/admin/test-horaires-off', (req, res) => {
 
 // Enregistre une instruction de contexte générale, injectée dans le prompt de tous les clients
 // (ex: une consigne ponctuelle, sans avoir à toucher au code ni redéployer)
-app.get('/admin/contexte', async (req, res) => {
-  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
-  const texte = req.query.texte || '';
+// En POST avec corps JSON (pas en query string) pour ne jamais être limité par la longueur d'URL
+app.post('/admin/contexte', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const texte = req.body.texte || '';
   await db.setSetting('extra_instructions', texte);
   res.send(texte ? `✅ Contexte général mis à jour :\n\n${texte}` : '✅ Contexte général effacé');
 });
@@ -769,10 +770,11 @@ app.get('/admin/contexte-voir', async (req, res) => {
 });
 
 // Enregistre une note de contexte pour UN client précis (par numéro)
-app.get('/admin/note-client', async (req, res) => {
-  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
-  const numero = (req.query.numero || '').trim();
-  const texte = req.query.texte || '';
+// En POST avec corps JSON pour ne jamais être limité par la longueur d'URL
+app.post('/admin/note-client', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numero = (req.body.numero || '').trim();
+  const texte = req.body.texte || '';
   if (!numero) return res.status(400).send('Numéro manquant (paramètre "numero")');
   await db.upsertClientNote(numero, texte);
   res.send(texte ? `✅ Note enregistrée pour ${numero} :\n\n${texte}` : `✅ Note effacée pour ${numero}`);
@@ -873,7 +875,7 @@ app.post('/admin/importer-historique', async (req, res) => {
 // TEST UNIQUEMENT : simule la réponse du bot pour un numéro donné avec un message fictif,
 // en utilisant le VRAI historique stocké pour ce numéro. RIEN n'est envoyé sur WhatsApp,
 // RIEN n'est ajouté à l'historique réel. Sert à vérifier que le bot a bien le bon contexte.
-app.post('/admin/simuler', express.json(), async (req, res) => {
+app.post('/admin/simuler', async (req, res) => {
   if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const { numero, message } = req.body;
   if (!numero || !message) return res.status(400).send('Champs manquants (numero, message requis)');
@@ -1123,7 +1125,11 @@ function sauverContexte() {
   var statusBox = document.getElementById('status');
   statusBox.classList.add('loading');
   statusBox.textContent = 'Chargement...';
-  fetch('/admin/contexte?token=' + TOKEN + '&texte=' + encodeURIComponent(texte))
+  fetch('/admin/contexte', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, texte: texte })
+  })
     .then(function(res) { return res.text(); })
     .then(function(text) {
       statusBox.classList.remove('loading');
@@ -1142,7 +1148,11 @@ function sauverNoteClient() {
   var statusBox = document.getElementById('status');
   statusBox.classList.add('loading');
   statusBox.textContent = 'Chargement...';
-  fetch('/admin/note-client?token=' + TOKEN + '&numero=' + encodeURIComponent(numero) + '&texte=' + encodeURIComponent(texte))
+  fetch('/admin/note-client', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: TOKEN, numero: numero, texte: texte })
+  })
     .then(function(res) { return res.text(); })
     .then(function(text) {
       statusBox.classList.remove('loading');
