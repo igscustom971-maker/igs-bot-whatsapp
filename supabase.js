@@ -66,7 +66,27 @@ async function getHistory(phoneNumber, limit = HISTORY_LIMIT) {
     console.error('Supabase getHistory erreur:', error.message);
     return [];
   }
-  return data.reverse().map(row => ({ role: row.role, content: row.content }));
+  // Filet de sécurité : l'API Claude refuse tout message au contenu vide, et exige une
+  // alternance stricte user/assistant (protège contre d'anciennes données importées)
+  const cleaned = data
+    .reverse()
+    .map(row => ({ role: row.role, content: row.content }))
+    .filter(m => m.content && m.content.trim().length > 0);
+  return collapseConsecutiveRoles(cleaned);
+}
+
+// Fusionne les messages consécutifs de même rôle (l'API Claude exige une alternance stricte)
+function collapseConsecutiveRoles(messages) {
+  const result = [];
+  for (const m of messages) {
+    const last = result[result.length - 1];
+    if (last && last.role === m.role) {
+      last.content += '\n' + m.content;
+    } else {
+      result.push({ role: m.role, content: m.content });
+    }
+  }
+  return result;
 }
 
 // Ajoute un message à l'historique d'un client
