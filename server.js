@@ -41,6 +41,20 @@ const urgentAlertedAt = new Map(); // { [from]: timestamp de la dernière alerte
 const loggedForRecapAt = new Map(); // { [from]: timestamp du dernier log récap }
 const DEDUPE_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h : au-delà, on considère que c'est une nouvelle situation
 
+// Limite anti-spam : max 3 alertes urgentes EN TEMPS RÉEL par jour (au-delà, toujours loggé au récap, juste pas en ping immédiat)
+const MAX_URGENT_PER_DAY = 3;
+let urgentCountDate = null;
+let urgentCountToday = 0;
+
+function canSendUrgentNow() {
+  const todayKey = getGuadeloupeDateKey(new Date());
+  if (urgentCountDate !== todayKey) {
+    urgentCountDate = todayKey;
+    urgentCountToday = 0;
+  }
+  return urgentCountToday < MAX_URGENT_PER_DAY;
+}
+
 // Est-ce qu'on doit (re)déclencher une alerte/log pour ce numéro ? (jamais déclenché, ou expiré depuis le cooldown)
 function shouldTrigger(map, key) {
   const last = map.get(key);
@@ -76,6 +90,20 @@ const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !"
 // Marqueur invisible que Claude ajoute en fin de réponse pour signaler une urgence réelle
 // (jamais montré au client, détecté puis retiré avant l'envoi WhatsApp)
 const URGENT_MARKER = '###URGENT###';
+
+// Marqueur signalant un message totalement hors-sujet/incompréhensible après clarification :
+// aucune réponse n'est envoyée au client, juste noté au récap pour qu'Ismaël gère lui-même
+const IGNORE_MARKER = '###IGNORER###';
+
+// Marqueur interne (jamais vu par Claude ni le client) signalant un message vocal/média sans texte
+const MEDIA_NO_TEXT_MARKER = '[[MEDIA_SANS_TEXTE]]';
+
+// Excuses plausibles et ponctuelles pour demander au client d'écrire plutôt qu'envoyer un vocal
+const VOICE_EXCUSES = [
+  "Désolé, je ne peux pas écouter ça pour le moment, tu peux m'écrire en quelques mots stp ? 🙏",
+  "Je suis en communication là, tu peux m'envoyer ça par écrit ?",
+  "Ça tombe mal, je ne peux pas écouter pour l'instant, dis-moi en texte stp 😊",
+];
 
 // Utilitaires pour le délai artificiel (simuler une frappe humaine)
 function sleep(ms) {
@@ -235,6 +263,8 @@ async function resolveClientDisplay(from, history) {
 const SYSTEM_PROMPT_BASE = `Tu es un membre de l'équipe commerciale d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. L'équipe a plusieurs pôles (commercial, production, etc.) : toi tu es côté commercial, tu prends la demande, ce n'est pas forcément toi qui produiras derrière.
 
 RÈGLES DE TON :
+- Réponds TOUJOURS en français, même si le client écrit en créole, anglais, ou une autre langue
+- Si le client a un devis/une demande en attente et change complètement de sujet (nouvelle demande sans rapport), clarifie d'abord si c'est séparé ou à ajouter à la demande précédente, avant de traiter la nouvelle demande
 - Professionnel mais chaleureux et naturel, jamais robotique
 - Emojis sparingly (max 1-2 par message)
 - Réponses courtes : 2-4 lignes
@@ -267,7 +297,7 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 **Sweat à capuche** : avant seul 30€ / avant-arrière 35€ (prix unique, pas de palier)
 **Casquette personnalisée** : 11,25€
 **Timbale / éco cup / gobelet personnalisé** (termes équivalents utilisés aux Antilles) : impression DTF UV directe, 2,30€/pièce. Pour une demande "stickers/autocollants sur mes propres timbales" (planche DTF à coller soi-même), le prix dépend des dimensions, utilise la phrase de blocage pour laisser l'équipe chiffrer précisément
-**Textile apporté par le client** : 8€/pièce
+**Textile apporté par le client** : avant-arrière 8€/pièce, avant seul petit (ex: côté cœur) 4€/pièce, avant seul en grand 8€/pièce (même tarif que avant-arrière). Même règle de paiement avant production que le textile classique, MAIS flexibilité : si le client veut payer en espèces, ne pas insister, lui dire de passer et régler sur place directement
 **Tote bag personnalisé** : généralement IGS fournit le tote bag (rare que le client fournisse le sien). Pro (10 et plus) : 8,35€/pièce. Public (moins de 10) : 12€/pièce
 **Goodies (gourdes/mugs, stylos, porte-clés)** : pas de tarif fixe listé, propose de faire un devis sur mesure selon quantité et besoin précis, comme pour n'importe quel produit personnalisable. NE JAMAIS dire "on ne propose pas ça" pour ces catégories (gourde, mug, stylo, porte-clé), elles font partie de l'offre. "Bic" est juste un nom de marque pour un stylo, c'est la même chose
 
@@ -301,15 +331,21 @@ SI LE CLIENT A DU MAL À COMMANDER SUR LE SITE WEB (ex: une option qu'il veut n'
 
 **FLOW A, client régulier connu qui parle de planche/impression/DTF (flow COURT mais avec devis quand même) :**
 Si le contexte indique "CLIENT CONNU" ET que le client mentionne planche, impression, ou DTF :
-1. Demande UNIQUEMENT : quelle page/design (s'il n'a pas déjà envoyé l'image) + combien de mètres (ou A4/A3, ou pars sur 1m par défaut si non précisé)
-2. Demande aussi un email pour envoyer le devis ou le lien de paiement, SAUF si le contexte indique "CLIENT CONNU" (on a déjà ses coordonnées de côté, ne redemande rien). PAS besoin de nom pour ce flow court planche
-3. Réponds en confirmant que c'est noté et qu'un devis (ou lien de paiement) va être envoyé par mail sous peu. Précise que le règlement peut se faire sur place si besoin
-4. Rappelle les infos de retrait/livraison adaptées à sa localisation (voir CATALOGUE ci-dessus) si besoin
+IMPORTANT : nos clients réguliers qui commandent des planches passent systématiquement par une planche Canva PARTAGÉE qu'on a nous-mêmes créée avec eux. On y a donc déjà accès en permanence. Un client régulier qui parle de planche n'a JAMAIS besoin d'envoyer un visuel, fichier, PNG ou PDF, ni qu'on lui redonne la procédure d'envoi (ça, c'est uniquement pour un nouveau client en FLOW B). Ne demande donc jamais de visuel à un client régulier planche.
+1. Demande UNIQUEMENT : quelle(s) page(s) du Canva partagé. Chaque page = 1 mètre (le Canva est conçu pour ça), donc le métrage se déduit automatiquement du nombre de pages mentionnées (ex: "page 2 et 5" = 2 pages = 2m). Ne demande PAS séparément "combien de mètres", c'est inutile et redondant. Si le client veut plusieurs exemplaires de la même page, il le précise lui-même (ex: "page 3 deux fois" = 2m) ; sinon pars du principe qu'une page mentionnée = un seul exemplaire = 1m
+2. Demande un email UNIQUEMENT si on ne l'a pas déjà de notre côté (contexte "CLIENT CONNU" = on l'a déjà, ne redemande rien)
+3. Réponds en confirmant brièvement que c'est noté et qu'un devis (ou lien de paiement) va être envoyé par mail sous peu. Précise que le règlement peut se faire sur place si besoin. Reste court, pas de longue explication à un régulier
+4. Rappelle les infos de retrait/livraison adaptées à sa localisation (voir CATALOGUE ci-dessus) uniquement si besoin
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
 1. Demande la zone de flocage, le produit, la quantité, puis le nom et l'email pour établir le devis (voir le VRAI PROCESS ci-dessus, rien de plus, pas de tailles/couleurs/visuels). EXCEPTION : si le contexte indique "CLIENT CONNU" (déjà échangé avant, déjà commandé ou déjà eu un devis), ne redemande PAS le nom ni l'email, on les a déjà de notre côté. Demande uniquement ce qui concerne cette nouvelle demande (zone, produit, quantité)
 2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
+
+⚠️ CAS PARTICULIERS :
+- **Planche ET textile dans la même demande** : traite les deux séparément (chacun son flow), mais propose au client de tout regrouper sur un seul devis si ça semble pertinent selon le contexte (ex: "Je te prépare la planche de mon côté, et pour les t-shirts je te fais un devis, tu veux qu'on mette tout sur le même devis ?")
+- **Client envoie une photo/image directement dans le chat WhatsApp pour une planche** (plutôt que par email) : dis-lui que c'est plus simple de l'envoyer par mail à contact@igscustom.fr, car c'est difficile à traiter correctement depuis WhatsApp
+- **Nouveau client qui commande plusieurs planches d'affilée** : tu peux lui proposer qu'on lui crée un Canva partagé dédié pour la prochaine fois, histoire de simplifier ses futures commandes
 
 ⚠️ NE JAMAIS AFFIRMER UN STATUT DE COMMANDE (RÈGLE ABSOLUE) :
 Même si l'historique de cette conversation contient d'anciens échanges mentionnant une commande, TU N'AS AUCUN MOYEN DE SAVOIR où en est réellement la production aujourd'hui (pas d'accès à Odoo, pas de visibilité en temps réel). Un ancien message disant "ce sera prêt le X" ou "entre 14h30 et 17h30" ne veut PAS dire que c'est le cas MAINTENANT.
@@ -321,7 +357,15 @@ Tu n'as PAS d'accès à l'état réel des commandes ni de visibilité à jour au
 - fait référence à une commande ou modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier")
 - réclame une action immédiate ou dans un délai très court (ex: "il me faut ça avant midi", "c'est urgent", "vous deviez me revenir")
 - semble faire un rappel/une relance sur quelque chose que tu ne peux pas confirmer avec certitude
-Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante SANS RIEN AFFIRMER sur le fond (ex: "Je vérifie ça tout de suite avec l'équipe et je reviens vers vous"), MAIS ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client)
+- demande une remise, un prix cassé ou une négociation tarifaire (toujours une décision humaine, jamais la tienne)
+- exprime une plainte (mauvaise qualité, retard, erreur de commande, insatisfaction)
+- demande à annuler une commande en cours (toujours une urgence, impact sur la prod/le stock)
+Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante SANS RIEN AFFIRMER sur le fond (ex: "Je fais le point avec le responsable et je reviens vers vous", ou "Je vérifie ça tout de suite avec l'équipe"). Si le client a donné des détails précis sur une modification ou un problème (ex: "il fallait changer le visuel pour X"), reprends ces détails pour qu'ils soient bien transmis ; s'il n'a rien précisé, ne lui redemande pas de détail, contente-toi d'escalader tel quel. Dans tous les cas, ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client). Si c'est une plainte, précise "PLAINTE :" au tout début de ta réponse interne pour que ce soit identifiable dans le résumé.
+
+NOTE : promettre qu'un devis ou un lien de paiement "arrive par mail sous peu" n'est PAS une urgence, c'est le fonctionnement normal (l'équipe traite ça à son retour). N'ajoute PAS ###URGENT### juste pour ça.
+
+⚠️ MESSAGE TOTALEMENT HORS-SUJET (spam, question sans rapport, incompréhensible) :
+Si un message semble n'avoir aucun rapport avec IGS Custom Bar ou est incompréhensible, réponds UNE FOIS poliment : "Bonjour, je ne suis pas sûr de bien comprendre votre demande, pouvez-vous préciser ?" (varie la formulation). Si après cette clarification le message reste incompréhensible ou toujours hors-sujet, n'envoie plus AUCUNE réponse : à la place, réponds EXACTEMENT et UNIQUEMENT avec ###IGNORER### (rien d'autre). Ce marqueur signale qu'aucun message ne doit partir, mais que la situation sera quand même notée pour qu'Ismaël la vérifie lui-même.
 
 Si le client demande quelque chose qu'on ne fait pas, propose toujours une alternative, jamais un "non" sec.`;
 
@@ -336,8 +380,8 @@ function detectRegion(from) {
 // + note de contexte spécifique au client + contexte général, tous deux éditables depuis le panel
 async function buildSystemPrompt(isKnownClient, from) {
   const clientKnownNote = isKnownClient
-    ? "CONTEXTE CLIENT : ce numéro a déjà écrit avant, probablement un CLIENT CONNU/RÉGULIER."
-    : "CONTEXTE CLIENT : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT.";
+    ? "CONTEXTE CLIENT : ce numéro a déjà écrit avant, c'est un CLIENT CONNU/RÉGULIER. Il connaît déjà tout le fonctionnement (formats de fichiers acceptés, modèle Canva, délais, process). NE RÉEXPLIQUE JAMAIS les bases (comment envoyer un visuel, quels formats, qu'on peut fournir un Canva, etc.) sauf s'il le demande explicitement lui-même. Reste très bref et direct : accuse réception, demande UNIQUEMENT l'info strictement manquante pour cette commande précise (ex: juste la page ou le métrage), puis dis simplement que tu reviens vers lui une fois prêt. Pas de message explicatif ou pédagogique, un client régulier n'en a pas besoin."
+    : "CONTEXTE CLIENT : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT. Dans ce cas, tu peux expliquer le fonctionnement normalement.";
 
   const region = detectRegion(from);
   const regionNote = region !== 'inconnue'
@@ -403,9 +447,15 @@ app.post('/webhook', async (req, res) => {
     if (!message) return; // pas un message entrant (ex: statut de livraison)
 
     const from = message.from; // numéro du client
-    const text = message.text?.body;
+    let text = message.text?.body;
 
-    if (!text) return; // on ignore les messages non-textuels pour l'instant
+    // Message vocal, image, document... sans texte : on utilise un marqueur interne
+    // pour déclencher une excuse plausible demandant d'écrire plutôt
+    if (!text && message.type && message.type !== 'text') {
+      text = MEDIA_NO_TEXT_MARKER;
+    }
+
+    if (!text) return; // rien d'exploitable (ex: statut de livraison mal formé)
 
     // PRIORITÉ ABSOLUE : si c'est Ismaël qui écrit depuis son propre numéro perso,
     // ce n'est jamais un client. Seul "récap"/"planning" déclenche le récap production
@@ -499,12 +549,47 @@ async function handleIncomingText(from, text) {
   const history = await db.getHistory(from, customLimit || undefined);
   const isKnownClient = history.length > 0; // déjà des échanges enregistrés = client connu
 
-  // Sauvegarder le message client, puis reconstituer l'historique complet pour l'appel Claude
-  await db.appendMessage(from, 'user', text);
-  const fullHistory = [...history, { role: 'user', content: text }];
+  // Sauvegarder le message client (version lisible si c'est un vocal/média), puis reconstituer l'historique
+  const storedText = text === MEDIA_NO_TEXT_MARKER ? '[Message vocal/média reçu, sans texte]' : text;
+  await db.appendMessage(from, 'user', storedText);
+  const fullHistory = [...history, { role: 'user', content: storedText }];
+
+  // Message vocal/média sans texte : réponse fixe (excuse plausible), pas d'appel Claude nécessaire
+  if (text === MEDIA_NO_TEXT_MARKER) {
+    const excuse = VOICE_EXCUSES[Math.floor(Math.random() * VOICE_EXCUSES.length)];
+    await db.appendMessage(from, 'assistant', excuse);
+
+    const delayMs = randomDelay(15000, 45000);
+    await sleep(delayMs);
+
+    if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
+      console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
+      return;
+    }
+    await sendWhatsAppMessage(from, excuse);
+    return;
+  }
 
   // Appeler Claude API (avec le contexte "client connu ou non")
   const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
+
+  // Cas "message hors-sujet, on arrête de répondre" : rien à envoyer, juste noter au récap
+  if (rawReply.includes(IGNORE_MARKER)) {
+    console.log(`Message hors-sujet détecté pour ${from}, aucune réponse envoyée`);
+    if (shouldTrigger(loggedForRecapAt, from)) {
+      loggedForRecapAt.set(from, Date.now());
+      const display = await resolveClientDisplay(from, fullHistory);
+      const logEntry = { from, display, summary: `Message hors-sujet/incompréhensible reçu, à vérifier (bot n'a pas répondu) : "${text}"`, urgent: false };
+      if (manualOverride === true) {
+        manualLog.push(logEntry);
+      } else {
+        const dateKey = getGuadeloupeDateKey(new Date());
+        if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+        dailyLogs[dateKey].push(logEntry);
+      }
+    }
+    return;
+  }
 
   // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
   const isUrgent = rawReply.includes(URGENT_MARKER);
@@ -515,13 +600,23 @@ async function handleIncomingText(from, text) {
   fullHistory.push({ role: 'assistant', content: reply });
 
   // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
-  // Dédoublonné 12h ou jusqu'à une réponse manuelle d'Ismaël, selon ce qui arrive en premier
+  // Dédoublonné 12h ou jusqu'à une réponse manuelle d'Ismaël, selon ce qui arrive en premier.
+  // Limité à 3 pings temps réel par jour : au-delà, on loggue quand même au récap (urgent) sans spammer
   if (isUrgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
     urgentAlertedAt.set(from, Date.now());
     const urgentDisplay = await resolveClientDisplay(from, fullHistory);
     const urgentSummary = await summarizeForRecap(fullHistory);
-    await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT, intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
-    console.log(`Alerte urgente envoyée pour ${from}`);
+
+    if (canSendUrgentNow()) {
+      urgentCountToday++;
+      await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT, intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
+      console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
+    } else {
+      console.log(`Limite de ${MAX_URGENT_PER_DAY} alertes/jour atteinte, ${from} loggé au récap sans ping immédiat`);
+      const dateKey = getGuadeloupeDateKey(new Date());
+      if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+      dailyLogs[dateKey].push({ from, display: urgentDisplay, summary: urgentSummary, urgent: true });
+    }
   }
 
   // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
@@ -920,6 +1015,16 @@ app.post('/admin/simuler', async (req, res) => {
     const fullHistory = [...history, { role: 'user', content: message }];
 
     const rawReply = await callClaudeAPI(fullHistory, isKnownClient, numero);
+
+    if (rawReply.includes(IGNORE_MARKER)) {
+      return res.send(
+        `🧪 SIMULATION (rien envoyé, rien enregistré)\n\n` +
+        `Historique chargé : ${history.length} message(s)\n` +
+        `Message testé : "${message}"\n\n` +
+        `🙈 Le bot n'aurait RIEN envoyé (message jugé hors-sujet), juste noté pour le récap`
+      );
+    }
+
     const isUrgent = rawReply.includes(URGENT_MARKER);
     const reply = rawReply.replace(URGENT_MARKER, '').trim();
 
