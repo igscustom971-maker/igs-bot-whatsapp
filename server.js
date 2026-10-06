@@ -56,10 +56,14 @@ function canSendUrgentNow() {
 }
 
 // Est-ce qu'on doit (re)déclencher une alerte/log pour ce numéro ? (jamais déclenché, ou expiré depuis le cooldown)
-function shouldTrigger(map, key) {
+function shouldTrigger(map, key, cooldownMs = DEDUPE_COOLDOWN_MS) {
   const last = map.get(key);
-  return !last || (Date.now() - last > DEDUPE_COOLDOWN_MS);
+  return !last || (Date.now() - last > cooldownMs);
 }
+
+// Pour les alertes URGENTES, le délai est court (1h30) : un client qui relance quelques heures plus tard
+// doit pouvoir re-déclencher une alerte. Le plafond de 3 alertes/jour protège déjà contre le spam.
+const URGENT_COOLDOWN_MS = 90 * 60 * 1000;
 
 // Buffer de messages en attente par client, pour regrouper les messages rapprochés
 // (ex: client qui envoie 3 messages en 20 secondes) en une seule réponse
@@ -95,15 +99,45 @@ const URGENT_MARKER = '###URGENT###';
 // aucune réponse n'est envoyée au client, juste noté au récap pour qu'Ismaël gère lui-même
 const IGNORE_MARKER = '###IGNORER###';
 
-// Marqueur interne (jamais vu par Claude ni le client) signalant un message vocal/média sans texte
-const MEDIA_NO_TEXT_MARKER = '[[MEDIA_SANS_TEXTE]]';
+// Marqueurs internes (jamais vus par le client) : message VOCAL seul / image-fichier SANS texte.
+// Les réactions (👍), stickers, localisations etc. sont ignorés complètement (aucun marqueur).
+const AUDIO_MARKER = '[[AUDIO_SANS_TEXTE]]';
+const MEDIA_MARKER = '[[MEDIA_SANS_TEXTE]]';
 
-// Excuses plausibles et ponctuelles pour demander au client d'écrire plutôt qu'envoyer un vocal
-const VOICE_EXCUSES = [
-  "Désolé, je ne peux pas écouter ça pour le moment, tu peux m'écrire en quelques mots stp ? 🙏",
+// Excuses plausibles et ponctuelles quand le client envoie un VOCAL (uniquement les vocaux).
+// Vouvoiement par défaut ; tutoiement seulement si le client tutoie lui-même.
+const VOICE_EXCUSES_VOUS = [
+  "Désolée, je ne peux pas écouter votre message vocal pour le moment, pourriez-vous m'écrire en quelques mots s'il vous plaît ? 🙏",
+  "Je suis en communication actuellement, pourriez-vous m'envoyer votre demande par écrit s'il vous plaît ?",
+  "Ça tombe mal, je ne peux pas écouter d'audio pour l'instant, pourriez-vous me l'écrire s'il vous plaît ? 😊",
+];
+const VOICE_EXCUSES_TU = [
+  "Désolée, je ne peux pas écouter ton vocal pour le moment, tu peux m'écrire en quelques mots stp ? 🙏",
   "Je suis en communication là, tu peux m'envoyer ça par écrit ?",
   "Ça tombe mal, je ne peux pas écouter pour l'instant, dis-moi en texte stp 😊",
 ];
+
+// Le client tutoie-t-il ? (regarde ses derniers messages)
+function clientUsesTu(history) {
+  const recent = history.filter(m => m.role === 'user').slice(-20).map(m => m.content).join(' ');
+  return /\b(tu|toi|ton|ta|tes|peux-tu|as-tu|es-tu|veux-tu)\b|\bt'/i.test(recent);
+}
+
+function pickVoiceExcuse(history) {
+  const list = clientUsesTu(history) ? VOICE_EXCUSES_TU : VOICE_EXCUSES_VOUS;
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+// Sépare le vrai texte des marqueurs médias, et fabrique une version lisible pour l'historique
+function normalizeIncoming(text) {
+  const hasAudio = text.includes(AUDIO_MARKER);
+  const hasMedia = text.includes(MEDIA_MARKER);
+  const realText = text.replaceAll(AUDIO_MARKER, '').replaceAll(MEDIA_MARKER, '').replace(/\n+/g, '\n').trim();
+  const displayText = text
+    .replaceAll(AUDIO_MARKER, '[Message vocal reçu]')
+    .replaceAll(MEDIA_MARKER, '[Image ou fichier reçu, sans texte]');
+  return { hasAudio, hasMedia, realText, displayText };
+}
 
 // Utilitaires pour le délai artificiel (simuler une frappe humaine)
 function sleep(ms) {
@@ -295,7 +329,9 @@ async function resolveClientDisplay(from, history) {
 // ============================================
 // PROMPT PERSONA (résumé condensé du fichier complet)
 // ============================================
-const SYSTEM_PROMPT_BASE = `Tu es un membre de l'équipe commerciale d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. L'équipe a plusieurs pôles (commercial, production, etc.) : toi tu es côté commercial, tu prends la demande, ce n'est pas forcément toi qui produiras derrière.
+const SYSTEM_PROMPT_BASE = `Tu t'appelles Leïla. Tu fais partie de l'équipe commerciale d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. L'équipe a plusieurs pôles (commercial, production, etc.) : toi tu es côté commercial, tu prends la demande, ce n'est pas forcément toi qui produiras derrière.
+
+IDENTITÉ : tu t'appelles Leïla, pour TOUS les clients sans exception (nouveaux comme réguliers). Dans ton tout premier message à un NOUVEAU client, présente-toi brièvement et naturellement (ex: "Bonjour, ici Leïla de l'équipe IGS Custom Bar."). Avec un client déjà connu, inutile de te représenter, mais si on te demande qui tu es ou comment tu t'appelles, réponds TOUJOURS que tu es Leïla, de l'équipe IGS Custom Bar. Ne signe pas chaque message avec ton prénom. Tu es une femme : accorde au féminin (désolée, ravie...). Ne prétends JAMAIS être un humain : si on te demande clairement si tu es une vraie personne, un robot ou une IA, dis franchement que tu es l'assistante virtuelle de l'équipe et que l'équipe prend le relais pour la suite.
 
 RÈGLES DE TON :
 - Réponds TOUJOURS en français, même si le client écrit en créole, anglais, ou une autre langue
@@ -313,7 +349,7 @@ RÈGLES DE TON :
 - INTERDIT d'utiliser le caractère tiret cadratin "—" dans tes réponses. Utilise une virgule à la place
 - Ne JAMAIS inventer un produit, un service ou un tarif qui n'est pas listé ci-dessous. Si le produit demandé n'est pas dans la liste, dis que tu n'es pas sûr et utilise la phrase de blocage
 - Ne JAMAIS annoncer une date précise (ex: "on reprend le 1er octobre") sauf si cette info précise t'est donnée explicitement dans ce prompt. Si tu n'es pas sûr d'une date, reste vague ("on revient vers vous très vite", "dès que possible") plutôt que d'inventer ou de répéter une ancienne info qui a pu changer
-- Adapte ton registre à celui du client : si le client est familier/détendu (tutoiement, ton décontracté), tu peux tutoyer et être plus familier en retour, c'est aussi souvent un signe de client régulier. Si le client est plutôt formel, reste au vouvoiement
+- REGISTRE : avec un NOUVEAU client (jamais écrit avant), tu VOUVOIES TOUJOURS et tu restes cordial et poli, même si le client écrit de façon familière ou comme en SMS. Tu ne tutoies que si le client est CONNU/RÉGULIER ET qu'il te tutoie lui-même (ou si une note le précise). Dans le doute, vouvoie
 - Sur le recto/verso (ou une autre précision similaire) : si tu as posé la question UNE fois et que le client ne répond pas clairement dessus (il enchaîne sur autre chose), NE PAS insister ni reposer la question. Pars du principe que c'est recto-verso par défaut et continue naturellement, ça évite de paraître insistant
 - Évite de répéter la même idée deux fois dans la même réponse (ex: dire "je transmets à l'équipe" puis reformuler la même chose juste après). Dis les choses une fois, clairement, et passe à la suite
 
@@ -377,7 +413,23 @@ IMPORTANT : nos clients réguliers qui commandent des planches passent systémat
 2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
 
+⚠️ EXEMPLES DE STYLE (vrais messages de l'équipe, à imiter : phrases courtes, polies, directes, répondre d'abord à la question puis proposer la suite) :
+Exemple 1, nouvelle cliente qui demande si on imprime sur tote bag et la quantité maximum :
+"Bonjour,
+
+Oui l'impression sur tote bag est tout à fait possible, il n'y a pas de quantité minimum mais vous avez un tarif préférentiel à partir de 10.
+
+Si vous voulez je peux vous faire un devis, il faudrait me communiquer votre nom ainsi qu'une adresse mail"
+Exemple 2, nouveau client dont la demande est floue :
+"Bonjour,
+
+Est-ce que vous pouvez me dire à peu près combien de tasses vous auriez souhaité et sous quel délai ?"
+Exemple 3, client régulier qui tutoie :
+"Coucou ! Tu parles de quelle page du Canva ?" puis "C'est noté, je lance ça ! Je te dis quand c'est prêt"
+
 ⚠️ CAS PARTICULIERS :
+- **Message ambigu qui pourrait concerner une demande ou un devis plus ancien** (ex: le client annonce un virement, dit "merci de me donner la marche à suivre", relance sans préciser quoi, ou revient après un long silence) : dans le doute, demande d'abord poliment si cela concerne une NOUVELLE demande ou une demande/un devis PRÉCÉDENT (ex: "Est-ce que cela concerne une nouvelle demande ou une demande précédente ?"). Ne pars pas dans les questions produit/quantité tant que ce n'est pas clair
+- **Marqueurs dans les messages** : "[Message vocal reçu]" = le client a envoyé un vocal que tu ne peux pas écouter ; "[Image ou fichier reçu, sans texte]" ou "[Fichier joint] ..." = il a joint un fichier que tu ne vois pas. Ne fais JAMAIS semblant de connaître le contenu d'un vocal ou d'une image : si c'est nécessaire, invite poliment à l'écrire, ou dis que l'équipe regardera le fichier
 - **Planche ET textile dans la même demande** : traite les deux séparément (chacun son flow), mais propose au client de tout regrouper sur un seul devis si ça semble pertinent selon le contexte (ex: "Je te prépare la planche de mon côté, et pour les t-shirts je te fais un devis, tu veux qu'on mette tout sur le même devis ?")
 - **Client envoie une photo/image directement dans le chat WhatsApp pour une planche** (plutôt que par email) : dis-lui que c'est plus simple de l'envoyer par mail à contact@igscustom.fr, car c'est difficile à traiter correctement depuis WhatsApp
 - **Nouveau client qui commande plusieurs planches d'affilée** : tu peux lui proposer qu'on lui crée un Canva partagé dédié pour la prochaine fois, histoire de simplifier ses futures commandes
@@ -389,8 +441,10 @@ Donc : si le client demande si sa commande est prête, où elle en est, si elle 
 ⚠️ DÉTECTION D'URGENCE RÉELLE (très important) :
 Tu n'as PAS d'accès à l'état réel des commandes ni de visibilité à jour au-delà de ce qui est explicitement écrit dans les tout derniers messages de cette conversation. Si le client :
 - demande le statut actuel d'une commande (prête ? reçue ? expédiée ? payée ?) sans que ce statut exact vienne d'être confirmé dans les tout derniers messages de cette conversation
-- fait référence à une commande ou modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier")
+- fait référence à une commande, un devis ou une modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier", "j'ai effectué le virement/le paiement", "merci de me donner la marche à suivre")
 - réclame une action immédiate ou dans un délai très court (ex: "il me faut ça avant midi", "c'est urgent", "vous deviez me revenir")
+- demande son lien de paiement ou son devis pour une commande qu'il dit avoir DÉJÀ passée (ex: "j'avais commandé une planche A3, c'est possible d'avoir le lien de paiement ?") : l'équipe doit envoyer le devis, c'est une urgence même si c'est la première fois qu'il écrit à ce sujet
+- RELANCE : le client attend toujours quelque chose qu'on lui a promis et le rappelle (ex: "j'ai toujours pas reçu le mail/le lien/le devis", "j'ai toujours rien reçu", "vous deviez me revenir", "toujours pas de nouvelles"). Même si c'est la 2e ou 3e fois, c'est une urgence à chaque relance
 - semble faire un rappel/une relance sur quelque chose que tu ne peux pas confirmer avec certitude
 - demande une remise, un prix cassé ou une négociation tarifaire (toujours une décision humaine, jamais la tienne)
 - exprime une plainte (mauvaise qualité, retard, erreur de commande, insatisfaction)
@@ -416,7 +470,7 @@ function detectRegion(from) {
 async function buildSystemPrompt(isKnownClient, from) {
   const clientKnownNote = isKnownClient
     ? "CONTEXTE CLIENT : ce numéro a déjà écrit avant, c'est un CLIENT CONNU/RÉGULIER. Il connaît déjà tout le fonctionnement (formats de fichiers acceptés, modèle Canva, délais, process). NE RÉEXPLIQUE JAMAIS les bases (comment envoyer un visuel, quels formats, qu'on peut fournir un Canva, etc.) sauf s'il le demande explicitement lui-même. Reste très bref et direct : accuse réception, demande UNIQUEMENT l'info strictement manquante pour cette commande précise (ex: juste la page ou le métrage), puis dis simplement que tu reviens vers lui une fois prêt. Pas de message explicatif ou pédagogique, un client régulier n'en a pas besoin."
-    : "CONTEXTE CLIENT : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT. Dans ce cas, tu peux expliquer le fonctionnement normalement.";
+    : "CONTEXTE CLIENT : c'est la première fois que ce numéro écrit, NOUVEAU CLIENT. Dans ce cas, tu peux expliquer le fonctionnement normalement, tu le VOUVOIES, et tu te présentes brièvement (Leïla, de l'équipe IGS Custom Bar) dans ce premier message.";
 
   const region = detectRegion(from);
   const regionNote = region !== 'inconnue'
@@ -492,10 +546,17 @@ app.post('/webhook', async (req, res) => {
     const from = message.from; // numéro du client
     let text = message.text?.body;
 
-    // Message vocal, image, document... sans texte : on utilise un marqueur interne
-    // pour déclencher une excuse plausible demandant d'écrire plutôt
+    // Messages sans texte : on distingue les VOCAUX (excuse "je ne peux pas écouter"), les images/fichiers
+    // (pas de réponse, noté pour l'équipe) et tout le reste (réactions 👍, stickers, localisation...) = ignoré
     if (!text && message.type && message.type !== 'text') {
-      text = MEDIA_NO_TEXT_MARKER;
+      const caption = message.image?.caption || message.video?.caption || message.document?.caption;
+      if (message.type === 'audio') {
+        text = AUDIO_MARKER;
+      } else if (['image', 'video', 'document'].includes(message.type)) {
+        text = caption ? `[Fichier joint] ${caption}` : MEDIA_MARKER;
+      } else {
+        return; // réaction, sticker, etc. : on n'y répond pas
+      }
     }
 
     if (!text) return; // rien d'exploitable (ex: statut de livraison mal formé)
@@ -532,44 +593,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Fenêtre "équipe présente l'après-midi" (lundi/jeudi après 13h, en mode auto) :
-    // le bot ne répond PAS au client (pour laisser la personne présente gérer),
-    // mais surveille quand même si la situation est urgente et alerte Ismaël si besoin
-    if (isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
-      if (text !== MEDIA_NO_TEXT_MARKER) {
-        const customLimit = await db.getHistoryLimit(from);
-        const history = await db.getHistory(from, customLimit || undefined);
-        const urgent = await checkUrgentOnly(history, text);
-
-        if (urgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
-          urgentAlertedAt.set(from, Date.now());
-          // On persiste ce message précis (c'est le seul moment où on l'enregistre, pour ne pas le dupliquer
-          // si jamais il repart aussi en rattrapage classique)
-          await db.appendMessage(from, 'user', text);
-          const fullHist = [...history, { role: 'user', content: text }];
-          const display = await resolveClientDisplay(from, fullHist);
-          const summary = await summarizeForRecap(fullHist);
-          if (canSendUrgentNow()) {
-            urgentCountToday++;
-            await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT (équipe présente, bot en veille)\n\n${summary}\n\nClient : ${display}`);
-            console.log(`Alerte urgente (fenêtre après-midi) envoyée pour ${from}`);
-          } else {
-            const dateKey = getGuadeloupeDateKey(new Date());
-            if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-            dailyLogs[dateKey].push({ from, display, summary, urgent: true });
-          }
-          return;
-        }
-      }
-
-      // Pas urgent (ou média sans texte) : on laisse l'équipe gérer, pas de réponse du bot.
-      // Le message n'est PAS pré-enregistré ici pour éviter un doublon s'il repart en rattrapage classique.
-      console.log(`Fenêtre après-midi équipe présente (${nowCheck.weekday}) — message laissé pour l'équipe, pas de réponse bot`);
-      if (!backlogMessages[from]) backlogMessages[from] = [];
-      backlogMessages[from].push(text);
-      return;
-    }
-
     // Bot actif : on traite via le buffer de regroupement (anti-spam de messages rapprochés)
     bufferIncomingMessage(from, text);
 
@@ -594,47 +617,104 @@ function bufferIncomingMessage(from, text) {
   }, DEBOUNCE_MS);
 }
 
-// Lundi et jeudi, le bot s'arrête à 13h : l'équipe présente l'après-midi prend le relais en direct.
-// Le bot ne répond PAS au client dans ce créneau, mais vérifie quand même discrètement l'urgence.
-function isMonThuAfternoonHandoff(weekday, hour) {
-  return (weekday === 'Mon' || weekday === 'Thu') && hour >= 13;
+// FILET DE SÉCURITÉ : cas évidents d'urgence détectés par mots-clés, sans dépendre du modèle
+// (le modèle doit "penser" à ajouter le marqueur ###URGENT###, ce qui n'est pas garanti à 100%)
+const URGENT_PATTERNS = [
+  /toujours\s+(pas|rien|aucun)/i,                                   // "j'ai toujours pas reçu", "toujours rien reçu"
+  /\b(pas|aucune?)\s+(encore\s+)?(re[çc]u|de\s+nouvelles?|de\s+r[ée]ponse)/i, // "pas reçu", "pas de nouvelles"
+  /vous\s+deviez/i,                                                  // "vous deviez me revenir"
+  /\brelance/i,                                                      // "je relance"
+  /(virement|paiement|r[èe]glement)\s+(effectu[ée]|fait|envoy[ée])|j'ai\s+(pay[ée]|r[ée]gl[ée]|fait\s+le\s+virement|effectu[ée]\s+le\s+(virement|paiement))/i,
+  /\bannul(er|ation|e)\b/i,                                         // annulation de commande
+  /\b(urgent|urgence)\b|en\s+urgence|avant\s+(midi|ce\s+soir)|dans\s+l'heure/i,
+  /(plainte|r[ée]clam|pas\s+content|\bd[ée][çc]u|inadmissible|scandale|rembours|erreur\s+(sur|dans)\s+(ma|la)\s+commande)/i,
+];
+
+function looksUrgent(text) {
+  if (!text) return false;
+  if (URGENT_PATTERNS.some(r => r.test(text))) return true;
+  // Cas Kéran : demande son lien de paiement pour une commande qu'il dit avoir déjà passée
+  if (/lien\s+de\s+paiement/i.test(text) && /(avais|ai|avait|avons)\s+command|ma\s+commande|ma\s+planche/i.test(text)) return true;
+  return false;
 }
 
-// Traite un message reçu pendant la coupure 13h (lundi/jeudi) : pas de réponse au client,
-// juste une vérification d'urgence silencieuse + un log pour le débrief du lendemain matin
-async function handleAfternoonHandoff(from, text) {
-  console.log(`Coupure 13h (lundi/jeudi) — message de ${from} laissé à l'équipe présente, vérification urgence silencieuse`);
+// UN SEUL endroit pour les alertes urgentes : anti-doublon (1h30), plafond de 3/jour,
+// et si l'envoi échoue ou si le plafond est atteint, repli dans le récap pour que rien ne soit perdu
+async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = false, logFallback = true } = {}) {
+  if (!RECAP_PHONE_NUMBER) {
+    console.error('RECAP_PHONE_NUMBER non configuré : impossible d\'envoyer l\'alerte urgente');
+    return;
+  }
+  if (!shouldTrigger(urgentAlertedAt, from, URGENT_COOLDOWN_MS)) {
+    console.log(`Alerte urgente déjà envoyée il y a moins de 1h30 pour ${from}, pas de doublon`);
+    return;
+  }
+  urgentAlertedAt.set(from, Date.now());
 
-  await db.appendMessage(from, 'user', text);
+  const display = await resolveClientDisplay(from, fullHistory);
+  const summary = await summarizeForRecap(fullHistory);
+  let sent = false;
+
+  if (canSendUrgentNow()) {
+    sent = await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`);
+    if (sent) {
+      urgentCountToday++;
+      console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
+    } else {
+      console.error(`ALERTE URGENTE NON DÉLIVRÉE pour ${from} (voir l'erreur d'envoi juste au-dessus), repli dans le récap`);
+    }
+  } else {
+    console.log(`Limite de ${MAX_URGENT_PER_DAY} alertes/jour atteinte, ${from} loggé au récap sans ping immédiat`);
+  }
+
+  // Repli : si le ping n'est pas parti (échec ou plafond), l'urgence apparaît quand même dans le récap
+  if (!sent && logFallback) {
+    const entry = { from, display, summary, urgent: true, afternoon };
+    if (manualOverride === true) {
+      manualLog.push(entry);
+    } else {
+      const dateKey = getGuadeloupeDateKey(new Date());
+      if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+      dailyLogs[dateKey].push(entry);
+    }
+  }
+}
+
+// Coupure 13h (lundi/jeudi, mode auto) : l'équipe présente l'après-midi prend le relais en direct.
+// Le bot ne répond PAS au client dans ce créneau, mais vérifie quand même discrètement l'urgence,
+// et note tout pour le débrief du lendemain matin.
+async function handleAfternoonHandoff(from, rawText) {
+  console.log(`Coupure 13h — message de ${from} laissé à l'équipe présente, vérification urgence silencieuse`);
+
+  const { realText, displayText } = normalizeIncoming(rawText);
+  await db.appendMessage(from, 'user', displayText);
   const customLimit = await db.getHistoryLimit(from);
   const fullHistory = await db.getHistory(from, customLimit || undefined); // inclut déjà le message qu'on vient d'ajouter
   const isKnownClient = fullHistory.length > 1;
 
-  const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
-  const isUrgent = rawReply.includes(URGENT_MARKER);
+  // Vocal / image seuls : rien à analyser, on note juste pour le débrief
+  // Urgence = mots-clés évidents OU marqueur du modèle (on évite l'appel au modèle si les mots-clés suffisent)
+  let isUrgent = looksUrgent(realText);
+  if (!isUrgent && realText) {
+    const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
+    isUrgent = rawReply.includes(URGENT_MARKER);
+  }
 
-  if (isUrgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
-    urgentAlertedAt.set(from, Date.now());
-    const urgentDisplay = await resolveClientDisplay(from, fullHistory);
-    const urgentSummary = await summarizeForRecap(fullHistory);
-
-    if (canSendUrgentNow()) {
-      urgentCountToday++;
-      await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT (pendant coupure 13h), intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
-      console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
-    } else {
-      console.log(`Limite de ${MAX_URGENT_PER_DAY} alertes/jour atteinte, ${from} loggé au récap sans ping immédiat`);
-    }
+  if (isUrgent) {
+    // logFallback false : le bloc ci-dessous note déjà de toute façon ce message au débrief du lendemain
+    await triggerUrgentAlert(from, fullHistory, { label: ' (équipe présente, bot en veille)', afternoon: true, logFallback: false });
   }
 
   // Dans tous les cas, on note pour le débrief du lendemain matin (pas de doublon si déjà loggé récemment)
   if (shouldTrigger(loggedForRecapAt, from)) {
     loggedForRecapAt.set(from, Date.now());
     const display = await resolveClientDisplay(from, fullHistory);
-    const summary = await summarizeForRecap(fullHistory);
+    const summary = realText
+      ? await summarizeForRecap(fullHistory)
+      : "A envoyé un vocal ou une image/un fichier sans texte, à regarder dans la conversation";
     const dateKey = getGuadeloupeDateKey(new Date());
     if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-    dailyLogs[dateKey].push({ from, display, summary: `(reçu l'après-midi, équipe présente) ${summary}`, urgent: isUrgent });
+    dailyLogs[dateKey].push({ from, display, summary: `(reçu l'après-midi, équipe présente) ${summary}`, urgent: isUrgent, afternoon: true });
   }
 
   // IMPORTANT : aucune réponse envoyée au client, c'est l'équipe présente qui gère en direct
@@ -644,13 +724,13 @@ async function handleAfternoonHandoff(from, text) {
 async function processMessageNow(from, text) {
   const nowCheck = getGuadeloupeTime(new Date());
 
-  // Coupure 13h lundi/jeudi : priorité sur tout le reste
-  if (!ignoreBusinessHours && isMonThuAfternoonHandoff(nowCheck.weekday, nowCheck.hour)) {
+  // Coupure 13h lundi/jeudi (mode auto uniquement) : priorité sur tout le reste
+  if (!ignoreBusinessHours && isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
     await handleAfternoonHandoff(from, text);
     return;
   }
 
-  // Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
+// Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
   // (sauf en mode test, où on ignore cette attente)
   if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
     const delay = msUntilNext8am(new Date());
@@ -673,33 +753,51 @@ async function processMessageNow(from, text) {
 }
 
 // Traitement effectif : appelle Claude, applique le délai naturel, envoie la réponse, logge le récap
-async function handleIncomingText(from, text) {
+async function handleIncomingText(from, rawText) {
   // On mémorise le moment de ce message précis, pour la vérification d'écho juste avant l'envoi
   const thisMessageAt = Date.now();
+
+  // Sépare le vrai texte des marqueurs vocal/image, et fabrique la version lisible pour l'historique
+  const { hasAudio, realText, displayText } = normalizeIncoming(rawText);
+  const text = displayText;
 
   // Récupérer l'historique persistant depuis Supabase (100 par défaut, 200 pour un client importé)
   const customLimit = await db.getHistoryLimit(from);
   const history = await db.getHistory(from, customLimit || undefined);
   const isKnownClient = history.length > 0; // déjà des échanges enregistrés = client connu
 
-  // Sauvegarder le message client (version lisible si c'est un vocal/média), puis reconstituer l'historique
-  const storedText = text === MEDIA_NO_TEXT_MARKER ? '[Message vocal/média reçu, sans texte]' : text;
-  await db.appendMessage(from, 'user', storedText);
-  const fullHistory = [...history, { role: 'user', content: storedText }];
+  // Sauvegarder le message client, puis reconstituer l'historique complet pour l'appel Claude
+  await db.appendMessage(from, 'user', text);
+  const fullHistory = [...history, { role: 'user', content: text }];
 
-  // Message vocal/média sans texte : réponse fixe (excuse plausible), pas d'appel Claude nécessaire
-  if (text === MEDIA_NO_TEXT_MARKER) {
-    const excuse = VOICE_EXCUSES[Math.floor(Math.random() * VOICE_EXCUSES.length)];
-    await db.appendMessage(from, 'assistant', excuse);
-
-    const delayMs = randomDelay(15000, 45000);
-    await sleep(delayMs);
-
-    if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
-      console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
-      return;
+  // Aucun vrai texte (seulement un vocal et/ou une image/un fichier sans légende)
+  if (!realText) {
+    if (hasAudio) {
+      // VOCAL : excuse plausible demandant d'écrire (pas d'appel Claude), vouvoiement sauf si le client tutoie
+      const excuse = pickVoiceExcuse(fullHistory);
+      await db.appendMessage(from, 'assistant', excuse);
+      await sleep(randomDelay(15000, 45000));
+      if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
+        console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
+        return;
+      }
+      await sendWhatsAppMessage(from, excuse);
+    } else {
+      // IMAGE / FICHIER seul : le bot ne répond pas (il ne les voit pas), on le signale pour l'équipe
+      console.log(`Image/fichier sans texte reçu de ${from}, pas de réponse bot, noté au récap`);
+      if (shouldTrigger(loggedForRecapAt, from)) {
+        loggedForRecapAt.set(from, Date.now());
+        const display = await resolveClientDisplay(from, fullHistory);
+        const logEntry = { from, display, summary: 'A envoyé une image ou un fichier sans texte, à regarder dans la conversation', urgent: false };
+        if (manualOverride === true) {
+          manualLog.push(logEntry);
+        } else {
+          const dateKey = getGuadeloupeDateKey(new Date());
+          if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+          dailyLogs[dateKey].push(logEntry);
+        }
+      }
     }
-    await sendWhatsAppMessage(from, excuse);
     return;
   }
 
@@ -725,7 +823,8 @@ async function handleIncomingText(from, text) {
   }
 
   // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
-  const isUrgent = rawReply.includes(URGENT_MARKER);
+  // Urgence = marqueur du modèle OU mots-clés évidents (relance, paiement annoncé, annulation, plainte...)
+  const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(realText);
   const reply = rawReply.replace(URGENT_MARKER, '').trim();
 
   // Sauvegarder la réponse (sans le marqueur) dans l'historique persistant
@@ -733,24 +832,7 @@ async function handleIncomingText(from, text) {
   fullHistory.push({ role: 'assistant', content: reply });
 
   // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
-  // Dédoublonné 12h ou jusqu'à une réponse manuelle d'Ismaël, selon ce qui arrive en premier.
-  // Limité à 3 pings temps réel par jour : au-delà, on loggue quand même au récap (urgent) sans spammer
-  if (isUrgent && RECAP_PHONE_NUMBER && shouldTrigger(urgentAlertedAt, from)) {
-    urgentAlertedAt.set(from, Date.now());
-    const urgentDisplay = await resolveClientDisplay(from, fullHistory);
-    const urgentSummary = await summarizeForRecap(fullHistory);
-
-    if (canSendUrgentNow()) {
-      urgentCountToday++;
-      await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT, intervention nécessaire\n\n${urgentSummary}\n\nClient : ${urgentDisplay}`);
-      console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
-    } else {
-      console.log(`Limite de ${MAX_URGENT_PER_DAY} alertes/jour atteinte, ${from} loggé au récap sans ping immédiat`);
-      const dateKey = getGuadeloupeDateKey(new Date());
-      if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-      dailyLogs[dateKey].push({ from, display: urgentDisplay, summary: urgentSummary, urgent: true });
-    }
-  }
+  if (isUrgent) await triggerUrgentAlert(from, fullHistory);
 
   // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
   const delayMs = randomDelay(15000, 45000);
@@ -850,19 +932,31 @@ async function callClaudeAPI(conversationHistory, isKnownClient, from) {
 // 4. ENVOI MESSAGE WHATSAPP (via Dualhook, qui relaie vers Meta)
 // ============================================
 async function sendWhatsAppMessage(to, text) {
-  await fetch(`https://api.dualhook.com/v25.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DUALHOOK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to: to,
-      type: 'text',
-      text: { body: text },
-    }),
-  });
+  try {
+    const res = await fetch(`https://api.dualhook.com/v25.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DUALHOOK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'text',
+        text: { body: text },
+      }),
+    });
+    if (!res.ok) {
+      // Avant, un refus (ex: fenêtre de 24h Meta dépassée pour un numéro qui n'a pas écrit récemment) était totalement invisible
+      const body = await res.text();
+      console.error(`ENVOI WHATSAPP ÉCHOUÉ vers ${to} (status ${res.status}): ${body}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`ENVOI WHATSAPP ÉCHOUÉ vers ${to} (erreur réseau):`, err.message);
+    return false;
+  }
 }
 
 // ============================================
@@ -888,12 +982,30 @@ async function checkDailyRecapDue() {
   const dateKey = getGuadeloupeDateKey(yesterday);
 
   if (recapSentDates.has(dateKey)) return; // déjà envoyé
-  const entries = dailyLogs[dateKey] || [];
+  // On ne reprend que ce qui n'a pas déjà été envoyé au récap de fin de matinée (13h)
+  const entries = (dailyLogs[dateKey] || []).filter(e => !e.sent);
   if (entries.length === 0) return; // rien à envoyer
 
-  const recap = formatRecap(`📋 RÉCAP AUTO — ${dateKey}`, entries);
-  await sendRecap(recap);
+  const recap = formatRecap(`📋 DÉBRIEF — ${dateKey} (inclut l'après-midi, équipe présente)`, entries);
+  entries.forEach(e => { e.sent = true; });
   recapSentDates.add(dateKey);
+  await sendRecap(recap);
+}
+
+// Récap de FIN DE MATINÉE : lundi/jeudi (mode auto), dès que le bot s'arrête à 13h, on t'envoie ce qui s'est passé
+// pendant sa session. L'après-midi (équipe présente) sera inclus dans le débrief du lendemain matin.
+async function checkMorningRecapDue() {
+  const now = new Date();
+  const local = getGuadeloupeTime(now);
+  if (!EARLY_CUTOFF_DAYS.includes(local.weekday) || local.hour < EARLY_CUTOFF_HOUR) return;
+
+  const dateKey = getGuadeloupeDateKey(now);
+  const entries = (dailyLogs[dateKey] || []).filter(e => !e.sent && !e.afternoon);
+  if (entries.length === 0) return;
+
+  const recap = formatRecap(`📋 RÉCAP MATINÉE (bot arrêté à 13h) — ${dateKey}`, entries);
+  entries.forEach(e => { e.sent = true; }); // marqué AVANT l'envoi pour éviter tout double envoi
+  await sendRecap(recap);
 }
 
 // Envoie le récap de la session manuelle en cours, puis vide le log
@@ -1070,6 +1182,7 @@ app.get('/admin/test-recap', async (req, res) => {
 // + vérifie si un récap auto (mardi/vendredi matin) est dû
 // + traite le rattrapage si on vient de basculer naturellement sur un jour actif
 app.get('/cron/keepalive', async (req, res) => {
+  await checkMorningRecapDue();
   await checkDailyRecapDue();
   await flushBacklogIfActive();
   res.send('OK');
@@ -1158,7 +1271,7 @@ app.post('/admin/simuler', async (req, res) => {
       );
     }
 
-    const isUrgent = rawReply.includes(URGENT_MARKER);
+    const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(message);
     const reply = rawReply.replace(URGENT_MARKER, '').trim();
 
     res.send(
