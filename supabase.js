@@ -72,7 +72,11 @@ async function getHistory(phoneNumber, limit = HISTORY_LIMIT) {
     .reverse()
     .map(row => ({ role: row.role, content: row.content }))
     .filter(m => m.content && m.content.trim().length > 0);
-  return collapseConsecutiveRoles(cleaned);
+  const collapsed = collapseConsecutiveRoles(cleaned);
+  // L'API Claude exige que la conversation commence par un message "user" (peut arriver si la
+  // fenêtre de 100/200 messages démarre sur une réponse de l'équipe, ou si l'équipe a écrit en premier)
+  while (collapsed.length > 0 && collapsed[0].role !== 'user') collapsed.shift();
+  return collapsed;
 }
 
 // Fusionne les messages consécutifs de même rôle (l'API Claude exige une alternance stricte)
@@ -170,6 +174,22 @@ async function setSetting(key, value) {
   if (error) console.error('Supabase setSetting erreur:', error.message);
 }
 
+// Liste les numéros ayant eu au moins un message (client ou équipe) depuis une date donnée.
+// Utilisé pour repérer les clients gérés manuellement par l'équipe l'après-midi (via écho),
+// afin de les inclure dans le récap du lendemain matin.
+async function getPhoneNumbersActiveSince(isoTimestamp) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('phone_number')
+    .gte('created_at', isoTimestamp);
+  if (error) {
+    console.error('Supabase getPhoneNumbersActiveSince erreur:', error.message);
+    return [];
+  }
+  return [...new Set(data.map(row => row.phone_number))];
+}
+
 module.exports = {
   getHistory,
   appendMessage,
@@ -182,4 +202,5 @@ module.exports = {
   getHistoryLimit,
   setHistoryLimit,
   bulkAppendMessages,
+  getPhoneNumbersActiveSince,
 };
