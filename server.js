@@ -72,7 +72,7 @@ const DEBOUNCE_MS = 8000; // attend 8 sec de silence avant de traiter les messag
 
 // Messages reçus pendant que le bot était inactif (jour non actif / désactivé manuellement),
 // à traiter dès que le bot redevient actif. PAS utilisé pendant une fermeture prolongée (congés).
-const backlogMessages = {}; // { [from]: [text, text, ...] }
+const backlogMessages = {}; // { [from]: [{ text, at }, ...] }
 
 // Pour savoir si Ismaël a déjà répondu manuellement depuis son app (via l'écho WhatsApp Coexistence)
 const lastInboundAt = {};   // { [from]: timestamp du dernier message client }
@@ -589,7 +589,7 @@ app.post('/webhook', async (req, res) => {
     if (!isBotDayActive(nowCheck.weekday)) {
       console.log(`Bot inactif ce jour (${nowCheck.weekday}) — message mis en attente de rattrapage`);
       if (!backlogMessages[from]) backlogMessages[from] = [];
-      backlogMessages[from].push(text);
+      backlogMessages[from].push({ text, at: Date.now() });
       return;
     }
 
@@ -744,7 +744,7 @@ async function processMessageNow(from, text) {
     if (isClosedForBreak(new Date()) || !isBotDayActive(afterWait.weekday)) {
       console.log(`Jour suivant non actif — message basculé en rattrapage pour ${from}`);
       if (!backlogMessages[from]) backlogMessages[from] = [];
-      backlogMessages[from].push(text);
+      backlogMessages[from].push({ text, at: Date.now() });
       return;
     }
   }
@@ -881,20 +881,41 @@ async function flushBacklogIfActive() {
 
   const numbers = Object.keys(backlogMessages);
   for (const from of numbers) {
-    const texts = backlogMessages[from];
+    const items = backlogMessages[from];
     delete backlogMessages[from];
-    if (!texts || texts.length === 0) continue;
+    if (!items || items.length === 0) continue;
 
-    // Si Ismaël a répondu manuellement APRÈS le dernier message de ce client, on ne fait rien
-    const alreadyAnswered = lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > (lastInboundAt[from] || 0);
-    if (alreadyAnswered) {
-      console.log(`Rattrapage ignoré pour ${from} : déjà répondu manuellement par Ismaël`);
+    // Dernière réponse humaine/bot connue : base persistante (Supabase) + mémoire (échos récents)
+    const dbLastReplyAt = await db.getLastAssistantAt(from);
+    const lastReplyAt = Math.max(dbLastReplyAt || 0, lastIsmaelReplyAt[from] || 0);
+
+    // On ne garde que les messages arrivés APRÈS la dernière réponse d'Ismaël,
+    // pas trop vieux, et qui ne sont pas de simples remerciements/accusés de réception
+    const now = Date.now();
+    const fresh = items.filter(it =>
+      it.at > lastReplyAt &&
+      now - it.at < MAX_BACKLOG_AGE_MS &&
+      !isPureAcknowledgment(it.text)
+    );
+
+    if (fresh.length === 0) {
+      console.log(`Rattrapage ignoré pour ${from} : déjà traité par Ismaël, trop ancien ou sans objet (${items.length} msg écartés)`);
       continue;
     }
 
-    console.log(`Rattrapage de ${texts.length} message(s) en attente pour ${from}`);
-    await processMessageNow(from, texts.join('\n'));
+    console.log(`Rattrapage de ${fresh.length}/${items.length} message(s) en attente pour ${from}`);
+    await processMessageNow(from, fresh.map(it => it.text).join('\n'));
   }
+}
+
+const MAX_BACKLOG_AGE_MS = 20 * 60 * 60 * 1000; // au-delà de 20h, le message est considéré périmé
+
+// Remerciements / accusés de réception / formules de politesse seules : inutile d'y répondre en rattrapage
+function isPureAcknowledgment(text) {
+  const t = (text || '').toLowerCase().replace(/[^a-zà-ÿ0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return true; // que des émojis/ponctuation
+  if (t.length > 40) return false;
+  return /^(ok|okay|d accord|dac|merci|merci beaucoup|merci bien|super|parfait|top|nickel|entendu|bien recu|c est note|noté|compris|bonne journee|bonne soiree|bonne continuation|a bientot|a plus|cool|genial|impec|tres bien|bien note)( (merci|beaucoup|a vous|a toi|bien|ok))*$/.test(t);
 }
 
 // ============================================
@@ -1155,7 +1176,7 @@ app.get('/admin/backlog', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const numbers = Object.keys(backlogMessages);
   if (numbers.length === 0) return res.send('Aucun message en attente de rattrapage.');
-  const lines = numbers.map(from => `${from} (${backlogMessages[from].length} msg): ${backlogMessages[from].join(' | ')}`);
+  const lines = numbers.map(from => `${from} (${backlogMessages[from].length} msg): ${backlogMessages[from].map(i => i.text).join(' | ')}`);
   res.send('📥 En attente de rattrapage :\n\n' + lines.join('\n'));
 });
 
