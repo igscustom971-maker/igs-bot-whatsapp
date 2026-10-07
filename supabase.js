@@ -102,6 +102,24 @@ async function appendMessage(phoneNumber, role, content) {
   if (error) console.error('Supabase appendMessage erreur:', error.message);
 }
 
+// Horodatage (ms) du dernier message "assistant" (bot OU réponse manuelle d'Ismaël, échos inclus)
+async function getLastAssistantAt(phoneNumber) {
+  if (!supabase) return 0;
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('created_at')
+    .eq('phone_number', phoneNumber)
+    .eq('role', 'assistant')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error('Supabase getLastAssistantAt erreur:', error.message);
+    return 0;
+  }
+  return data?.created_at ? new Date(data.created_at).getTime() : 0;
+}
+
 // Récupère le prénom connu d'un client (ou null)
 async function getClientName(phoneNumber) {
   if (!supabase) return null;
@@ -192,6 +210,7 @@ async function getPhoneNumbersActiveSince(isoTimestamp) {
 
 module.exports = {
   getHistory,
+  getLastAssistantAt,
   appendMessage,
   getClientName,
   upsertClientName,
