@@ -104,27 +104,40 @@ const IGNORE_MARKER = '###IGNORER###';
 const AUDIO_MARKER = '[[AUDIO_SANS_TEXTE]]';
 const MEDIA_MARKER = '[[MEDIA_SANS_TEXTE]]';
 
-// Excuses plausibles et ponctuelles quand le client envoie un VOCAL (uniquement les vocaux).
+// Réponses "bateau" quand le client envoie un VOCAL seul ou une IMAGE/un FICHIER seul (sans texte).
 // Vouvoiement par défaut ; tutoiement seulement si le client tutoie lui-même.
-const VOICE_EXCUSES_VOUS = [
-  "Désolée, je ne peux pas écouter votre message vocal pour le moment, pourriez-vous m'écrire en quelques mots s'il vous plaît ? 🙏",
-  "Je suis en communication actuellement, pourriez-vous m'envoyer votre demande par écrit s'il vous plaît ?",
-  "Ça tombe mal, je ne peux pas écouter d'audio pour l'instant, pourriez-vous me l'écrire s'il vous plaît ? 😊",
+const VOICE_ACK_VOUS = [
+  "Bonjour, j'écoute votre message et je vous fais un retour tout à l'heure 😊",
+  "Bien reçu, j'écoute ça et je reviens vers vous tout à l'heure.",
+  "Je vous écoute dès que possible et je vous fais un retour tout à l'heure 🙏",
 ];
-const VOICE_EXCUSES_TU = [
-  "Désolée, je ne peux pas écouter ton vocal pour le moment, tu peux m'écrire en quelques mots stp ? 🙏",
-  "Je suis en communication là, tu peux m'envoyer ça par écrit ?",
-  "Ça tombe mal, je ne peux pas écouter pour l'instant, dis-moi en texte stp 😊",
+const VOICE_ACK_TU = [
+  "Bien reçu, j'écoute ton message et je te fais un retour tout à l'heure 😊",
+  "Je t'écoute ça et je reviens vers toi tout à l'heure.",
+  "Je regarde ça dès que possible et je te fais un retour tout à l'heure 🙏",
 ];
+const MEDIA_ACK_VOUS = [
+  "Bien reçu, je regarde ça et je reviens vers vous 😊",
+  "C'est bien reçu, je regarde et je reviens vers vous.",
+  "Merci, bien reçu. Je regarde ça et je vous fais un retour 🙏",
+];
+const MEDIA_ACK_TU = [
+  "Bien reçu, je regarde ça et je reviens vers toi 😊",
+  "C'est bien reçu, je regarde et je reviens vers toi.",
+  "Merci, bien reçu. Je regarde ça et je te fais un retour 🙏",
+];
+const lastAckAt = {}; // { [from]: timestamp } : évite de répéter l'accusé si le client envoie plusieurs fichiers/vocaux espacés
+const ACK_COOLDOWN_MS = 30 * 60 * 1000;
 
 // Le client tutoie-t-il ? (regarde ses derniers messages)
 function clientUsesTu(history) {
   const recent = history.filter(m => m.role === 'user').slice(-20).map(m => m.content).join(' ');
-  return /\b(tu|toi|ton|ta|tes|peux-tu|as-tu|es-tu|veux-tu)\b|\bt'/i.test(recent);
+  return /\b(tu|toi|ton|ta|tes|peux-tu|as-tu|es-tu|veux-tu)\b|\bt'|\b(hello|salut|coucou|hey|yo|wesh|slt|stp|bisous?)\b|\bça va\b|\bca va\b/i.test(recent);
 }
 
-function pickVoiceExcuse(history) {
-  const list = clientUsesTu(history) ? VOICE_EXCUSES_TU : VOICE_EXCUSES_VOUS;
+function pickAck(history, isVoice) {
+  const tu = clientUsesTu(history);
+  const list = isVoice ? (tu ? VOICE_ACK_TU : VOICE_ACK_VOUS) : (tu ? MEDIA_ACK_TU : MEDIA_ACK_VOUS);
   return list[Math.floor(Math.random() * list.length)];
 }
 
@@ -349,7 +362,7 @@ RÈGLES DE TON :
 - INTERDIT d'utiliser le caractère tiret cadratin "—" dans tes réponses. Utilise une virgule à la place
 - Ne JAMAIS inventer un produit, un service ou un tarif qui n'est pas listé ci-dessous. Si le produit demandé n'est pas dans la liste, dis que tu n'es pas sûr et utilise la phrase de blocage
 - Ne JAMAIS annoncer une date précise (ex: "on reprend le 1er octobre") sauf si cette info précise t'est donnée explicitement dans ce prompt. Si tu n'es pas sûr d'une date, reste vague ("on revient vers vous très vite", "dès que possible") plutôt que d'inventer ou de répéter une ancienne info qui a pu changer
-- REGISTRE : avec un NOUVEAU client (jamais écrit avant), tu VOUVOIES TOUJOURS et tu restes cordial et poli, même si le client écrit de façon familière ou comme en SMS. Tu ne tutoies que si le client est CONNU/RÉGULIER ET qu'il te tutoie lui-même (ou si une note le précise). Dans le doute, vouvoie
+- REGISTRE : avec un NOUVEAU client (jamais écrit avant), tu VOUVOIES TOUJOURS et tu restes cordial et poli, même si le client écrit de façon familière ou comme en SMS. Tu tutoies si le client est CONNU/RÉGULIER ET qu'il te tutoie OU se montre familier avec l'équipe (ex: "Hello Ismaël", "Salut", "Coucou", "Hey", ton décontracté, prénom + message amical), ou si une note le précise : dans ce cas tu le tutoies aussi, naturellement. Dans le doute, vouvoie
 - Sur le recto/verso (ou une autre précision similaire) : si tu as posé la question UNE fois et que le client ne répond pas clairement dessus (il enchaîne sur autre chose), NE PAS insister ni reposer la question. Pars du principe que c'est recto-verso par défaut et continue naturellement, ça évite de paraître insistant
 - Évite de répéter la même idée deux fois dans la même réponse (ex: dire "je transmets à l'équipe" puis reformuler la même chose juste après). Dis les choses une fois, clairement, et passe à la suite
 
@@ -429,7 +442,7 @@ Exemple 3, client régulier qui tutoie :
 
 ⚠️ CAS PARTICULIERS :
 - **Message ambigu qui pourrait concerner une demande ou un devis plus ancien** (ex: le client annonce un virement, dit "merci de me donner la marche à suivre", relance sans préciser quoi, ou revient après un long silence) : dans le doute, demande d'abord poliment si cela concerne une NOUVELLE demande ou une demande/un devis PRÉCÉDENT (ex: "Est-ce que cela concerne une nouvelle demande ou une demande précédente ?"). Ne pars pas dans les questions produit/quantité tant que ce n'est pas clair
-- **Marqueurs dans les messages** : "[Message vocal reçu]" = le client a envoyé un vocal que tu ne peux pas écouter ; "[Image ou fichier reçu, sans texte]" ou "[Fichier joint] ..." = il a joint un fichier que tu ne vois pas. Ne fais JAMAIS semblant de connaître le contenu d'un vocal ou d'une image : si c'est nécessaire, invite poliment à l'écrire, ou dis que l'équipe regardera le fichier
+- **Marqueurs dans les messages** : "[Message vocal reçu]" = le client a envoyé un vocal que tu ne peux pas écouter ; "[Image ou fichier reçu, sans texte]" ou "[Fichier joint] ..." = il a joint un fichier que tu ne vois pas. Ne fais JAMAIS semblant de connaître le contenu d'un vocal ou d'une image. INTERDIT de dire (ou de laisser entendre) que tu "n'as pas accès aux fichiers/images", que tu "ne peux pas voir/ouvrir/lire" ou toute phrase qui sonne robot. Quand le message contient du TEXTE en plus d'un fichier, réponds simplement à ce texte, comme si le fichier était bien reçu (au plus un "bien reçu" discret), sans jamais commenter ni décrire le fichier. Si une photo d'un visuel est envoyée pour une planche, rappelle que c'est plus simple par mail à contact@igscustom.fr. Les images et vocaux SANS texte sont gérés automatiquement ailleurs
 - **Planche ET textile dans la même demande** : traite les deux séparément (chacun son flow), mais propose au client de tout regrouper sur un seul devis si ça semble pertinent selon le contexte (ex: "Je te prépare la planche de mon côté, et pour les t-shirts je te fais un devis, tu veux qu'on mette tout sur le même devis ?")
 - **Client envoie une photo/image directement dans le chat WhatsApp pour une planche** (plutôt que par email) : dis-lui que c'est plus simple de l'envoyer par mail à contact@igscustom.fr, car c'est difficile à traiter correctement depuis WhatsApp
 - **Nouveau client qui commande plusieurs planches d'affilée** : tu peux lui proposer qu'on lui crée un Canva partagé dédié pour la prochaine fois, histoire de simplifier ses futures commandes
@@ -764,38 +777,41 @@ async function handleIncomingText(from, rawText) {
   // Récupérer l'historique persistant depuis Supabase (100 par défaut, 200 pour un client importé)
   const customLimit = await db.getHistoryLimit(from);
   const history = await db.getHistory(from, customLimit || undefined);
-  const isKnownClient = history.length > 0; // déjà des échanges enregistrés = client connu
+  const isKnownClient = history.some(m => m.content !== db.SYNTHETIC_OPENING); // déjà de vrais échanges enregistrés = client connu
 
   // Sauvegarder le message client, puis reconstituer l'historique complet pour l'appel Claude
   await db.appendMessage(from, 'user', text);
   const fullHistory = [...history, { role: 'user', content: text }];
 
-  // Aucun vrai texte (seulement un vocal et/ou une image/un fichier sans légende)
+  // Aucun vrai texte (seulement un vocal et/ou une image/un fichier sans légende) :
+  // réponse "bateau" humaine (pas d'appel Claude) + note dans le récap pour que l'équipe regarde/écoute
   if (!realText) {
-    if (hasAudio) {
-      // VOCAL : excuse plausible demandant d'écrire (pas d'appel Claude), vouvoiement sauf si le client tutoie
-      const excuse = pickVoiceExcuse(fullHistory);
-      await db.appendMessage(from, 'assistant', excuse);
+    const ack = pickAck(fullHistory, hasAudio);
+    const needAck = !lastAckAt[from] || Date.now() - lastAckAt[from] > ACK_COOLDOWN_MS;
+    if (needAck) {
+      lastAckAt[from] = Date.now();
+      await db.appendMessage(from, 'assistant', ack);
       await sleep(randomDelay(15000, 45000));
       if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
         console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
         return;
       }
-      await sendWhatsAppMessage(from, excuse);
-    } else {
-      // IMAGE / FICHIER seul : le bot ne répond pas (il ne les voit pas), on le signale pour l'équipe
-      console.log(`Image/fichier sans texte reçu de ${from}, pas de réponse bot, noté au récap`);
-      if (shouldTrigger(loggedForRecapAt, from)) {
-        loggedForRecapAt.set(from, Date.now());
-        const display = await resolveClientDisplay(from, fullHistory);
-        const logEntry = { from, display, summary: 'A envoyé une image ou un fichier sans texte, à regarder dans la conversation', urgent: false };
-        if (manualOverride === true) {
-          manualLog.push(logEntry);
-        } else {
-          const dateKey = getGuadeloupeDateKey(new Date());
-          if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
-          dailyLogs[dateKey].push(logEntry);
-        }
+      await sendWhatsAppMessage(from, ack);
+    }
+    console.log(`${hasAudio ? 'Vocal' : 'Image/fichier'} sans texte reçu de ${from}, accusé de réception envoyé, noté au récap`);
+    if (shouldTrigger(loggedForRecapAt, from)) {
+      loggedForRecapAt.set(from, Date.now());
+      const display = await resolveClientDisplay(from, fullHistory);
+      const summary = hasAudio
+        ? 'A envoyé un vocal, à écouter (le bot a répondu "j\'écoute et je reviens vers vous")'
+        : 'A envoyé une image ou un fichier sans texte, à regarder (le bot a répondu "je regarde et je reviens vers vous")';
+      const logEntry = { from, display, summary, urgent: false };
+      if (manualOverride === true) {
+        manualLog.push(logEntry);
+      } else {
+        const dateKey = getGuadeloupeDateKey(new Date());
+        if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
+        dailyLogs[dateKey].push(logEntry);
       }
     }
     return;
