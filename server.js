@@ -1202,10 +1202,121 @@ app.get('/admin/test-recap', async (req, res) => {
 // Route appelée par UptimeRobot toutes les 5 minutes : garde le serveur éveillé
 // + vérifie si un récap auto (mardi/vendredi matin) est dû
 // + traite le rattrapage si on vient de basculer naturellement sur un jour actif
+
+// ============================================
+// MESSAGES PROGRAMMÉS À USAGE UNIQUE
+// Message précis à envoyer à un client dès l'ouverture (8h30), UNE SEULE FOIS.
+// Stocké dans Supabase (survit aux redéploiements). Garde-fous : marqué "envoyé" AVANT l'envoi
+// (jamais de doublon, même en cas de plantage), annulé si Ismaël a déjà répondu au client,
+// périmé après 48h, jamais pendant une fermeture prolongée.
+// ============================================
+const SCHEDULED_KEY = 'scheduled_messages';
+const SCHEDULED_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+let scheduledRunning = false;
+
+async function loadScheduled() {
+  const raw = await db.getSetting(SCHEDULED_KEY);
+  try { return raw ? JSON.parse(raw) : []; } catch (e) { return []; }
+}
+async function saveScheduled(list) {
+  await db.setSetting(SCHEDULED_KEY, JSON.stringify(list.slice(-50)));
+}
+
+async function processScheduledMessages() {
+  if (scheduledRunning) return;
+  scheduledRunning = true;
+  try {
+    if (isClosedForBreak(new Date())) return;
+    const nowT = getGuadeloupeTime(new Date());
+    if (!isWithinBusinessHours(nowT)) return; // pas avant 8h30, pas après 17h30
+
+    let list = await loadScheduled();
+    const pending = list.filter(m => m.status === 'en_attente');
+    for (const m of pending) {
+      // Garde-fou 1 : périmé
+      if (Date.now() - m.createdAt > SCHEDULED_MAX_AGE_MS) {
+        m.status = 'expire';
+        await saveScheduled(list);
+        console.log(`Message programmé expiré pour ${m.to}`);
+        continue;
+      }
+      // Garde-fou 2 : Ismaël a déjà répondu à ce client depuis la programmation
+      const dbLast = await db.getLastAssistantAt(m.to);
+      const lastReply = Math.max(dbLast || 0, lastIsmaelReplyAt[m.to] || 0);
+      if (lastReply > m.createdAt) {
+        m.status = 'annule_deja_repondu';
+        await saveScheduled(list);
+        console.log(`Message programmé annulé pour ${m.to} : Ismaël a déjà répondu`);
+        continue;
+      }
+      // Garde-fou 3 (principal) : on marque "envoyé" et on SAUVEGARDE avant d'envoyer.
+      m.status = 'envoye';
+      m.sentAt = Date.now();
+      await saveScheduled(list);
+
+      await sleep(randomDelay(15000, 45000)); // délai naturel
+      // Re-vérif juste avant l'envoi : réponse manuelle pendant le délai
+      if ((lastIsmaelReplyAt[m.to] || 0) > m.createdAt) {
+        m.status = 'annule_deja_repondu';
+        await saveScheduled(list);
+        continue;
+      }
+      const ok = await sendWhatsAppMessage(m.to, m.text);
+      if (ok) {
+        await db.appendMessage(m.to, 'assistant', m.text);
+        console.log(`Message programmé envoyé à ${m.to}`);
+      } else {
+        m.status = 'echec'; // pas de nouvelle tentative automatique (jamais de doublon)
+        await saveScheduled(list);
+        console.error(`Message programmé ÉCHEC pour ${m.to} — à renvoyer manuellement`);
+        if (RECAP_PHONE_NUMBER) {
+          await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `⚠️ Le message programmé pour ${m.to} n'a pas pu partir (fenêtre WhatsApp 24h dépassée ?). À envoyer manuellement.`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Erreur messages programmés:', e);
+  } finally {
+    scheduledRunning = false;
+  }
+}
+
+app.post('/admin/message-programme', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numero = (req.body.numero || '').replace(/[^0-9]/g, '');
+  const texte = (req.body.texte || '').trim();
+  if (!numero) return res.status(400).send('Numéro manquant');
+  if (!texte) return res.status(400).send('Message vide');
+  const list = await loadScheduled();
+  // un seul message en attente par numéro : le nouveau remplace l'ancien
+  list.forEach(m => { if (m.to === numero && m.status === 'en_attente') m.status = 'remplace'; });
+  list.push({ to: numero, text: texte, createdAt: Date.now(), status: 'en_attente' });
+  await saveScheduled(list);
+  res.send(`✅ Message programmé pour ${numero}. Il partira UNE SEULE FOIS à la prochaine ouverture (8h30), sauf si tu réponds toi-même avant.\n\n"${texte}"`);
+});
+
+app.get('/admin/messages-programmes', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const list = await loadScheduled();
+  if (list.length === 0) return res.send('Aucun message programmé.');
+  res.send(list.slice(-15).map(m => `${m.to} [${m.status}] : ${m.text}`).join('\n\n'));
+});
+
+app.post('/admin/message-programme-annuler', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const numero = (req.body.numero || '').replace(/[^0-9]/g, '');
+  const list = await loadScheduled();
+  let n = 0;
+  list.forEach(m => { if (m.to === numero && m.status === 'en_attente') { m.status = 'annule'; n++; } });
+  await saveScheduled(list);
+  res.send(n ? `✅ Message programmé annulé pour ${numero}` : `Aucun message en attente pour ${numero}`);
+});
+
 app.get('/cron/keepalive', async (req, res) => {
   await checkMorningRecapDue();
   await checkDailyRecapDue();
   await flushBacklogIfActive();
+  processScheduledMessages().catch(e => console.error(e)); // sans attendre (délai d'envoi naturel)
   res.send('OK');
 });
 
@@ -1452,6 +1563,21 @@ app.get('/panel', (req, res) => {
     </button>
   </div>
 
+  <div class="section-title">Message programmé (envoi unique à 8h30)</div>
+  <input id="progNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
+  <textarea id="progTexte" placeholder="Message exact à envoyer, une seule fois" style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
+  <div class="grid">
+    <button class="btn-auto" onclick="programmerMessage()">
+      <span class="btn-emoji">⏰</span> Programmer
+    </button>
+    <button class="btn-statut" onclick="callAdmin('messages-programmes')">
+      <span class="btn-emoji">👁️</span> Voir la liste
+    </button>
+    <button class="btn-statut btn-full" onclick="annulerProgramme()">
+      <span class="btn-emoji">🛑</span> Annuler pour ce numéro
+    </button>
+  </div>
+
   <div class="section-title">Importer un historique (clients importants)</div>
   <input id="importNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
   <input id="importNomEquipe" type="text" value="Igs Custom bar" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
@@ -1569,6 +1695,28 @@ function ajouterContexte() {
       statusBox.classList.remove('loading');
       statusBox.textContent = 'Erreur de connexion, réessaie.';
     });
+}
+
+function postAdmin(route, payload) {
+  var statusBox = document.getElementById('status');
+  statusBox.classList.add('loading');
+  statusBox.textContent = 'Chargement...';
+  payload.token = TOKEN;
+  fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(res) { return res.text(); })
+    .then(function(text) { statusBox.classList.remove('loading'); statusBox.textContent = text; })
+    .catch(function() { statusBox.classList.remove('loading'); statusBox.textContent = 'Erreur de connexion, réessaie.'; });
+}
+function programmerMessage() {
+  var numero = document.getElementById('progNumero').value;
+  var texte = document.getElementById('progTexte').value;
+  if (!numero || !texte) { alert('Numéro et message obligatoires'); return; }
+  postAdmin('/admin/message-programme', { numero: numero, texte: texte });
+}
+function annulerProgramme() {
+  var numero = document.getElementById('progNumero').value;
+  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
+  postAdmin('/admin/message-programme-annuler', { numero: numero });
 }
 
 function sauverNoteClient() {
