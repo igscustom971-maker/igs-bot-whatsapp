@@ -132,7 +132,7 @@ const ACK_COOLDOWN_MS = 30 * 60 * 1000;
 // Le client tutoie-t-il ? (regarde ses derniers messages)
 function clientUsesTu(history) {
   const recent = history.filter(m => m.role === 'user').slice(-20).map(m => m.content).join(' ');
-  return /\b(tu|toi|ton|ta|tes|peux-tu|as-tu|es-tu|veux-tu)\b|\bt'|\b(hello|salut|coucou|hey|yo|wesh|slt|stp|bisous?)\b|\bça va\b|\bca va\b/i.test(recent);
+  return /\b(tu|toi|ton|ta|tes|peux-tu|as-tu|es-tu|veux-tu)\b|\bt'|\b(hello|salut|coucou|hey|yo|wesh|slt|stp|bisous?|cc|isma)\b|\bça va\b|\bca va\b/i.test(recent);
 }
 
 function pickAck(history, isVoice) {
@@ -230,8 +230,8 @@ function getGuadeloupeDateKey(date) {
 
 // Formate une liste de résumés courts en texte lisible pour le récap WhatsApp,
 // regroupés par catégorie : urgent/bloqué en premier, puis devis/commandes normales
-function formatRecap(title, entries) {
-  if (entries.length === 0) return null;
+function formatRecap(title, entries, othersLine) {
+  if (entries.length === 0 && !othersLine) return null;
 
   const urgentEntries = entries.filter(e => e.urgent);
   const normalEntries = entries.filter(e => !e.urgent);
@@ -246,8 +246,36 @@ function formatRecap(title, entries) {
     body += `📋 DEVIS / COMMANDES À PRÉPARER\n`;
     body += normalEntries.map(e => `• ${e.summary} (${e.display || e.from})`).join('\n');
   }
+  if (entries.length === 0) body += `✅ Rien à préparer ni à traiter en priorité.`;
+  if (othersLine) body += `\n\n${othersLine}`;
 
   return `${title}\n\n${body}`;
+}
+
+// Liste les autres conversations de la journée (sans devis ni urgence) pour que le récap ne soit jamais vide
+async function buildOthersLine(dateKey, entries) {
+  try {
+    const numbers = await db.getPhoneNumbersActiveSince(`${dateKey}T00:00:00-04:00`);
+    const already = new Set(entries.map(e => e.from));
+    const others = numbers.filter(n => !already.has(n) && n !== RECAP_PHONE_NUMBER).slice(0, 15);
+    if (others.length === 0) return null;
+    const names = [];
+    for (const n of others) {
+      const name = await db.getClientName(n);
+      names.push(name ? `${name} (${n})` : n);
+    }
+    return `💬 Autres conversations de la journée (rien de spécial) :\n${names.map(x => '• ' + x).join('\n')}`;
+  } catch (e) {
+    console.error('buildOthersLine erreur:', e.message);
+    return null;
+  }
+}
+
+// Extrait la note interne ###RECAP:...### laissée par le modèle (jamais envoyée au client)
+function extractRecapNote(raw) {
+  const m = raw.match(/###RECAP:([\s\S]*?)###/);
+  const clean = raw.replace(/###RECAP:[\s\S]*?###/g, '').trim();
+  return { clean, note: m ? m[1].trim() : null };
 }
 
 // Génère un résumé très court (une phrase) d'une conversation pour le récap
@@ -442,6 +470,9 @@ Exemple 3, client régulier qui tutoie :
 
 ⚠️ CAS PARTICULIERS :
 - **Message ambigu qui pourrait concerner une demande ou un devis plus ancien** (ex: le client annonce un virement, dit "merci de me donner la marche à suivre", relance sans préciser quoi, ou revient après un long silence) : dans le doute, demande d'abord poliment si cela concerne une NOUVELLE demande ou une demande/un devis PRÉCÉDENT (ex: "Est-ce que cela concerne une nouvelle demande ou une demande précédente ?"). Ne pars pas dans les questions produit/quantité tant que ce n'est pas clair
+- **COULEURS / NUANCIER** : si le client demande des couleurs (ex: "avez-vous du bleu azur ?", teintes, coloris de t-shirts), ne promets rien de précis et ne dis pas simplement "l'équipe verra au moment du devis". Dis qu'on a un nuancier de couleurs et que l'équipe reviendra vers lui avec le nuancier pour qu'il choisisse. Ajoute en toute fin de ton message le marqueur interne ###RECAP:Demande de couleurs, envoyer le nuancier au client### (le client ne le voit jamais) pour que ce soit noté au récap. Ensuite continue normalement le parcours (zone, produit, quantité...)
+- **TAILLES** : les t-shirts ne taillent PAS petit. Recommande la taille habituelle du client (taille normale). Exception : pour les coupes FEMME (plus près du corps), recommande de prendre UNE TAILLE AU-DESSUS. Réponds de façon claire et simple, sans dire que "ça dépend de la marque"
+- **CLIENT QUI CONNAÎT ISMAËL PERSONNELLEMENT** (ex: "CC Isma", "Salut Isma", "Hello Ismaël", surnom, ton amical) : tutoie et passe en mode familial et amical, détendu et chaleureux, même si ce n'est pas un client régulier. Ne dis jamais "Ismaël" toi-même, tu parles au nom de l'équipe
 - **Marqueurs dans les messages** : "[Message vocal reçu]" = le client a envoyé un vocal que tu ne peux pas écouter ; "[Image ou fichier reçu, sans texte]" ou "[Fichier joint] ..." = il a joint un fichier que tu ne vois pas. Ne fais JAMAIS semblant de connaître le contenu d'un vocal ou d'une image. INTERDIT de dire (ou de laisser entendre) que tu "n'as pas accès aux fichiers/images", que tu "ne peux pas voir/ouvrir/lire" ou toute phrase qui sonne robot. Quand le message contient du TEXTE en plus d'un fichier, réponds simplement à ce texte, comme si le fichier était bien reçu (au plus un "bien reçu" discret), sans jamais commenter ni décrire le fichier. Si une photo d'un visuel est envoyée pour une planche, rappelle que c'est plus simple par mail à contact@igscustom.fr. Les images et vocaux SANS texte sont gérés automatiquement ailleurs
 - **Planche ET textile dans la même demande** : traite les deux séparément (chacun son flow), mais propose au client de tout regrouper sur un seul devis si ça semble pertinent selon le contexte (ex: "Je te prépare la planche de mon côté, et pour les t-shirts je te fais un devis, tu veux qu'on mette tout sur le même devis ?")
 - **Client envoie une photo/image directement dans le chat WhatsApp pour une planche** (plutôt que par email) : dis-lui que c'est plus simple de l'envoyer par mail à contact@igscustom.fr, car c'est difficile à traiter correctement depuis WhatsApp
@@ -841,7 +872,21 @@ async function handleIncomingText(from, rawText) {
   // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
   // Urgence = marqueur du modèle OU mots-clés évidents (relance, paiement annoncé, annulation, plainte...)
   const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(realText);
-  const reply = rawReply.replace(URGENT_MARKER, '').trim();
+  const { clean: replyNoRecap, note: recapNote } = extractRecapNote(rawReply);
+  const reply = replyNoRecap.replace(URGENT_MARKER, '').trim();
+
+  // Note libre demandée par Leïla (ex: nuancier à envoyer) : ajoutée au récap quoi qu'il arrive
+  if (recapNote) {
+    const displayN = await resolveClientDisplay(from, fullHistory);
+    const entryN = { from, display: displayN, summary: recapNote, urgent: false };
+    if (manualOverride === true) {
+      manualLog.push(entryN);
+    } else {
+      const dk = getGuadeloupeDateKey(new Date());
+      if (!dailyLogs[dk]) dailyLogs[dk] = [];
+      dailyLogs[dk].push(entryN);
+    }
+  }
 
   // Sauvegarder la réponse (sans le marqueur) dans l'historique persistant
   await db.appendMessage(from, 'assistant', reply);
@@ -1002,6 +1047,43 @@ async function sendWhatsAppMessage(to, text) {
 // - Session manuelle : envoyé dès la désactivation
 // ============================================
 
+
+// ============================================
+// PERSISTANCE DE L'ÉTAT DES RÉCAPS (survit aux redéploiements / redémarrages Render)
+// ============================================
+const morningRecapSentDates = new Set();
+
+async function persistState() {
+  try {
+    const keys = Object.keys(dailyLogs).sort().slice(-4); // 4 derniers jours seulement
+    const logs = {};
+    keys.forEach(k => { logs[k] = dailyLogs[k]; });
+    await db.setSetting('bot_state', JSON.stringify({
+      dailyLogs: logs,
+      manualLog,
+      recapSentDates: [...recapSentDates],
+      morningRecapSentDates: [...morningRecapSentDates],
+    }));
+  } catch (e) {
+    console.error('persistState erreur:', e.message);
+  }
+}
+
+async function loadState() {
+  try {
+    const raw = await db.getSetting('bot_state');
+    if (!raw) return;
+    const st = JSON.parse(raw);
+    Object.entries(st.dailyLogs || {}).forEach(([k, v]) => { if (!dailyLogs[k]) dailyLogs[k] = v; });
+    if (manualLog.length === 0 && Array.isArray(st.manualLog)) manualLog = st.manualLog;
+    (st.recapSentDates || []).forEach(d => recapSentDates.add(d));
+    (st.morningRecapSentDates || []).forEach(d => morningRecapSentDates.add(d));
+    console.log('État des récaps restauré depuis Supabase');
+  } catch (e) {
+    console.error('loadState erreur:', e.message);
+  }
+}
+
 // Vérifie si un récap "jour auto" est dû (appelé par le cron de keep-alive)
 async function checkDailyRecapDue() {
   const now = new Date();
@@ -1021,12 +1103,19 @@ async function checkDailyRecapDue() {
   if (recapSentDates.has(dateKey)) return; // déjà envoyé
   // On ne reprend que ce qui n'a pas déjà été envoyé au récap de fin de matinée (13h)
   const entries = (dailyLogs[dateKey] || []).filter(e => !e.sent);
-  if (entries.length === 0) return; // rien à envoyer
+  const others = await buildOthersLine(dateKey, entries);
+  const recap = formatRecap(`📋 DÉBRIEF — ${dateKey} (inclut l'après-midi, équipe présente)`, entries, others);
+  if (!recap) return; // aucune conversation du tout ce jour-là
 
-  const recap = formatRecap(`📋 DÉBRIEF — ${dateKey} (inclut l'après-midi, équipe présente)`, entries);
+  recapSentDates.add(dateKey); // marqué AVANT l'envoi (pas de doublon), retiré si l'envoi échoue
   entries.forEach(e => { e.sent = true; });
-  recapSentDates.add(dateKey);
-  await sendRecap(recap);
+  const ok = await sendRecap(recap);
+  if (!ok) {
+    recapSentDates.delete(dateKey);
+    entries.forEach(e => { e.sent = false; });
+  } else {
+    await persistState();
+  }
 }
 
 // Récap de FIN DE MATINÉE : lundi/jeudi (mode auto), dès que le bot s'arrête à 13h, on t'envoie ce qui s'est passé
@@ -1037,31 +1126,41 @@ async function checkMorningRecapDue() {
   if (!EARLY_CUTOFF_DAYS.includes(local.weekday) || local.hour < EARLY_CUTOFF_HOUR) return;
 
   const dateKey = getGuadeloupeDateKey(now);
+  if (morningRecapSentDates.has(dateKey)) return;
   const entries = (dailyLogs[dateKey] || []).filter(e => !e.sent && !e.afternoon);
-  if (entries.length === 0) return;
+  const others = await buildOthersLine(dateKey, entries);
+  const recap = formatRecap(`📋 RÉCAP MATINÉE (bot arrêté à 13h) — ${dateKey}`, entries, others);
+  if (!recap) { morningRecapSentDates.add(dateKey); return; } // vraiment aucune conversation
 
-  const recap = formatRecap(`📋 RÉCAP MATINÉE (bot arrêté à 13h) — ${dateKey}`, entries);
-  entries.forEach(e => { e.sent = true; }); // marqué AVANT l'envoi pour éviter tout double envoi
-  await sendRecap(recap);
+  morningRecapSentDates.add(dateKey); // marqué AVANT l'envoi pour éviter tout double envoi
+  entries.forEach(e => { e.sent = true; });
+  const ok = await sendRecap(recap);
+  if (!ok) {
+    morningRecapSentDates.delete(dateKey); // on réessaiera au prochain passage (toutes les 5 min)
+    entries.forEach(e => { e.sent = false; });
+  } else {
+    await persistState();
+  }
 }
 
 // Envoie le récap de la session manuelle en cours, puis vide le log
 async function flushManualRecap() {
   if (manualLog.length === 0) return;
   const recap = formatRecap(`📋 RÉCAP SESSION MANUELLE — ${new Date().toLocaleString('fr-FR')}`, manualLog);
-  await sendRecap(recap);
-  manualLog = [];
+  const ok = await sendRecap(recap);
+  if (ok) manualLog = []; // si l'envoi échoue, on garde le log pour réessayer
 }
 
 // Envoi effectif du récap (WhatsApp vers le numéro perso d'Ismaël)
 async function sendRecap(text) {
-  if (!text) return;
+  if (!text) return true;
   if (RECAP_PHONE_NUMBER) {
-    await sendWhatsAppMessage(RECAP_PHONE_NUMBER, text);
-    console.log('Récap envoyé par WhatsApp à', RECAP_PHONE_NUMBER);
-  } else {
-    console.log('RECAP_PHONE_NUMBER non configuré — récap ci-dessous:\n', text);
+    const ok = await sendWhatsAppMessage(RECAP_PHONE_NUMBER, text);
+    console.log(ok ? `Récap envoyé par WhatsApp à ${RECAP_PHONE_NUMBER}` : `RÉCAP NON ENVOYÉ à ${RECAP_PHONE_NUMBER} (voir erreur ci-dessus), nouvelle tentative au prochain passage`);
+    return ok;
   }
+  console.log('RECAP_PHONE_NUMBER non configuré — récap ci-dessous:\n', text);
+  return true;
 }
 
 // ============================================
@@ -1332,6 +1431,7 @@ app.get('/cron/keepalive', async (req, res) => {
   await checkMorningRecapDue();
   await checkDailyRecapDue();
   await flushBacklogIfActive();
+  persistState(); // sauvegarde l'état des récaps (sans attendre)
   processScheduledMessages().catch(e => console.error(e)); // sans attendre (délai d'envoi naturel)
   res.send('OK');
 });
@@ -1408,7 +1508,7 @@ app.post('/admin/simuler', async (req, res) => {
     const isKnownClient = history.length > 0;
     const fullHistory = [...history, { role: 'user', content: message }];
 
-    const rawReply = await callClaudeAPI(fullHistory, isKnownClient, numero);
+    const rawReply = extractRecapNote(await callClaudeAPI(fullHistory, isKnownClient, numero)).clean;
 
     if (rawReply.includes(IGNORE_MARKER)) {
       return res.send(
@@ -1846,6 +1946,7 @@ app.get('/', (req, res) => {
   res.send('IGS Bot WhatsApp - Serveur actif ✅');
 });
 
+loadState();
 app.listen(PORT, () => {
   console.log(`Serveur IGS Bot démarré sur le port ${PORT}`);
 });
