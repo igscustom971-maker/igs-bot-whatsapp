@@ -11,7 +11,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Gestion · ${({ commandes: 'Commandes', planches: 'Planches DTF' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
 <style>
 :root{
@@ -190,7 +190,7 @@ a.mod:hover{border-color:var(--pink)}
 <body>
 <header><div class="bar">
   <img src="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png" alt="" onerror="this.style.display='none'">
-  <h1>IGS Gestion</h1>
+  <h1>IGS DASHBOARD</h1>
   <nav>
     <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion">Accueil</a>
     <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes">Commandes</a>
