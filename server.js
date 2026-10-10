@@ -15,6 +15,9 @@ const { isRecapRequest, handleProductionRecap } = require('./recap-handler');
 // Supabase : historique de conversation persistant, prénoms clients, notes de contexte, réglages
 const db = require('./supabase');
 
+// Interface de gestion IGS (commandes, BAT, tailles…) : module séparé, toutes ses routes sont sous /gestion
+require('./gestion')(app);
+
 // ============================================
 // CONFIGURATION (à mettre dans variables d'environnement Render)
 // ============================================
