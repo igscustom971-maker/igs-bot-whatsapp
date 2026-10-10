@@ -23,7 +23,7 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-u
 button{font:inherit;cursor:pointer}
 a{color:inherit}
 header{position:sticky;top:0;z-index:5;background:linear-gradient(135deg,#ffd6ec,#e8d5f5);border-bottom:1px solid var(--line)}
-.bar{max-width:1280px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
+.bar{max-width:1800px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:12px}
 .bar img{height:34px}
 .bar h1{font-size:17px;margin:0;font-weight:800;letter-spacing:.2px}
 .bar nav{display:flex;gap:4px;margin-left:12px}
@@ -33,7 +33,7 @@ header{position:sticky;top:0;z-index:5;background:linear-gradient(135deg,#ffd6ec
 .who{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
 .who b{color:var(--ink)}
 .who a{font-weight:600}
-main{max-width:1280px;margin:0 auto;padding:14px 16px 40px}
+main{max-width:1800px;margin:0 auto;padding:14px 24px 40px}
 .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
 .search{flex:1;min-width:200px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;font:inherit;color:var(--ink)}
 .btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:8px 12px;font-weight:600;color:var(--ink)}
@@ -48,14 +48,14 @@ main{max-width:1280px;margin:0 auto;padding:14px 16px 40px}
 .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:10px 12px;background:#faf9fd;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+td{padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 tr.row{cursor:pointer}
 tr.row:hover td{background:#fbf9ff}
 tr.row:last-child td{border-bottom:none}
 .devis{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .client{font-weight:600}
 .sub{font-size:12px;color:var(--muted)}
-.clip{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid transparent}
 .c-zone{min-width:130px}
 .late{color:var(--bad);font-weight:700}
@@ -173,13 +173,17 @@ a.mod:hover{border-color:var(--pink)}
 .mvt:last-child{border-bottom:none}
 .mvt .d{color:var(--muted);white-space:nowrap}
 /* Édition directe dans les listes */
-select.inl{font:inherit;font-size:12px;font-weight:700;border:1px solid transparent;border-radius:999px;padding:3px 6px;max-width:150px;cursor:pointer;background:var(--soft);color:var(--ink)}
+select.inl{font:inherit;font-size:12px;font-weight:700;border:1px solid transparent;border-radius:999px;padding:3px 6px;max-width:140px;cursor:pointer;background:var(--soft);color:var(--ink)}
 select.inl:hover{border-color:#cfc8e6}
 select.inl.plain{font-weight:600;background:#fff;border-color:var(--line);border-radius:8px}
 select.inl:disabled{opacity:.5;cursor:wait}
 a.open{color:inherit;text-decoration:none}
 a.open:hover{color:var(--pink);text-decoration:underline}
 tr.row{cursor:default}
+/* La liste tient dans l'écran : colonnes secondaires masquées sur les écrans moyens */
+th{padding:10px 8px}
+@media (min-width:761px) and (max-width:1500px){ #v-commandes .tablewrap th:nth-child(7), #v-commandes .tablewrap td:nth-child(7){display:none} }
+@media (min-width:761px) and (max-width:1300px){ #v-commandes .tablewrap th:nth-child(4), #v-commandes .tablewrap td:nth-child(4){display:none} #v-planches .tablewrap th:nth-child(8), #v-planches .tablewrap td:nth-child(8){display:none} }
 /* Espèces */
 .big{font-size:40px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
 /* Date de livraison modifiable */

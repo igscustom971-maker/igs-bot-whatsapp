@@ -51,6 +51,23 @@ function zoneFlocage(b, aAvant, aArriere) {
 }
 
 function mount(app) {
+  // Page de test du formulaire, hébergée par le serveur (même code que la page WordPress)
+  app.get('/formulaire/test', (req, res) => {
+    res.set('Cache-Control', 'no-store').sendFile(require('path').join(__dirname, '..', 'formulaire', 'formulaire-igs.html'));
+  });
+  // Modèle Tailles.xlsx relayé depuis igscustom.fr (pour la page hébergée ici)
+  let modele = { buf: null, at: 0 };
+  app.get('/formulaire/modele.xlsx', async (req, res) => {
+    try {
+      if (!modele.buf || Date.now() - modele.at > 3600e3) {
+        const r = await fetch(process.env.FORM_TEMPLATE_URL || 'https://igscustom.fr/Template_Commande_IGS.xlsx');
+        if (!r.ok) throw new Error(`modèle ${r.status}`);
+        modele = { buf: Buffer.from(await r.arrayBuffer()), at: Date.now() };
+      }
+      res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').send(modele.buf);
+    } catch (err) { res.status(502).send('Modèle indisponible'); }
+  });
+
   // Listes du formulaire (produits, couleurs, tailles) modifiables depuis la page Admin
   app.get('/formulaire/listes', async (req, res) => {
     cors(req, res);

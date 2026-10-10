@@ -357,7 +357,8 @@
   // ---------------- Réglages ----------------
   // Envoi direct au serveur IGS (mail Microsoft 365 depuis contact@igscustom.fr) — plus de WordPress
   const ENDPOINT     = 'https://igs-bot-whatsapp.onrender.com/formulaire/commande';
-  const TEMPLATE_URL = 'https://igscustom.fr/Template_Commande_IGS.xlsx'; // modèle officiel (tableau LignesCommande)
+  // Modèle officiel (tableau LignesCommande) : sur igscustom.fr on le lit directement, ailleurs via le serveur IGS
+  const TEMPLATE_URL = /(^|\.)igscustom\.fr$/.test(location.hostname) ? 'https://igscustom.fr/Template_Commande_IGS.xlsx' : 'https://igs-bot-whatsapp.onrender.com/formulaire/modele.xlsx';
   const MAX_VISUEL = 20 * 1024 * 1024;
   const MAX_ZIP    = 25 * 1024 * 1024;
   const MAX_TOTAL  = 30 * 1024 * 1024;  // limite d'un mail
