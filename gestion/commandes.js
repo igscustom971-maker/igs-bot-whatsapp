@@ -315,7 +315,7 @@ async function scannerBat() {
   batScanEnCours = true;
   aGenerer = [];
   try {
-    for (const r of cache.rows.filter(x => x.n_devis && avantBat(x.statut))) {
+    for (const r of cache.rows.filter(x => x.n_devis && aScannerBat(x.statut))) {
       try {
         const f = await findCommandeFolder(r.n_devis);
         if (!f) { batInfo.set(r.cle, { dossier: false, formulaire: false, bat: false, le: new Date().toISOString() }); continue; }
@@ -331,7 +331,8 @@ async function scannerBat() {
         // BAT automatique : formulaire reçu (tailles + dossier visuel), pas encore de BAT, jamais tenté
         const ov = (await overridesCache()).get(r.cle);
         const aVisuel = folders.some(x => !key(x.name).startsWith('taille') && !/archive/i.test(x.name)) || files.some(x => /\.(png|jpe?g|webp)$/i.test(x.name));
-        if (info.formulaire && aVisuel && !info.bat && !(ov && ov.bat_auto_le) && !batAutoTentes.has(r.cle)) aGenerer.push(r.cle);
+        const dejaValide = ov && ov.bat_reponse && ov.bat_reponse.verdict === 'valide';
+        if (info.formulaire && aVisuel && !info.bat && !dejaValide && !(ov && ov.bat_auto_le) && !batAutoTentes.has(r.cle)) aGenerer.push(r.cle);
       } catch (err) { console.error(`Gestion BAT ${r.n_devis} :`, err.message); }
     }
     for (const cle of aGenerer) {
@@ -369,6 +370,22 @@ async function trouverBat(ndevis) {
   if (!f) return null;
   const files = (await g.children(f.id)).filter(i => i.file);
   return files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name))) || null;
+}
+
+// Colonne « Mail Envoyé » / « Mail Expédition Envoyé » / « Mail Avis Envoyé » (messages automatiques)
+async function ecrireDrapeau(cle, champ, valeur) {
+  if (!['mail_envoye', 'mail_expedition_envoye', 'mail_avis_envoye'].includes(champ)) throw new Error('Champ non autorisé');
+  if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
+  const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
+  const rows = rowsFromRange(range);
+  const row = rows.find(r => r.cle === cle);
+  if (!row) return false; // ligne déjà retirée de l'Excel (ex. livrée)
+  if (rows.idx[champ] === undefined) return false;
+  const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
+  const address = colLetter(colIndex(m[2]) + rows.idx[champ]) + (Number(m[3]) + 1 + row._row);
+  await g.patchRange(excelItemId, m[1], address, [[valeur]]);
+  const c = cache.rows.find(r => r.cle === cle); if (c) c[champ] = valeur;
+  return true;
 }
 
 // Nouvelle commande saisie à la main (ligne ajoutée dans le tableau Commandes de l'Excel)
@@ -808,5 +825,7 @@ const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 // et aussi EN DEVIS / sans statut / statut inconnu (contenu vide, commande saisie à la main)
 const APRES_BAT = ['validee', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
 const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
+// VALIDÉE est aussi relue : une commande validée sans fichier BAT reste « BAT à faire »
+const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee';
 
-module.exports = { creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

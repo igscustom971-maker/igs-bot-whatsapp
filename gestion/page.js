@@ -429,9 +429,11 @@ const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STA
 // BAT : PAYÉE, ou EN DEVIS / sans statut / statut inconnu dès que le formulaire est reçu (commandes sans contenu, saisies à la main)
 const AVANT_BAT = c => {
   const k = statutKey(c.statut);
-  if (['VALIDÉE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false;
+  if (['EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false;
   const e = batEtape(c);
   if (e === 'valide') return false;
+  // VALIDÉE sans fichier BAT dans le dossier : le BAT reste à faire
+  if (k === 'VALIDÉE') return e === 'faire' || e === 'modif' || (e === 'envoyer' && !!c.bat_auto_le);
   // EN COMMANDE (t-shirts commandés en avance) : la mention reste tant que le BAT n'est pas fait / envoyé / validé
   if (k === 'EN COMMANDE') return e === 'faire' || e === 'client' || e === 'modif' || (e === 'envoyer' && !!c.bat_auto_le);
   if (k === 'PAYÉE') return true;
