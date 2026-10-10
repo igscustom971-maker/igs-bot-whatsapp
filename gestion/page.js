@@ -1426,8 +1426,8 @@ async function ouvrir(cle){
     }
     // BAT
     if (statutKey(c.statut) === 'PAYÉE' && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + (c.bat_envoye_le
-      ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
-      : '<div class="btnrow"><button class="btn primary" data-bat-env="'+esc(c.cle)+'" data-v="1">📤 Marquer le BAT envoyé au client</button></div>') + '</div>';
+      ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
+      : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
       ? '<iframe class="bat" src="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'#view=FitH" title="BAT"></iframe><div class="note" style="margin-top:6px"><a href="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'" target="_blank" rel="noopener">Ouvrir le BAT en grand</a> · modifié le '+new Date(d.bat.modifie).toLocaleDateString('fr-FR')+'</div>'
       : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '</div>';
@@ -1468,8 +1468,8 @@ function batRender(){
     + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
     + (e === 'client' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div></div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
-    + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-env="'+esc(c.cle)+'" data-v="1">📤 Envoyé</button>' : '')
-    + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
+    + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
+    + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
     + (e === 'faire' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
     + '</div></div>';
   $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Les planches DTF ne sont pas concernées.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
@@ -1477,13 +1477,26 @@ function batRender(){
       return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
 }
 async function batClic(e){
-  const t = e.target.closest('[data-bat-open],[data-bat-env],[data-bat-ok],#bat-scan'); if (!t) return;
+  const t = e.target.closest('[data-bat-open],[data-bat-env],[data-bat-ok],[data-bat-send],#bat-scan'); if (!t) return;
   e.preventDefault();
-  const c = t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk ? data.find(x => x.cle === (t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk)) : null;
+  const k = t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk || t.dataset.batSend;
+  const c = k ? data.find(x => x.cle === k) : null;
   try {
     if (t.id === 'bat-scan') { t.disabled = true; t.textContent = '↻ Lecture…'; await post('/gestion/api/bat/actualiser'); await charger(false); return; }
     if (!c) return;
     if (t.dataset.batOpen) { panelCle = c.cle; return ouvrir(c.cle); }
+    if (t.dataset.batSend) {
+      if (!confirm('Envoyer le BAT à '+c.client+' ?\\n\\n📧 Par mail : '+(c.email || 'aucune adresse')+'\\n💬 Par WhatsApp (numéro de Leïla) : '+(c.telephone ? fphone(c.telephone)+', si le client a écrit dans les dernières 24 h' : 'aucun numéro'))) return;
+      t.disabled = true; const old = t.textContent; t.textContent = 'Envoi…';
+      try {
+        const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bat-envoyer', {});
+        if (j.commande) Object.assign(c, j.commande);
+        const l = [j.mail ? (j.mail.ok ? '📧 Mail envoyé à '+j.mail.a : '📧 Mail non envoyé : '+j.mail.raison) : '', j.whatsapp ? (j.whatsapp.ok ? '💬 WhatsApp envoyé' : '💬 WhatsApp non envoyé ('+j.whatsapp.raison+')'+(j.mail && j.mail.ok ? ' : BAT envoyé par mail uniquement' : '')) : ''].filter(Boolean);
+        alert('✅ BAT envoyé\\n\\n'+l.join('\\n'));
+        afficher(); if (panelCle === c.cle) ouvrir(c.cle);
+      } catch(err){ alert('❌ ' + err.message); t.disabled = false; t.textContent = old; }
+      return;
+    }
     if (t.dataset.batEnv) {
       t.disabled = true;
       const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bat-envoye', { envoye: t.dataset.v === '1' });

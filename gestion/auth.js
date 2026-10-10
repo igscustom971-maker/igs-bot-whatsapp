@@ -61,8 +61,10 @@ function roleFor(email) {
   return null;
 }
 
+// Une session a toujours un rôle et jamais de type : un lien signé (ex. BAT) ne peut pas servir de session
 function getUser(req) {
-  return verify(parseCookies(req)[COOKIE]);
+  const u = verify(parseCookies(req)[COOKIE]);
+  return u && !u.t && (u.role === 'admin' || u.role === 'equipe') ? u : null;
 }
 
 // Middleware : page HTML -> redirige vers la connexion ; API -> 401
@@ -270,4 +272,4 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
   });
 }
 
-module.exports = { mount, requireUser, requireAdmin, getUser };
+module.exports = { mount, requireUser, requireAdmin, getUser, baseUrl, sign, verify };

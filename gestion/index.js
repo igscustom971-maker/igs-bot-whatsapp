@@ -26,6 +26,8 @@ module.exports = function mountGestion(app) {
 
   // Formulaire client public (igscustom.fr/formulaire) -> mail Microsoft 365
   formulaire.mount(app);
+  // Lien signé vers le BAT (récupéré par WhatsApp)
+  require('./bat-envoi').mount(app);
 
   auth.mount(app);
 
@@ -227,6 +229,10 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/commandes/:cle/bat-envoye', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.setBatEnvoye(req.params.cle, !!req.body?.envoye, req.user.name || req.user.email) }); }
     catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/bat-envoyer', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./bat-envoi').envoyer(req.params.cle, { mail: req.body?.mail !== false, whatsapp: req.body?.whatsapp !== false }, req.user.name || req.user.email, auth.baseUrl(req))); }
+    catch (err) { console.error('Gestion envoi BAT :', err.message); res.status(400).json({ error: err.message }); }
   });
   app.post('/gestion/api/bat/actualiser', auth.requireUser, async (req, res) => {
     try { await commandes.scannerBat(); res.json({ ok: true }); } catch (err) { res.status(502).json({ error: err.message }); }

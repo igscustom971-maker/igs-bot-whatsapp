@@ -327,6 +327,14 @@ async function scannerBat() {
   } finally { batScanEnCours = false; }
 }
 
+// BON A TIRER.pdf du dossier de la commande (ou null)
+async function trouverBat(ndevis) {
+  const f = await findCommandeFolder(ndevis);
+  if (!f) return null;
+  const files = (await g.children(f.id)).filter(i => i.file);
+  return files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name))) || null;
+}
+
 async function setBatEnvoye(cle, envoye, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
@@ -641,4 +649,4 @@ async function supprimerBordereau(cle, itemId, user) {
   return { bordereaux: d.bordereaux || [] };
 }
 
-module.exports = { scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
