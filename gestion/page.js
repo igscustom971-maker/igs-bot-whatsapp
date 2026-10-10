@@ -246,7 +246,7 @@ td.c-x{width:30px;text-align:right;padding-left:0}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin">Admin</a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
-  <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span><a href="/gestion/auth/logout">Déconnexion</a></div>
+  <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
 </div></header>
 
 <main>
@@ -283,7 +283,7 @@ ${view === 'accueil' ? `
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
-      <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th>Connexion à distance</th><th></th></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="cols" style="grid-template-columns:1.5fr 1fr">
       <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Produits du formulaire <button class="btn" id="ad-prod-add">＋ Produit</button></h3>
@@ -406,6 +406,7 @@ const PL_COULEURS = {
 };
 let planches = [];
 const VIEW = '${view}';
+const MOI = ${JSON.stringify(user.collab || null).replace(/</g, '\\u003c')};
 const ADMIN = ${user.role === 'admin' ? 'true' : 'false'};
 let data = [], filtre = (new URLSearchParams(location.search).get('filtre') || 'ACTIFS'), recherche = '';
 
@@ -620,6 +621,7 @@ const jourFr = s => new Date(s+'T12:00:00').toLocaleDateString('fr-FR',{weekday:
 function hrMsg(t, k){ $('hr-msg').className = 'msg on ' + k; $('hr-msg').innerHTML = t; }
 function hrOptions(){
   const sel = $('hr-collab'); const cur = sel.value;
+  if (MOI) { sel.innerHTML = '<option>'+esc(MOI)+'</option>'; sel.value = MOI; sel.disabled = true; return; }
   sel.innerHTML = '<option value="">— Choisis ton nom —</option>' + EQUIPE.map(n => '<option>'+esc(n)+'</option>').join('');
   let last = cur; try { last = cur || localStorage.getItem('igs_hr_nom'); } catch(e){}
   if (last && EQUIPE.includes(last)) sel.value = last;
@@ -879,8 +881,12 @@ function adProdRow(p){
 }
 function adColRow(c){
   const inp = (cls, v, w, type) => '<input class="'+cls+'" '+(type?'type="'+type+'" ':'')+'value="'+esc(v ?? '')+'" style="width:'+w+';font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px">';
-  return '<tr data-id="'+(c.id||'')+'"><td>'+inp('ad-c-aff', c.affichage, '130px')+'</td><td>'+inp('ad-c-nom', c.nom, '170px')+'</td><td>'+inp('ad-c-taux', c.taux_horaire, '90px', 'number')+'</td><td>'+inp('ad-c-ordre', c.ordre ?? 99, '60px', 'number')+'</td>'
+  return '<tr data-id="'+(c.id||'')+'" data-ident="'+esc(c.identifiant||'')+'" data-email="'+esc(c.email_perso||'')+'" data-acces="'+(c.acces?1:'')+'"><td>'+inp('ad-c-aff', c.affichage, '130px')+'</td><td>'+inp('ad-c-nom', c.nom, '170px')+'</td><td>'+inp('ad-c-taux', c.taux_horaire, '90px', 'number')+'</td><td>'+inp('ad-c-ordre', c.ordre ?? 99, '60px', 'number')+'</td>'
     + '<td style="text-align:center"><input type="checkbox" class="ad-c-actif"'+(c.actif !== false ? ' checked' : '')+'></td>'
+    + '<td style="min-width:190px">'+(!c.id ? '<span class="sub">Enregistre d’abord</span>' : c.acces
+        ? '<b>'+esc(c.identifiant)+'</b>'+(c.mdp_provisoire?' <span class="esp">provisoire</span>':'')+'<div class="sub">'+esc(c.email_perso||'pas d’e-mail perso')+(c.derniere_connexion?' · vu le '+new Date(c.derniere_connexion).toLocaleDateString('fr-FR'):'')+'</div>'
+          + '<button class="btn ad-c-acces" style="padding:3px 8px;margin-top:4px">🔑 Modifier</button> <button class="btn ad-c-retirer" style="padding:3px 8px;margin-top:4px">Retirer</button>'
+        : '<button class="btn ad-c-acces" style="padding:3px 8px">🔑 Créer l’accès</button>')+'</td>'
     + '<td style="white-space:nowrap"><button class="btn ad-c-save" style="padding:3px 8px">💾</button> '+(c.id ? '<button class="btn ad-c-del" style="padding:3px 8px;color:var(--bad)">✕</button>' : '')+'</td></tr>';
 }
 async function adCharger(){
@@ -923,6 +929,23 @@ function adEvents(){
       const v = c => tr.querySelector(c);
       try { await post('/gestion/api/admin/collaborateurs', { id: tr.dataset.id ? Number(tr.dataset.id) : undefined, affichage: v('.ad-c-aff').value, nom: v('.ad-c-nom').value, taux_horaire: v('.ad-c-taux').value, ordre: v('.ad-c-ordre').value, actif: v('.ad-c-actif').checked }); adCharger(); }
       catch(err){ alert(err.message); }
+    }
+    if (e.target.closest('.ad-c-acces')) {
+      const v = c => tr.querySelector(c);
+      const prenom = (v('.ad-c-nom').value || v('.ad-c-aff').value).trim().split(/\\s+/)[0] || '';
+      const sugg = tr.dataset.ident || prenom.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
+      const identifiant = prompt('Identifiant de connexion (prénom sans accent) :', sugg); if (identifiant === null) return;
+      const email_perso = prompt('E-mail perso (pour réinitialiser son mot de passe) :', tr.dataset.email || ''); if (email_perso === null) return;
+      const mot_de_passe = prompt(tr.dataset.acces ? 'Nouveau mot de passe provisoire (laisser vide pour garder l’actuel) :' : 'Mot de passe provisoire (8 caractères minimum, à changer à la 1re connexion) :', ''); if (mot_de_passe === null) return;
+      try {
+        const j = await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/acces', { identifiant, email_perso, mot_de_passe });
+        alert('Accès enregistré.\\n\\nIdentifiant : '+j.identifiant+(mot_de_passe ? '\\nMot de passe provisoire : celui que tu viens de saisir' : '')+'\\nAdresse : '+location.origin+'/gestion');
+        adCharger();
+      } catch(err){ alert(err.message); }
+    }
+    if (e.target.closest('.ad-c-retirer')) {
+      if (!confirm('Retirer l’accès à distance de ce collaborateur ? Il sera déconnecté (le compte contact@ reste utilisable au bureau).')) return;
+      try { await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/acces/retirer'); adCharger(); } catch(err){ alert(err.message); }
     }
     if (e.target.closest('.ad-c-del')) {
       if (!confirm('Supprimer définitivement ce collaborateur ? (Pour le garder dans l\\'historique, décoche plutôt « Actif ».)')) return;

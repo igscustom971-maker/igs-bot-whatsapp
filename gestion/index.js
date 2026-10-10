@@ -56,6 +56,9 @@ module.exports = function mountGestion(app) {
     try { res.json(await formulaire.testMail(req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message, dernierEchecFormulaire: formulaire.dernierEchec() }); }
   });
+  // Comptes individuels (connexion à distance)
+  app.post('/gestion/api/admin/collaborateurs/:id/acces', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').definirAcces(Number(req.params.id), req.body || {})));
+  app.post('/gestion/api/admin/collaborateurs/:id/acces/retirer', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').retirerAcces(Number(req.params.id))));
   app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 
   app.get('/gestion/caisse', auth.requireUser, (req, res) => {
@@ -82,9 +85,10 @@ module.exports = function mountGestion(app) {
     try { res.json((await fn(req)) || { ok: true }); }
     catch (err) { console.error('Gestion heures :', err.message); res.status(400).json({ error: err.message }); }
   };
-  app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir(req.body || {}, quiH(req), req.user.role)));
-  app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role)));
-  app.get('/gestion/api/heures/mes', auth.requireUser, actH(req => heures.mesHeures(String(req.query.collaborateur || ''), String(req.query.lundi || ''))));
+  // Compte individuel : toujours verrouillé sur son propre nom
+  app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
+  app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role, req.user.collab || null)));
+  app.get('/gestion/api/heures/mes', auth.requireUser, actH(req => heures.mesHeures(String(req.user.collab || req.query.collaborateur || ''), String(req.query.lundi || ''))));
   app.get('/gestion/api/heures/semaine', auth.requireUser, auth.requireAdmin, actH(req => heures.semaine(String(req.query.lundi || ''))));
   app.post('/gestion/api/heures/:id(\\d+)/modifier', auth.requireUser, auth.requireAdmin, actH(req => heures.modifier(Number(req.params.id), req.body || {}, quiH(req))));
   app.post('/gestion/api/heures/payer', auth.requireUser, auth.requireAdmin, actH(req => heures.payer(String(req.body?.collaborateur || ''), String(req.body?.lundi || ''), quiH(req))));

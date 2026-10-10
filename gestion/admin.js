@@ -78,9 +78,13 @@ async function collaborateurs({ admin = false, tous = false } = {}) {
     const ins = await supabase.from('gestion_collaborateurs').insert(EQUIPE_DEFAUT.map(c => ({ ...c, actif: true }))).select();
     data = ins.data || [];
   }
+  // Jamais de mot de passe ni de jeton renvoyé, même à l'admin
   return data
     .filter(c => tous || c.actif)
-    .map(c => (admin ? c : { id: c.id, affichage: c.affichage, actif: c.actif }));
+    .map(c => (admin
+      ? { id: c.id, affichage: c.affichage, nom: c.nom, taux_horaire: c.taux_horaire, actif: c.actif, ordre: c.ordre,
+          identifiant: c.identifiant || null, email_perso: c.email_perso || null, acces: !!c.mdp_hash, mdp_provisoire: !!c.mdp_provisoire, derniere_connexion: c.derniere_connexion || null }
+      : { id: c.id, affichage: c.affichage, actif: c.actif }));
 }
 
 async function enregistrerCollaborateur(d) {

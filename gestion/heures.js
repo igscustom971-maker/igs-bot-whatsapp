@@ -129,9 +129,10 @@ async function ligne(id) {
 }
 
 // Suppression d'une saisie tant que la semaine n'est pas payée (équipe et admin)
-async function supprimer(id, user, role) {
+async function supprimer(id, user, role, collab = null) {
   needDb();
   const l = await ligne(id);
+  if (collab && l.collaborateur !== collab) throw new Error('Tu ne peux supprimer que tes propres heures');
   if (l.paiement_id) throw new Error('Semaine déjà payée : annule d\'abord le paiement');
   const { error } = await supabase.from('gestion_heures').delete().eq('id', id);
   if (error) throw new Error(`Supabase : ${error.message}`);

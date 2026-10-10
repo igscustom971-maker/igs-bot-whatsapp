@@ -201,3 +201,13 @@ create table if not exists gestion_heures (
 );
 create index if not exists gestion_heures_jour on gestion_heures (jour);
 alter table gestion_heures enable row level security;
+
+-- Comptes individuels des collaborateurs (connexion à distance : identifiant = prénom, mot de passe, e-mail perso)
+alter table gestion_collaborateurs add column if not exists identifiant        text unique;
+alter table gestion_collaborateurs add column if not exists email_perso        text;
+alter table gestion_collaborateurs add column if not exists mdp_hash           text;
+alter table gestion_collaborateurs add column if not exists mdp_provisoire     boolean default false;
+alter table gestion_collaborateurs add column if not exists mdp_version        integer default 0;
+alter table gestion_collaborateurs add column if not exists reset_hash         text;
+alter table gestion_collaborateurs add column if not exists reset_expire       timestamptz;
+alter table gestion_collaborateurs add column if not exists derniere_connexion timestamptz;
