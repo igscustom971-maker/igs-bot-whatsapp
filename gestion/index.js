@@ -305,6 +305,9 @@ module.exports = function mountGestion(app) {
     }
   });
 
+  // Générateur de BAT
+  require('./bat-generateur').mount(app);
+
   commandes.startSync();
   planches.startSync();
   heures.startRecap();

@@ -336,6 +336,20 @@ async function trouverBat(ndevis) {
   return files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name))) || null;
 }
 
+// Dépôt du BAT généré (« BON A TIRER.pdf », remplace l'existant)
+async function deposerBat(cle, buffer, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row || !row.n_devis) throw new Error('Commande introuvable');
+  if (!buffer || buffer.length < 1000 || buffer.slice(0, 4).toString() !== '%PDF') throw new Error('PDF invalide');
+  const f = await findCommandeFolder(row.n_devis);
+  if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
+  const it = await g.uploadFile(f.id, 'BON A TIRER.pdf', buffer, 'application/pdf', undefined, 'replace');
+  batInfo.set(cle, { ...(batInfo.get(cle) || { dossier: true, formulaire: true }), bat: true, le: new Date().toISOString() });
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_genere', cle, details: { taille: buffer.length } });
+  console.log(`Gestion : BAT généré et déposé pour ${row.n_devis} (${user})`);
+  return { ok: true, id: it.id };
+}
+
 async function setBatEnvoye(cle, envoye, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
@@ -674,4 +688,4 @@ async function supprimerBordereau(cle, itemId, user) {
 
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 
-module.exports = { statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

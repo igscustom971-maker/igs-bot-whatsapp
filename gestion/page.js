@@ -265,7 +265,7 @@ ${view === 'accueil' ? `
           <a class="mod" href="/gestion/commandes"><div class="i">📦</div><div class="t">Commandes</div><div class="d">Suivi, BAT, tailles, visuels</div></a>
           <a class="mod" href="/gestion/planches"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></a>
           <a class="mod" href="/gestion/stock"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></a>
-          <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
+          <a class="mod" href="/gestion/commandes#bat"><div class="i">🖨</div><div class="t">BAT</div><div class="d">À faire, à envoyer, générateur à l'échelle</div></a>
           ${user.role === 'admin' ? '<a class="mod" href="/gestion/admin"><div class="i">⚙️</div><div class="t">Admin</div><div class="d">Collaborateurs, produits, couleurs</div></a>' : ''}
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <a class="mod" href="/gestion/heures"><div class="i">⏱</div><div class="t">Heures</div><div class="d">${user.role === 'admin' ? 'Saisie, totaux par semaine, paiements' : 'Saisir mes heures du jour'}</div></a>
@@ -1431,7 +1431,7 @@ async function ouvrir(cle){
       : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
       ? '<iframe class="bat" src="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'#view=FitH" title="BAT"></iframe><div class="note" style="margin-top:6px"><a href="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'" target="_blank" rel="noopener">Ouvrir le BAT en grand</a> · modifié le '+new Date(d.bat.modifie).toLocaleDateString('fr-FR')+'</div>'
-      : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '</div>';
+      : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '<div class="btnrow" style="margin-top:8px"><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 '+(d.bat ? 'Refaire le BAT avec le générateur' : 'Générer le BAT')+'</a></div></div>';
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
     $('dossier').onclick = batClic;
@@ -1471,9 +1471,10 @@ function batRender(){
     + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
     + (e === 'client' || e === 'modif' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div>'+batReponseHtml(c)+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
+    + (e === 'envoyer' || e === 'modif' ? '<a class="btn" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener" title="Refaire le BAT avec le générateur">🎨</a>' : '')
     + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
     + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
-    + (e === 'faire' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
+    + (e === 'faire' ? '<a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 Générer le BAT</a><button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
     + (e === 'modif' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer le BAT corrigé</button><button class="btn" data-bat-ok="'+esc(c.cle)+'" title="Valider quand même">✅</button>' : '')
     + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';

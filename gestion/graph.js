@@ -234,10 +234,10 @@ async function moveItem(itemId, parentId, o) {
 }
 
 // Dépôt d'un fichier dans un dossier (conflit = renommage automatique "NOM 1.pdf")
-async function uploadFile(parentId, name, buffer, contentType, o) {
+async function uploadFile(parentId, name, buffer, contentType, o, conflit = 'rename') {
   const base = `${GRAPH}${await D(o)}/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:`;
   if (buffer.length < 4 * 1024 * 1024) {
-    const res = await fetch(`${base}/content?@microsoft.graph.conflictBehavior=rename`, {
+    const res = await fetch(`${base}/content?@microsoft.graph.conflictBehavior=${conflit}`, {
       method: 'PUT', headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': contentType || 'application/octet-stream' }, body: buffer,
     });
     if (!res.ok) throw new Error(`Dépôt du fichier refusé : ${res.status} ${(await res.text()).slice(0, 200)}`);
@@ -245,7 +245,7 @@ async function uploadFile(parentId, name, buffer, contentType, o) {
   }
   const s = await fetch(`${base}/createUploadSession`, {
     method: 'POST', headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } }),
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': conflit } }),
   });
   if (!s.ok) throw new Error(`Dépôt du fichier refusé : ${s.status} ${(await s.text()).slice(0, 200)}`);
   const { uploadUrl } = await s.json();
