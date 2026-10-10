@@ -315,7 +315,7 @@ async function scannerBat() {
   batScanEnCours = true;
   aGenerer = [];
   try {
-    for (const r of cache.rows.filter(x => x.n_devis && key(x.statut || '') === 'payee')) {
+    for (const r of cache.rows.filter(x => x.n_devis && avantBat(x.statut))) {
       try {
         const f = await findCommandeFolder(r.n_devis);
         if (!f) { batInfo.set(r.cle, { dossier: false, formulaire: false, bat: false, le: new Date().toISOString() }); continue; }
@@ -759,5 +759,8 @@ async function supprimerBordereau(cle, itemId, user) {
 }
 
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
+// Commandes concernées par le BAT : PAYÉE, et aussi EN DEVIS / sans statut / statut inconnu (contenu vide, commande saisie à la main)
+const APRES_BAT = ['validee', 'encommande', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
+const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 
-module.exports = { marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

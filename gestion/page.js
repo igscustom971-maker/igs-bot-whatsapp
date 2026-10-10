@@ -424,6 +424,8 @@ const metrage = p => p.format ? p.format : (p.metres != null ? String(p.metres).
 const payClass = v => { const n = norm(v); return n.includes('NON') ? 'no' : n.includes('PAYEE') ? 'ok' : n ? 'cash' : ''; };
 const nonPayee = p => norm(p.paiement).includes('NON');
 const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STATUT');
+// BAT : PAYÉE, ou EN DEVIS / sans statut / statut inconnu dès que le formulaire est reçu (commandes sans contenu, saisies à la main)
+const AVANT_BAT = c => { const k = statutKey(c.statut); if (k === 'PAYÉE') return true; if (['VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false; return !!(c.bat_envoye_le || (c.bat_info && c.bat_info.formulaire)); };
 const badge = s => { const k = statutKey(s); const c = COULEURS[k] || ['#f3f4f6','#374151']; return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+'">'+esc(k)+'</span>'; };
 const fdate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '';
 const pad = n => String(n).padStart(2,'0');
@@ -1310,7 +1312,7 @@ function accueil(){
   retards.sort((a,b)=>a.date_livraison.localeCompare(b.date_livraison)).forEach(c => add(c, 'En retard · '+fdate(c.date_livraison), 'r'));
   actifs.filter(c => c.date_livraison === today).forEach(c => add(c, 'Livraison aujourd\\'hui', 'o'));
   actifs.filter(c => c.date_livraison === addDays(1)).forEach(c => add(c, 'Livraison demain', 'o'));
-  data.filter(c => statutKey(c.statut) === 'PAYÉE').forEach(c => { const e = batEtape(c); if (e === 'faire') add(c, 'BAT à faire', 'o'); else if (e === 'envoyer') add(c, 'BAT à envoyer', 'o'); else if (e === 'formulaire') add(c, 'Attend le formulaire', 'b'); });
+  data.filter(AVANT_BAT).forEach(c => { const e = batEtape(c); if (e === 'faire') add(c, 'BAT à faire', 'o'); else if (e === 'envoyer') add(c, 'BAT à envoyer', 'o'); else if (e === 'formulaire') add(c, 'Attend le formulaire', 'b'); });
   actifs.filter(c => c.controle && c.controle.ecart).forEach(c => add(c, 'Écart devis '+c.controle.devis+' / tableau '+c.controle.tableau, 'r'));
   actifs.filter(c => c.date_dynamique && !c.date_livraison_manuelle).forEach(c => add(c, 'Date auto (=TODAY)', 'y'));
   $('prios').innerHTML = prios.length ? prios.slice(0,10).map(p =>
@@ -1332,7 +1334,7 @@ function accueil(){
 }
 
 function liste(){
-  if ($('bat-n')) $('bat-n').textContent = data.filter(c => statutKey(c.statut) === 'PAYÉE' && ['modif','faire','envoyer'].includes(batEtape(c))).length || '';
+  if ($('bat-n')) $('bat-n').textContent = data.filter(c => AVANT_BAT(c) && ['modif','faire','envoyer'].includes(batEtape(c))).length || '';
   const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
   if (filtre === 'TOUS') filtre = 'ACTIFS';
@@ -1426,7 +1428,7 @@ async function ouvrir(cle){
     }
     // BAT
     if (c.bat_reponse && statutKey(c.statut) !== 'PAYÉE') h += '<div class="card"><h3>Réponse du client au BAT</h3>'+batReponseHtml(c)+'</div>';
-    if (statutKey(c.statut) === 'PAYÉE' && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + batReponseHtml(c) + (c.bat_envoye_le
+    if (AVANT_BAT(c) && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + batReponseHtml(c) + (c.bat_envoye_le
       ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
       : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
@@ -1454,7 +1456,7 @@ function batEtape(c){
 }
 function batRender(){
   const q = norm(recherche);
-  let rows = data.filter(c => statutKey(c.statut) === 'PAYÉE');
+  let rows = data.filter(AVANT_BAT);
   if (q) rows = rows.filter(c => norm([c.n_devis, c.client, c.affectation, c.infos].join(' ')).includes(q));
   rows.sort((a,b) => String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')));
   const G = [
@@ -1482,7 +1484,7 @@ function batRender(){
     + (e === 'modif' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer le BAT corrigé</button><button class="btn" data-bat-ok="'+esc(c.cle)+'" title="Valider quand même">✅</button>' : '')
     + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';
-  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Dès que le formulaire arrive, le BAT est créé automatiquement (🤖) : vérifie-le, retouche-le si besoin avec 🎨, puis envoie-le.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
+  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes <b>PAYÉE</b> (et sans statut ou EN DEVIS dès que le formulaire est reçu), de la livraison la plus urgente à la plus lointaine. Dès que le formulaire arrive, le BAT est créé automatiquement (🤖) : vérifie-le, retouche-le si besoin avec 🎨, puis envoie-le.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
     + G.map(([k, t, d]) => { const l = rows.filter(c => batEtape(c) === k); if (!l.length && (k === 'inconnu' || k === 'formulaire')) return '';
       return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
 }
@@ -1646,7 +1648,7 @@ function cmdActionsHtml(c){
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(statutKey(c.statut) === 'PAYÉE' ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(['PAYÉE','EN DEVIS','SANS STATUT'].includes(statutKey(c.statut)) ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {

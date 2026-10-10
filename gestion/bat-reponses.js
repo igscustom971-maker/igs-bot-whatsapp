@@ -76,7 +76,7 @@ async function traiter(c, { message, canal, le }) {
   return reponse;
 }
 
-const enAttente = rows => rows.filter(r => r.bat_envoye_le && commandes.statutEst(r.statut, 'PAYÉE'));
+const enAttente = rows => rows.filter(r => r.bat_envoye_le && commandes.avantBat(r.statut));
 
 // WhatsApp : appelé depuis le webhook (lecture seule) pour chaque message texte reçu
 async function messagesWhatsApp(msgs) {
