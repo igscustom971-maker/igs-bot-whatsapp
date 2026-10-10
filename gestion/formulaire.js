@@ -133,6 +133,15 @@ function mount(app) {
       await g.sendMail(MAILBOX, { to: DEST, subject: `Nouvelle commande - ${devis} - ${client}`, html, replyTo: email, attachments });
       console.log(`Formulaire : commande ${devis} (${client}) envoyée, ${attachments.length} pièce(s) jointe(s), ${(total / 1048576).toFixed(1)} Mo`);
       res.json({ ok: true });
+      // Dépôt dans SharePoint + ligne de la commande + BDC SEFI (remplace le flux « Dépôt fichiers commande »), si activé
+      const depot = require('./depot');
+      if (await depot.actif().catch(() => false)) {
+        depot.deposer({ devis, client, email, tel, zone: zoneFlocage(b, aAvant, aArriere), instructions, attachments }).catch(async err => {
+          console.error(`Dépôt formulaire ${devis} : échec`, err.message);
+          await g.sendMail(MAILBOX, { to: MAILBOX, subject: `⚠️ Dépôt automatique impossible : ${devis} - ${client}`,
+            html: `<p>Le formulaire de <b>${esc(client)}</b> (${esc(devis)}) est bien arrivé par mail, mais le dépôt automatique dans SharePoint a échoué :</p><p>${esc(err.message)}</p><p>Dépose les fichiers à la main depuis le mail « Nouvelle commande - ${esc(devis)} - ${esc(client)} ».</p>` }).catch(() => {});
+        });
+      }
     } catch (err) {
       console.error('Formulaire : erreur', err.message);
       dernierEchec = { le: new Date().toISOString(), erreur: err.message };

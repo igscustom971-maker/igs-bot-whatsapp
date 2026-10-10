@@ -983,10 +983,24 @@ async function adTaches(){
     const d = t.dernier;
     return '<tr><td><b>'+esc(t.nom)+'</b></td><td class="note">'+esc(t.flux)+'</td><td class="note">'+esc(t.rythme)+'</td>'
       + '<td class="note">'+(d ? (d.ok ? '✅ ' : '⚠️ ')+new Date(d.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'<br>'+esc(d.resultat || '') : '—')+'</td>'
-      + '<td style="white-space:nowrap"><label style="display:inline-flex;gap:6px;align-items:center;font-size:13px;margin-right:6px"><input type="checkbox" data-tache-on="'+esc(t.id)+'"'+(t.active?' checked':'')+'> Activée</label><button class="btn" data-tache-run="'+esc(t.id)+'">▶ Lancer</button></td></tr>';
+      + '<td style="white-space:nowrap"><label style="display:inline-flex;gap:6px;align-items:center;font-size:13px;margin-right:6px"><input type="checkbox" data-tache-on="'+esc(t.id)+'"'+(t.active?' checked':'')+'> Activée</label>'+(t.evenement ? '' : '<button class="btn" data-tache-run="'+esc(t.id)+'">▶ Lancer</button>')+'</td></tr>';
   }).join('');
-  h += '</tbody></table></div><div class="msg" id="tc-msg"></div>';
+  h += '</tbody></table></div>';
+  if (e.sefi) {
+    h += '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      + (e.sefi.verrou ? '<span class="esp" style="background:#fee2e2;color:#991b1b">⚠️ Envoi SEFI bloqué : '+esc(e.sefi.verrou)+'</span><button class="btn" id="sefi-debloquer">Débloquer (BDC vérifié)</button>' : '')
+      + '<button class="btn pink" id="sefi-go">📨 Envoyer le BDC SEFI maintenant</button>'
+      + (e.sefi.dernier ? '<span class="note">Dernier envoi : '+new Date(e.sefi.dernier.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' · lot '+esc(e.sefi.dernier.lot || '')+' · '+esc((e.sefi.dernier.devis || []).join(', '))+'</span>' : '')
+      + '</div>';
+  }
+  h += '<div class="msg" id="tc-msg"></div>';
   box.innerHTML = h;
+  if ($('sefi-go')) $('sefi-go').onclick = async () => {
+    if (!confirm('Envoyer maintenant le bon de commande à SEFI ?')) return;
+    try { const r = await post('/gestion/api/sefi/envoyer'); $('tc-msg').className = 'msg on ' + (r.ok ? 'ok' : 'err'); $('tc-msg').innerHTML = esc(r.message || ''); }
+    catch(err){ $('tc-msg').className = 'msg on err'; $('tc-msg').innerHTML = '❌ ' + esc(err.message); }
+  };
+  if ($('sefi-debloquer')) $('sefi-debloquer').onclick = async () => { try { await post('/gestion/api/sefi/debloquer'); adTaches(); } catch(err){ alert(err.message); } };
   const tm = (t, k) => { $('tc-msg').className = 'msg on ' + k; $('tc-msg').innerHTML = t; };
   box.onchange = async ev => {
     const id = ev.target.dataset && ev.target.dataset.tacheOn; if (!id) return;

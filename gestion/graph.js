@@ -264,4 +264,43 @@ async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+// ---------- Classeur Excel (bon de commande SEFI, stock, tailles) ----------
+const wb = async (itemId, o) => `${await D(o)}/items/${encodeURIComponent(itemId)}/workbook`;
+// Valeurs d'une plage (ex. "A17:Q48")
+async function readRange(itemId, sheet, address, o) {
+  const r = await graph(`${await wb(itemId, o)}/worksheets/${encodeURIComponent(sheet)}/range(address='${address}')?$select=values,formulas,address`);
+  return r;
+}
+// Plage utilisée d'une feuille (valeurs seulement) ; null si la feuille est vide
+async function usedRange(itemId, sheet, o) {
+  try { return await graph(`${await wb(itemId, o)}/worksheets/${encodeURIComponent(sheet)}/usedRange(valuesOnly=true)?$select=values,address,rowIndex,columnIndex`); }
+  catch (err) { if (err.status === 404) return null; throw err; }
+}
+async function clearRange(itemId, sheet, address, o) {
+  return gPost(`${await wb(itemId, o)}/worksheets/${encodeURIComponent(sheet)}/range(address='${address}')/clear`, { applyTo: 'Contents' });
+}
+async function worksheets(itemId, o) {
+  return (await graph(`${await wb(itemId, o)}/worksheets?$select=name,position`)).value || [];
+}
+async function deleteWorksheet(itemId, sheet, o) {
+  const res = await fetch(`${GRAPH}${await wb(itemId, o)}/worksheets/${encodeURIComponent(sheet)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${await appToken()}` } });
+  if (!res.ok && res.status !== 404) throw new Error(`Suppression de la feuille ${sheet} refusée : ${res.status}`);
+}
+// Conversion PDF par SharePoint (fichier Office -> PDF, selon la mise en page enregistrée dans le fichier)
+async function pdf(itemId, o) {
+  const res = await fetch(`${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}/content?format=pdf`, { headers: { Authorization: `Bearer ${await appToken()}` } });
+  if (!res.ok) throw new Error(`Conversion PDF refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+// Suppression d'une ligne de tableau Excel (index dans le corps du tableau, 0 = première ligne de données)
+async function deleteTableRow(itemId, table, index, o) {
+  const base = `${GRAPH}${await wb(itemId, o)}/tables/${encodeURIComponent(table)}/rows`;
+  for (const url of [`${base}/$/ItemAt(index=${index})`, `${base}/itemAt(index=${index})`]) {
+    const res = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${await appToken()}` } });
+    if (res.ok) return;
+    if (res.status !== 400 && res.status !== 404) throw new Error(`Suppression de la ligne ${index} refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  }
+  throw new Error(`Suppression de la ligne ${index} du tableau ${table} impossible`);
+}
+
+module.exports = { deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

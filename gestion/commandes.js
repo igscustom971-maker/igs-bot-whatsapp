@@ -421,6 +421,50 @@ async function creerCommande(data, user) {
   return { cle: r ? r.cle : null };
 }
 
+// Formulaire client reçu (reprend le script Office du flux « Dépôt fichiers commande ») :
+// ligne trouvée par N° de devis -> Contenu mail, Zone, PLANCHE (si vide) mis à jour, PAYÉE -> VALIDÉE ;
+// pas de ligne -> ligne créée (VALIDÉE, PLANCHE « À FAIRE »)
+async function majFormulaire({ devis, client, email, tel, instructions, zone }) {
+  const t = v => String(v ?? '').replace(/\u00a0/g, ' ').trim();
+  const vide = l => l === '' || l === '—' || l === '-';
+  const cible = t(devis).toUpperCase();
+  const contenu = [email, tel, ...t(instructions).split(/\r?\n|\s\|\s/)].map(l => t(l)).filter(l => !vide(l)).join('\n');
+  const zoneF = vide(t(zone)) ? '' : t(zone);
+  const xl = require('./excel');
+  const tab = await xl.readTable(cfg.TABLE_COMMANDES);
+  const cDevis = xl.col(tab, 'N° Devis', 'N Devis', 'Devis');
+  const ligne = tab.rows.find(r => t(r.values[cDevis]).toUpperCase() === cible);
+  const opt = (...n) => { try { return xl.col(tab, ...n); } catch { return null; } };
+  const [cContenu, cZone, cPlanche, cStatut] = [opt('Contenu mail'), opt('Zone de flocage'), opt('PLANCHE', 'Planche'), xl.col(tab, 'Statut')];
+  if (!ligne) {
+    await xl.addRow(tab, {
+      'N° Devis|N Devis|Devis': cible, 'Client': t(client).slice(0, 100),
+      ...(contenu ? { '?Contenu mail': contenu } : {}), ...(zoneF ? { '?Zone de flocage': zoneF } : {}),
+      '?PLANCHE|Planche': 'À FAIRE', 'Statut': 'VALIDÉE',
+    }, 'N° Devis|N Devis|Devis');
+    await syncNow();
+    return `ligne créée pour ${cible}`;
+  }
+  if (contenu && cContenu !== null) await xl.setCell(tab, ligne._row, cContenu, contenu);
+  if (zoneF && cZone !== null) await xl.setCell(tab, ligne._row, cZone, zoneF);
+  if (cPlanche !== null && !t(ligne.values[cPlanche])) await xl.setCell(tab, ligne._row, cPlanche, 'À FAIRE');
+  if (key(t(ligne.values[cStatut])) === 'payee') await xl.setCell(tab, ligne._row, cStatut, 'VALIDÉE');
+  await syncNow();
+  return `ligne ${cible} mise à jour`;
+}
+
+// Dossier « N° devis - Client » de Clients/Commandes : trouvé ou créé
+async function dossierCommande(nomDossier, devis) {
+  commandesFolder.at = 0; // liste fraîche
+  const parDevis = devis ? await findCommandeFolder(devis) : null;
+  if (parDevis && !parDevis.archive) return parDevis;
+  const existant = commandesFolder.list.find(x => x.folder && x.name.trim().toLowerCase() === nomDossier.trim().toLowerCase());
+  if (existant) return existant;
+  const f = await g.createFolder(commandesFolder.id, nomDossier);
+  commandesFolder.at = 0;
+  return f;
+}
+
 // Visuel déposé depuis le générateur de BAT : nouveau fichier dans le dossier du visuel (NOM_Avant / NOM_Arriere),
 // ou remplacement d'un fichier existant du dossier de la commande (même nom, extension du nouveau fichier)
 async function deposerVisuel(cle, { visuel, face, remplace, file }, user) {
@@ -828,4 +872,4 @@ const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 // VALIDÉE est aussi relue : une commande validée sans fichier BAT reste « BAT à faire »
 const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee';
 
-module.exports = { ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

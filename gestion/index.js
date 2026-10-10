@@ -336,6 +336,31 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/taches/:id/activer', auth.requireUser, auth.requireAdmin, actN(req => taches.activer(req.params.id, !!req.body?.actif)));
   app.post('/gestion/api/taches/:id/lancer', auth.requireUser, auth.requireAdmin, actN(req => taches.lancerMaintenant(req.params.id, req.user.name || req.user.email)));
 
+  // ---------- Bon de commande SEFI : envoi manuel (dashboard ou bouton du fichier Excel), déblocage ----------
+  const sefi = require('./sefi');
+  let sefiDernierBouton = 0;
+  const lancerSefi = par => {
+    if (Date.now() - sefiDernierBouton < 120e3) return { ok: false, message: 'Un envoi vient d\'être lancé, attends 2 minutes.' };
+    sefiDernierBouton = Date.now();
+    sefi.envoyer(par).then(r => console.log('SEFI (manuel) :', r.raison || `lot ${r.lot} envoyé`)).catch(err => {
+      console.error('SEFI (manuel) : échec', err.message);
+      require('./graph').sendMail((process.env.FORM_MAILBOX || 'contact@igscustom.fr'), { to: (process.env.FORM_MAILBOX || 'contact@igscustom.fr'), subject: '⚠️ Envoi du BDC SEFI impossible', html: `<p>${String(err.message).replace(/</g, '&lt;')}</p>` }).catch(() => {});
+    });
+    return { ok: true, message: 'Envoi lancé : le récap arrive par mail dans 1 à 2 minutes (rien n\'est envoyé si le BDC est vide).' };
+  };
+  app.post('/gestion/api/sefi/envoyer', auth.requireUser, actN(req => lancerSefi(req.user.name || req.user.email)));
+  app.post('/gestion/api/sefi/debloquer', auth.requireUser, auth.requireAdmin, actN(() => sefi.debloquer()));
+  // Bouton du fichier Excel (script Office) : jeton dédié SEFI_BOUTON_JETON, ne permet QUE de lancer l'envoi
+  app.options('/gestion/public/sefi/envoyer', (req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type' }).sendStatus(204); });
+  app.post('/gestion/public/sefi/envoyer', (req, res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    const attendu = process.env.SEFI_BOUTON_JETON;
+    const recu = String(req.body?.jeton || '');
+    const crypto = require('crypto');
+    if (!attendu || recu.length !== attendu.length || !crypto.timingSafeEqual(Buffer.from(recu), Buffer.from(attendu))) return res.status(403).json({ ok: false, message: 'Jeton invalide' });
+    res.json(lancerSefi('Bouton Excel'));
+  });
+
   // ---------- Journal d'une commande + question interne à Leïla ----------
   const leila = require('./leila');
   app.get('/gestion/api/commandes/:cle/journal', auth.requireUser, actN(req => leila.journalCommande(req.params.cle)));

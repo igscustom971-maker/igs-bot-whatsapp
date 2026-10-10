@@ -63,4 +63,21 @@ async function addRow(t, fields, colTemoin) {
   return t.rows.length;
 }
 
-module.exports = { readTable, setCell, addRow, col, key };
+// Supprime des lignes (index _row), du bas vers le haut. Un tableau garde au moins une ligne :
+// si tout part, la 1re ligne est vidée (formules conservées).
+async function supprimerLignes(t, indices) {
+  if (!indices.length) return 0;
+  const tout = indices.length === t.rows.length;
+  for (const i of [...indices].sort((a, b) => b - a)) {
+    if (tout && i === 0) {
+      const r = await g.tableRange(await classeur(), t.table);
+      const formules = (r.formulas || [])[1] || [];
+      const ligne = formules.map(f => (typeof f === 'string' && f.startsWith('=') ? f : ''));
+      const adr = `${t.startCol}${t.startRow + 1}:${colLetter(colIndex(t.startCol) + ligne.length - 1)}${t.startRow + 1}`;
+      await g.patchRange(await classeur(), t.sheet, adr, [ligne], undefined, 'formulas');
+    } else await g.deleteTableRow(await classeur(), t.table, i);
+  }
+  return indices.length;
+}
+
+module.exports = { readTable, setCell, addRow, col, key, supprimerLignes };

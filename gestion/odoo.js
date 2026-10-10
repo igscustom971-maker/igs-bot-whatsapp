@@ -310,7 +310,30 @@ async function etatDevis(numero) {
   return r[0]?.state || null;
 }
 
+// Fiche client par e-mail (mail de planche) ; null si aucune
+async function partnerParEmail(email) {
+  const e = String(email || '').trim();
+  if (!e || !e.includes('@')) return null;
+  const r = await kw('res.partner', 'search_read', [[['email', '=ilike', e]]], { fields: ['id', 'name', 'email', 'phone'], limit: 1 });
+  return r[0] || null;
+}
+
+// Commandes confirmées (payées) des 48 dernières heures, hors planches DTF : [{ name, client, infos }]
+async function commandesPayeesRecentes(heures = 48) {
+  const depuis = new Date(Date.now() - heures * 3600e3).toISOString().replace('T', ' ').slice(0, 19);
+  const planches = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['order_line.product_id.default_code', 'in', [PRODUITS.METRE, PRODUITS.A3, PRODUITS.A4]]]], { fields: ['id'] });
+  const exclus = planches.map(p => p.id);
+  const so = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['state', '=', 'sale'], ['date_order', '>=', depuis], ['id', 'not in', exclus]]], { fields: ['name', 'partner_id', 'order_line'] });
+  const out = [];
+  for (const o of so) {
+    const lignes = o.order_line.length ? await kw('sale.order.line', 'search_read', [[['id', 'in', o.order_line]]], { fields: ['product_uom_qty', 'name', 'display_type'] }) : [];
+    const infos = lignes.filter(l => !l.display_type).map(l => `${l.product_uom_qty} x ${String(l.name || '').split('\n')[0]}`).join('\r\n');
+    out.push({ name: o.name, client: o.partner_id ? o.partner_id[1] : '', infos });
+  }
+  return out;
+}
+
 module.exports = {
-  etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
+  commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel,
 };
