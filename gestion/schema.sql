@@ -101,3 +101,33 @@ create table if not exists gestion_reglages (
 alter table gestion_actions enable row level security;
 alter table gestion_clients_alias enable row level security;
 alter table gestion_reglages enable row level security;
+
+-- ============================================
+-- MODULE STOCK — à exécuter une fois
+-- ============================================
+create table if not exists gestion_stock_clients (
+  id          bigserial primary key,
+  client      text not null,        -- ex. SANDAE
+  article     text,
+  couleur     text,
+  taille      text,
+  coupe       text,
+  quantite    integer not null default 0,
+  note        text,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+create table if not exists gestion_stock_mouvements (
+  id           bigserial primary key,
+  cree_le      timestamptz default now(),
+  utilisateur  text,
+  stock        text,       -- vierges / consommables / client
+  client       text,
+  article      text,
+  avant        numeric,
+  apres        numeric,
+  motif        text
+);
+create index if not exists gestion_stock_mouvements_idx on gestion_stock_mouvements (cree_le desc);
+alter table gestion_stock_clients enable row level security;
+alter table gestion_stock_mouvements enable row level security;

@@ -11,7 +11,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
 <style>
 :root{
@@ -160,6 +160,18 @@ a.mod:hover{border-color:var(--pink)}
 .switch{position:relative;width:44px;height:24px;border-radius:999px;background:#d4d0e2;border:none;flex:none}
 .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
 .switch.on{background:var(--ok)} .switch.on::after{left:23px}
+/* Stock */
+.qty{display:inline-flex;align-items:center;gap:4px}
+.qty button{width:28px;height:28px;border-radius:7px;border:1px solid var(--line);background:#fff;font-weight:800;color:var(--ink);padding:0}
+.qty b{min-width:34px;text-align:center;font-variant-numeric:tabular-nums;cursor:pointer;border-bottom:1px dashed #cfc8e6}
+.zero{color:var(--muted)}
+.stk{width:100%;border-collapse:collapse;font-size:13px}
+.stk td,.stk th{padding:6px 6px;border-bottom:1px solid var(--line);text-align:left}
+.stk th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.stk tr:last-child td{border-bottom:none}
+.mvt{font-size:12px;padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:8px}
+.mvt:last-child{border-bottom:none}
+.mvt .d{color:var(--muted);white-space:nowrap}
 /* Date de livraison modifiable */
 .dliv{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
@@ -195,7 +207,7 @@ a.mod:hover{border-color:var(--pink)}
     <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion">Accueil</a>
     <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes">Commandes</a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
-    <a class="off" title="Bientôt">Stock</a>
+    <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock">Stock</a>
     <a class="off" title="Bientôt">Journal</a>
   </nav>
   <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span><a href="/gestion/auth/logout">Déconnexion</a></div>
@@ -215,7 +227,7 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Modules</h3><div class="mods">
           <a class="mod" href="/gestion/commandes"><div class="i">📦</div><div class="t">Commandes</div><div class="d">Suivi, BAT, tailles, visuels</div></a>
           <a class="mod" href="/gestion/planches"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></a>
-          <div class="mod soon"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></div>
+          <a class="mod" href="/gestion/stock"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></a>
           <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
           ${user.role === 'admin' ? '<a class="mod" href="/panel" target="_blank" rel="noopener"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Panneau du bot WhatsApp</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
@@ -225,6 +237,23 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Planches DTF</h3><div id="plhome"><div class="skel"></div></div></div>
         <div class="card"><h3>Commandes par statut</h3><div class="flow" id="flow"></div></div>
         <div class="card"><h3>Charge par personne</h3><div class="flow" id="charge"></div></div>
+      </div>
+    </div>
+  </section>` : view === 'stock' ? `
+  <section id="v-stock">
+    <div class="tools">
+      <input id="q" class="search" type="search" placeholder="Filtrer les t-shirts (couleur, taille, référence)…">
+      <button id="refresh" class="btn primary">↻ Actualiser</button>
+      <span id="sync" class="sync"></span>
+    </div>
+    <div class="cols">
+      <div class="stack">
+        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">T-shirts vierges <button class="btn" id="add-vierge">＋ Article</button></h3><div id="st-vierges"><div class="skel"></div><div class="skel"></div></div></div>
+      </div>
+      <div class="stack">
+        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Consommables <button class="btn" id="add-conso">＋ Consommable</button></h3><div id="st-conso"><div class="skel"></div></div></div>
+        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Stocks clients <button class="btn" id="add-client">＋ Nouveau stock client</button></h3><div id="st-clients"><div class="skel"></div></div></div>
+        <div class="card"><h3>Derniers mouvements</h3><div id="st-mvt"></div></div>
       </div>
     </div>
   </section>` : view === 'planches' ? `
@@ -318,6 +347,12 @@ async function api(path, force){
 async function charger(force){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
+    if (VIEW === 'stock') {
+      const r = await fetch('/gestion/api/stock'); if (r.status === 401) return location.href = '/gestion/auth/login';
+      const j = await r.json(); if (j.error) throw new Error(j.error);
+      stockData = j; $('sync').className = 'sync'; $('sync').textContent = 'Lu dans l\\'Excel à ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      return afficher();
+    }
     const [jc, jp] = await Promise.all([
       VIEW !== 'planches' ? api('/gestion/api/commandes', force) : null,
       VIEW !== 'commandes' ? api('/gestion/api/planches', force) : null,
@@ -334,7 +369,7 @@ async function charger(force){
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
 }
 
-function afficher(){ if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else liste(); }
+function afficher(){ if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -393,6 +428,83 @@ function plListe(){
 }
 
 let autoEtat = null;
+// ---------- Stock ----------
+let stockData = null, stClient = null, stZeros = false;
+function qtyHtml(kind, attrs, n){
+  return '<span class="qty" '+attrs+' data-kind="'+kind+'"><button data-d="-1" aria-label="Retirer">−</button><b class="'+(n?'':'zero')+'" title="Cliquer pour saisir la quantité">'+n+'</b><button data-d="1" aria-label="Ajouter">+</button></span>';
+}
+function stRender(){
+  const d = stockData; if (!d) return;
+  const q = norm(recherche);
+  const v = d.vierges.filter(x => (stZeros || x.quantite > 0 || q) && (!q || norm([x.reference,x.coupe,x.couleur,x.taille].join(' ')).includes(q)))
+    .sort((a,b) => a.couleur.localeCompare(b.couleur,'fr') || a.coupe.localeCompare(b.coupe,'fr') || a.taille.localeCompare(b.taille,'fr'));
+  const total = d.vierges.reduce((t,x) => t + x.quantite, 0);
+  const nz = d.vierges.filter(x => !x.quantite).length;
+  $('st-vierges').innerHTML = '<div class="note" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>'+total+' pièce(s) en stock · un stock à 0 est normal (pas d\\'alerte)</span><label style="cursor:pointer"><input type="checkbox" id="st-zeros"'+(stZeros?' checked':'')+'> Afficher les '+nz+' article(s) à 0</label></div><table class="stk"><thead><tr><th>Couleur</th><th>Taille</th><th>Coupe</th><th>Réf.</th><th>Qté</th></tr></thead><tbody>'
+    + v.map(x => '<tr><td><b>'+esc(x.couleur)+'</b></td><td>'+esc(x.taille)+'</td><td>'+esc(x.coupe)+'</td><td class="sub">'+esc(x.reference)+'</td><td>'+qtyHtml('vierges','data-row="'+x.row+'" data-sig="'+esc(x.sig)+'"',x.quantite)+'</td></tr>').join('')
+    + '</tbody></table>';
+  $('st-conso').innerHTML = '<table class="stk"><tbody>' + d.consommables.map(x => '<tr><td><b>'+esc(x.nom)+'</b><div class="sub">Seuil : <a href="#" class="seuil" data-row="'+x.row+'" data-sig="'+esc(x.sig)+'" data-v="'+(x.seuil ?? '')+'">'+(x.seuil ?? '—')+'</a></div></td><td>'+(x.alerte?'<span class="why r">⚠️ À commander</span>':'<span class="pay ok">✅ OK</span>')+'</td><td>'+qtyHtml('consommables','data-row="'+x.row+'" data-sig="'+esc(x.sig)+'"',x.stock)+'</td></tr>').join('') + '</tbody></table>';
+  const parClient = {}; d.clients.forEach(l => (parClient[l.client] = parClient[l.client] || []).push(l));
+  const noms = Object.keys(parClient).sort();
+  if (!stClient || !parClient[stClient]) stClient = noms[0] || null;
+  let h = '<div class="chips">' + noms.map(n => '<button class="chip'+(n===stClient?' on':'')+'" data-cl="'+esc(n)+'">'+esc(n)+' <span class="n">'+parClient[n].reduce((t,l)=>t+l.quantite,0)+'</span></button>').join('') + '</div>';
+  if (stClient) {
+    h += '<table class="stk"><tbody>' + parClient[stClient].map(l => '<tr><td><b>'+esc([l.article,l.couleur].filter(Boolean).join(' · ')||'—')+'</b><div class="sub">'+esc([l.taille,l.coupe].filter(Boolean).join(' · '))+(l.note?' · 📝 '+esc(l.note):'')+'</div></td><td>'+(l.article==='Note'?'':qtyHtml('client','data-id="'+l.id+'"',l.quantite))+'</td><td><button class="btn" style="padding:3px 8px" data-del="'+l.id+'" title="Supprimer la ligne">🗑</button></td></tr>').join('') + '</tbody></table>'
+      + '<div class="btnrow"><button class="btn" id="add-ligne">＋ Ligne pour '+esc(stClient)+'</button></div>';
+  } else h += '<div class="note">Aucun stock client pour l\\'instant.</div>';
+  if (!parClient['SANDAE']) h += '<div class="btnrow"><button class="btn" id="imp-sandae">⇩ Importer le stock Sandae depuis l\\'Excel</button></div>';
+  $('st-clients').innerHTML = h;
+  $('st-mvt').innerHTML = d.mouvements.length ? d.mouvements.slice(0,25).map(m => '<div class="mvt"><span class="d">'+new Date(m.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</span><span><b>'+esc(m.article)+'</b>'+(m.client?' ('+esc(m.client)+')':'')+' : '+(m.avant ?? '∅')+' → '+(m.apres ?? '∅')+(m.motif?' · '+esc(m.motif):'')+' <span class="sub">par '+esc(m.utilisateur||'?')+'</span></span></div>').join('') : '<div class="note">Aucun mouvement enregistré.</div>';
+}
+async function stMouvement(el, body){
+  const k = el.dataset.kind;
+  const url = k === 'client' ? '/gestion/api/stock/clients/'+el.dataset.id+'/mouvement' : '/gestion/api/stock/'+k+'/mouvement';
+  if (k !== 'client') Object.assign(body, { row: Number(el.dataset.row), sig: el.dataset.sig });
+  el.style.opacity = .5;
+  try { await post(url, body); } catch(e){ alert(e.message); }
+  await charger(false);
+}
+function stEvents(){
+  const root = $('v-stock');
+  root.addEventListener('click', async e => {
+    const btn = e.target.closest('.qty button'); if (btn) return stMouvement(btn.parentElement, { delta: Number(btn.dataset.d) });
+    const b = e.target.closest('.qty b');
+    if (b) { const v = prompt('Nouvelle quantité :', b.textContent); if (v !== null && v.trim() !== '') stMouvement(b.parentElement, { set: v.trim().replace(',','.') }); return; }
+    const se = e.target.closest('.seuil');
+    if (se) { e.preventDefault(); const v = prompt('Seuil d\\'alerte :', se.dataset.v); if (v !== null && v.trim() !== '') { try { await post('/gestion/api/stock/consommables/mouvement', { row: Number(se.dataset.row), sig: se.dataset.sig, champ: 'seuil', set: v.trim() }); } catch(err){ alert(err.message); } charger(false); } return; }
+    if (e.target.id === 'st-zeros') { stZeros = e.target.checked; return stRender(); }
+    const cl = e.target.closest('[data-cl]'); if (cl) { stClient = cl.dataset.cl; return stRender(); }
+    const del = e.target.closest('[data-del]');
+    if (del) { if (confirm('Supprimer cette ligne de stock client ?')) { try { await post('/gestion/api/stock/clients/'+del.dataset.del+'/supprimer'); } catch(err){ alert(err.message); } charger(false); } return; }
+    if (e.target.id === 'imp-sandae') { if (confirm('Importer le stock Sandae de l\\'Excel dans les stocks clients ?')) { try { const j = await post('/gestion/api/stock/importer-sandae'); alert(j.importees+' ligne(s) importée(s)'); } catch(err){ alert(err.message); } charger(false); } return; }
+    if (e.target.id === 'add-ligne' || e.target.id === 'add-client') {
+      const client = e.target.id === 'add-ligne' ? stClient : prompt('Nom du client (ex. SANDAE) :');
+      if (!client) return;
+      const couleur = prompt('Couleur :') ; if (couleur === null) return;
+      const taille = prompt('Taille :') ; if (taille === null) return;
+      const coupe = prompt('Coupe (ex. HOMME, FEMME, COL V) :', '') ; if (coupe === null) return;
+      const quantite = prompt('Quantité déposée :', '1'); if (quantite === null) return;
+      try { await post('/gestion/api/stock/clients/ajouter', { client, couleur, taille, coupe, quantite }); stClient = client.toUpperCase(); } catch(err){ alert(err.message); }
+      return charger(false);
+    }
+    if (e.target.id === 'add-vierge') {
+      const couleur = prompt('Couleur :'); if (!couleur) return;
+      const taille = prompt('Taille :'); if (!taille) return;
+      const coupe = prompt('Coupe (UNISEXE, FEMME, TOTE BAG…) :', 'UNISEXE'); if (coupe === null) return;
+      const reference = prompt('Référence (ex. IMPERIAL) :', 'IMPERIAL'); if (reference === null) return;
+      const quantite = prompt('Quantité :', '1'); if (quantite === null) return;
+      try { await post('/gestion/api/stock/vierges/ajouter', { couleur, taille, coupe, reference, quantite }); } catch(err){ alert(err.message); }
+      return charger(false);
+    }
+    if (e.target.id === 'add-conso') {
+      const nom = prompt('Nom du consommable :'); if (!nom) return;
+      const stock = prompt('Stock actuel :', '1'); if (stock === null) return;
+      const seuil = prompt('Seuil d\\'alerte :', '0'); if (seuil === null) return;
+      try { await post('/gestion/api/stock/consommables/ajouter', { nom, stock, seuil }); } catch(err){ alert(err.message); }
+      return charger(false);
+    }
+  });
+}
 function nouvellePlanche(){
   panelCle = '__nouvelle__';
   $('ptitle').textContent = 'Nouvelle planche';
@@ -822,6 +934,9 @@ if (VIEW === 'commandes') {
   $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrir(panelCle); } });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
+} else if (VIEW === 'stock') {
+  $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
+  stEvents();
 } else if (VIEW === 'planches') {
   $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrirPlanche(panelCle); } });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });

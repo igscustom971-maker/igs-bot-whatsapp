@@ -8,6 +8,7 @@ const cfg = require('./config');
 const auth = require('./auth');
 const commandes = require('./commandes');
 const planches = require('./planches');
+const stock = require('./stock');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -29,6 +30,23 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/planches', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
   });
+
+  app.get('/gestion/stock', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
+  });
+  // ---------- Stock ----------
+  const quiS = req => req.user.name || req.user.email;
+  const act = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Gestion stock :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.get('/gestion/api/stock', auth.requireUser, act(() => stock.etat()));
+  app.post('/gestion/api/stock/:type(vierges|consommables)/mouvement', auth.requireUser, act(req => stock.mouvementExcel(req.params.type, req.body || {}, quiS(req), req.body?.motif)));
+  app.post('/gestion/api/stock/:type(vierges|consommables)/ajouter', auth.requireUser, act(req => stock.ajouterExcel(req.params.type, req.body || {}, quiS(req))));
+  app.post('/gestion/api/stock/clients/ajouter', auth.requireUser, act(req => stock.ajouterClient(req.body || {}, quiS(req))));
+  app.post('/gestion/api/stock/clients/:id/mouvement', auth.requireUser, act(req => stock.mouvementClient(Number(req.params.id), req.body || {}, quiS(req), req.body?.motif)));
+  app.post('/gestion/api/stock/clients/:id/supprimer', auth.requireUser, act(req => stock.supprimerClientLigne(Number(req.params.id), quiS(req))));
+  app.post('/gestion/api/stock/importer-sandae', auth.requireUser, act(req => stock.importerSandae(quiS(req))));
 
   app.get('/gestion/api/planches', auth.requireUser, async (req, res) => {
     const data = await planches.listPlanches({ force: req.query.actualiser === '1' });
