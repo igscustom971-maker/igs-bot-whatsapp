@@ -133,7 +133,9 @@
   .grid .g-produit { min-width: 150px; } .grid .g-couleur { min-width: 140px; } .grid .g-coupe { min-width: 105px; } .grid .g-visuel { min-width: 150px; } .grid .g-rem { min-width: 130px; }
   table.grid { min-width: 900px; }
   .grid .g-taille { width: 82px; }
-  .grid .g-del { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 14px; padding: 6px; }
+  .grid .g-del, .grid .g-dup { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 15px; padding: 6px; }
+  .grid .g-dup:hover { color: var(--vert); }
+  .grid td.c-del { white-space: nowrap; }
   .grid .g-del:hover { color: var(--rouge); }
   .recap table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
   .recap td, .recap th { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); text-align: left; }
@@ -175,6 +177,7 @@
     .grid td { border: none; padding: 0; }
     .grid td.num { position: absolute; top: 4px; right: 34px; width: auto; }
     .grid td.c-del { position: absolute; top: 0; right: 4px; width: auto; }
+    .grid td.num { right: 64px; }
     .grid td.c-prod, .grid td.c-vis, .grid td.c-rem { grid-column: 1 / -1; }
     .grid td[data-l]::before { content: attr(data-l); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--blanc-muted); margin: 0 0 2px 2px; font-weight: 700; }
     .grid select, .grid input { background: var(--bleu-input); border-color: var(--border); font-size: 16px; padding: 10px; }
@@ -307,6 +310,10 @@
     <div class="recap" id="recap"></div>
 
     <div id="bloc-excel-alt" class="hidden" style="margin-top:16px;">
+      <div class="info-notice" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <span><strong>Vous n'avez plus le fichier ?</strong> Téléchargez notre modèle, remplissez-le puis déposez-le ci-dessous.</span>
+        <a id="lien-modele" href="https://igscustom.fr/Template_Commande_IGS.xlsx" download="Template_Commande_IGS.xlsx" class="btn-add" style="text-decoration:none;margin:0">⬇ Télécharger le modèle Excel</a>
+      </div>
       <div class="form-group">
         <label>Votre fichier Excel déjà rempli</label>
         <div class="upload-zone" id="zone-excel">
@@ -530,7 +537,7 @@
       + '<td data-l="Coupe"><select class="g-coupe">' + opts(COUPES, d.coupe || COUPES[0]) + '</select></td>'
       + '<td class="c-vis" data-l="Visuel / texte"><input type="text" class="g-visuel" list="dl-visuels" placeholder="Nom du visuel ou texte" value="' + esc(d.visuel || '') + '"></td>'
       + '<td class="c-rem" data-l="Remarque"><input type="text" class="g-rem" placeholder="Optionnel" value="' + esc(d.remarques || '') + '"></td>'
-      + '<td class="c-del"><button type="button" class="g-del" title="Supprimer la ligne">✕</button></td>';
+      + '<td class="c-del"><button type="button" class="g-dup" title="Dupliquer la ligne">⧉</button><button type="button" class="g-del" title="Supprimer la ligne">✕</button></td>';
   }
   function ajouterLigne(d){
     const tr = document.createElement('tr'); tr.innerHTML = ligneHtml(d);
@@ -587,6 +594,16 @@
     tr.querySelector('.g-coupe').disabled = SANS_COUPE.includes(p);
   }
   $('grid-body').addEventListener('click', e => {
+    const dup = e.target.closest('.g-dup');
+    if (dup) {
+      // Copie de la ligne juste en dessous (le client change seulement la taille ou la quantité)
+      const tr = dup.closest('tr'), copie = document.createElement('tr');
+      copie.innerHTML = ligneHtml(lireLigne(tr));
+      tr.after(copie); majTaillesLigne(copie); copie.querySelector('.g-taille').value = lireLigne(tr).taille;
+      copie.classList.toggle('filled', ligneRemplie(lireLigne(copie)));
+      renumeroter(); majRecap(); copie.querySelector('.g-taille').focus();
+      return;
+    }
     if (!e.target.closest('.g-del')) return;
     e.target.closest('tr').remove();
     if (!$('grid-body').rows.length) ajouterLigne();
@@ -819,6 +836,7 @@
 
   // ---------------- Démarrage ----------------
   addVisuel();
+  $('lien-modele').href = TEMPLATE_URL;
   for (let i = 0; i < 6; i++) ajouterLigne();
   // Listes à jour (produits, couleurs, tailles) depuis la page Admin du dashboard
   fetch(LISTES_URL).then(r => r.ok ? r.json() : null).then(l => {
