@@ -304,7 +304,13 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
   return { id, numero: inv.name, montant_ht: inv.amount_untaxed, montant_ttc: inv.amount_total, lien: lienOdoo('account.move', id) };
 }
 
+// État d'un devis (draft, sent, sale, cancel) par son numéro ; null si introuvable
+async function etatDevis(numero) {
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['state'], limit: 1 });
+  return r[0]?.state || null;
+}
+
 module.exports = {
-  configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
+  etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel,
 };

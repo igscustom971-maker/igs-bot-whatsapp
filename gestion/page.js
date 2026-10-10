@@ -284,6 +284,7 @@ ${view === 'accueil' ? `
   </section>` : view === 'admin' ? `
   <section id="v-admin">
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="card" style="margin-bottom:12px" id="ad-taches"><h3>⚙️ Tâches automatiques</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
@@ -935,7 +936,7 @@ async function adCharger(){
     $('ad-coupes').value = (l.coupes || []).join(', ');
     document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
     $('sync').className = 'sync'; $('sync').textContent = '';
-    adNotif();
+    adNotif(); adTaches();
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
 }
 // Messages automatiques (prête / expédiée / avis, commandes et planches) : remplacent Power Automate
@@ -968,6 +969,36 @@ async function adNotif(){
   $('nt-lien-ok').onclick = async () => {
     try { await post('/gestion/api/notifications/lien-avis', { lien: $('nt-lien').value }); await adNotif(); nm('✅ Lien enregistré', 'ok'); }
     catch(err){ nm('❌ ' + esc(err.message), 'err'); }
+  };
+}
+// Tâches automatiques : chacune remplace un flux Power Automate (couper le flux, puis activer)
+async function adTaches(){
+  const box = $('ad-taches'); if (!box) return;
+  let e;
+  try { const r = await fetch('/gestion/api/taches'); e = await r.json(); if (e.error) throw new Error(e.error); }
+  catch(err){ box.innerHTML = '<h3>⚙️ Tâches automatiques</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
+  let h = '<h3>⚙️ Tâches automatiques</h3><div class="note" style="margin-bottom:8px">Chaque tâche remplace un flux Power Automate. <b>Coupe d’abord le flux indiqué</b>, puis active la tâche. « Lancer » l’exécute tout de suite, même désactivée.</div>';
+  h += '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Tâche</th><th>Remplace le flux</th><th>Rythme</th><th>Dernier passage</th><th></th></tr></thead><tbody>';
+  h += e.taches.map(t => {
+    const d = t.dernier;
+    return '<tr><td><b>'+esc(t.nom)+'</b></td><td class="note">'+esc(t.flux)+'</td><td class="note">'+esc(t.rythme)+'</td>'
+      + '<td class="note">'+(d ? (d.ok ? '✅ ' : '⚠️ ')+new Date(d.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'<br>'+esc(d.resultat || '') : '—')+'</td>'
+      + '<td style="white-space:nowrap"><label style="display:inline-flex;gap:6px;align-items:center;font-size:13px;margin-right:6px"><input type="checkbox" data-tache-on="'+esc(t.id)+'"'+(t.active?' checked':'')+'> Activée</label><button class="btn" data-tache-run="'+esc(t.id)+'">▶ Lancer</button></td></tr>';
+  }).join('');
+  h += '</tbody></table></div><div class="msg" id="tc-msg"></div>';
+  box.innerHTML = h;
+  const tm = (t, k) => { $('tc-msg').className = 'msg on ' + k; $('tc-msg').innerHTML = t; };
+  box.onchange = async ev => {
+    const id = ev.target.dataset && ev.target.dataset.tacheOn; if (!id) return;
+    if (ev.target.checked && !confirm('Le flux Power Automate correspondant est bien coupé ?')) { ev.target.checked = false; return; }
+    try { await post('/gestion/api/taches/'+encodeURIComponent(id)+'/activer', { actif: ev.target.checked }); await adTaches(); }
+    catch(err){ ev.target.checked = !ev.target.checked; tm('❌ ' + esc(err.message), 'err'); }
+  };
+  box.onclick = async ev => {
+    const b = ev.target.closest('[data-tache-run]'); if (!b) return;
+    b.disabled = true; b.textContent = '…';
+    try { const r = await post('/gestion/api/taches/'+encodeURIComponent(b.dataset.tacheRun)+'/lancer'); tm((r.ok ? '✅ ' : '⚠️ ') + esc(r.resultat || ''), r.ok ? 'ok' : 'err'); await adTaches(); }
+    catch(err){ tm('❌ ' + esc(err.message), 'err'); b.disabled = false; b.textContent = '▶ Lancer'; }
   };
 }
 function adEvents(){

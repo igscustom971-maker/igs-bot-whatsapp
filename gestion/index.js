@@ -330,6 +330,12 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/notifications/activer', auth.requireUser, auth.requireAdmin, actN(req => notif.activer({ actif: !!req.body?.actif, ignorerAttente: !!req.body?.ignorerAttente }, req.user.name || req.user.email)));
   app.post('/gestion/api/notifications/lien-avis', auth.requireUser, auth.requireAdmin, actN(req => notif.definirLienAvis(req.body?.lien)));
 
+  // ---------- Tâches automatiques (remplacent les flux Power Automate un par un) ----------
+  const taches = require('./taches');
+  app.get('/gestion/api/taches', auth.requireUser, auth.requireAdmin, actN(() => taches.etat()));
+  app.post('/gestion/api/taches/:id/activer', auth.requireUser, auth.requireAdmin, actN(req => taches.activer(req.params.id, !!req.body?.actif)));
+  app.post('/gestion/api/taches/:id/lancer', auth.requireUser, auth.requireAdmin, actN(req => taches.lancerMaintenant(req.params.id, req.user.name || req.user.email)));
+
   // ---------- Journal d'une commande + question interne à Leïla ----------
   const leila = require('./leila');
   app.get('/gestion/api/commandes/:cle/journal', auth.requireUser, actN(req => leila.journalCommande(req.params.cle)));
@@ -345,5 +351,6 @@ module.exports = function mountGestion(app) {
   require('./bat-reponses').start();
   notif.start();
   require('./colissimo').start();
+  taches.start();
   console.log('Module Gestion IGS monté sur /gestion');
 };

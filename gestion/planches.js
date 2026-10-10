@@ -515,4 +515,9 @@ async function ecrireDrapeau(cle, champ, valeur) {
   await writeCells(cle, { [champ]: valeur });
 }
 
-module.exports = { ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+// Paiement confirmé dans Odoo (devis confirmé) : colonne Paiement = PAYÉE
+async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' }); }
+// Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
+async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
+
+module.exports = { marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
