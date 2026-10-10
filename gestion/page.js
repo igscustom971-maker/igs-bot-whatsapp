@@ -1399,6 +1399,331 @@ function nouvelleCommande(){
     + '</div><label class="note" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="n-form" checked style="width:auto"> Ouvrir ensuite le formulaire prérempli pour saisir tailles et visuels</label>'
     + '<div class="btnrow"><button class="btn primary" id="n-ok">Créer la commande</button></div><div class="msg" id="a-msg"></div></div>';
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  // Client, e-mail et téléphone repris d'Odoo (devis, sinon fiche client) ; jamais bloquant
+  const remplir = c => { if (!$('n-client').value) $('n-client').value = c.nom || c.name || ''; if (!$('n-email').value) $('n-email').value = c.email || ''; if (!$('n-tel').value) $('n-tel').value = c.telephone || c.phone || ''; };
+  $('n-devis').addEventListener('change', async () => {
+    const n = $('n-devis').value.trim(); if (!n) return;
+    try {
+      const j = await (await fetch('/gestion/api/odoo/devis/'+encodeURIComponent(n)+'/client')).json();
+      if (j.client) { remplir(j.client); msg('✅ Devis trouvé dans Odoo : client '+esc(j.client.nom), 'ok'); }
+      else msg('⚠️ Aucun devis « '+esc(n)+' » dans Odoo. Tu peux quand même créer la commande.', 'info');
+    } catch(e){ msg('⚠️ Odoo injoignable : saisis le client à la main.', 'info'); }
+  });
+  $('n-client').addEventListener('change', async () => {
+    const q = $('n-client').value.trim(); if (q.length < 3) return;
+    try {
+      const j = await (await fetch('/gestion/api/odoo/clients?q='+encodeURIComponent(q))).json();
+      const l = j.clients || [], c = l.find(x => x.score >= 0.7);
+      if (c) { remplir({ email: c.email, telephone: c.phone }); msg('✅ Client trouvé dans Odoo : '+esc(c.name), 'ok'); }
+      else msg('⚠️ Aucun client « '+esc(q)+' » dans Odoo'+(l.length ? ' (proches : '+l.slice(0, 3).map(x => esc(x.name)).join(', ')+')' : '')+'. Tu peux quand même créer la commande.', 'info');
+    } catch(e){}
+  });
+  $('n-ok').onclick = async () => {
+    if (!choisi) return msg('Choisis le client Odoo (ou crée-le)', 'err');
+    const body = { partnerId: choisi.id, client: choisi.name, metres: $('n-metres').value, date: $('n-date').value, statut: $('n-statut').value, remarques: $('n-rem').value, hebdo: $('n-hebdo').checked };
+    $('n-ok').disabled = true; msg('Écriture dans l\\'Excel…', 'info');
+    try {
+      const j = await post('/gestion/api/planches/ajouter', body);
+      const texte = j.compteur ? '✅ Compteur hebdo : '+String(j.compteur.avant).replace('.',',')+' + '+String(j.compteur.ajout).replace('.',',')+' = '+String(j.compteur.total).replace('.',',')+' m' : '✅ Planche ajoutée dans l\\'Excel';
+      await apresAction(j.planche, texte);
+      if (!j.planche) msg(texte, 'ok');
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('n-ok').disabled = false; }
+  };
+}
+function plActionsHtml(p){
+  const opts = PL_STATUTS.map(s => '<option'+(plKey(p.statut)===s?' selected':'')+'>'+s+'</option>').join('');
+  let h = '<div class="card"><h3>Actions</h3><div class="actions">'
+    + '<div class="field"><label>Client (nom dans l\\'Excel)</label><input id="a-client" value="'+esc(p.client)+'"></div>'
+    + '<div class="field"><label>N° de devis</label><input id="a-devis-num" value="'+esc(p.n_devis||'')+'" placeholder="ex. DE2601064"></div>'
+    + '<div class="field"><label>Paiement</label><input id="a-paiement" list="a-pay-list" value="'+esc(p.paiement||'')+'"><datalist id="a-pay-list"><option>NON PAYÉE</option><option>PAYÉE</option><option>ESPECE</option><option>CB</option><option>VIREMENT</option></datalist></div>'
+    + '<div class="field"><label>Métrage (m, A3 ou A4)</label><input id="a-metres" value="'+esc(p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))+'" placeholder="ex. 2,5"></div>'
+    + '<div class="field"><label>Statut</label><select id="a-statut"><option value="">—</option>'+opts+'</select></div>'
+    + '<div class="field"><label>N° de suivi La Poste</label><input id="a-suivi" value="'+esc(p.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarques</label><input id="a-rem" value="'+esc(p.remarques||'')+'"></div>'
+    + '</div><div class="btnrow"><button class="btn primary" id="a-save">Enregistrer</button>';
+  const aVerif = plKey(p.statut) === 'A VERIFIER';
+  if (!p.n_devis && !p.hebdo) h += '<button class="btn pink" id="a-devis">'+(aVerif ? '📝 Préparer le devis (sans envoi)' : '📄 Créer et envoyer le devis')+'</button>';
+  if (p.n_devis) h += '<a class="btn" href="/gestion/odoo/devis/'+encodeURIComponent(p.n_devis)+'" target="_blank" rel="noopener">↗ Ouvrir le devis dans Odoo</a>';
+  h += '<button class="btn" id="a-suppr" style="margin-left:auto;color:var(--bad)">🗑 Supprimer la ligne</button>';
+  if (p.hebdo && ADMIN) h += '<button class="btn pink" id="a-facture">🧾 Envoyer la facture maintenant</button>';
+  h += '</div>';
+  if (p.hebdo && ADMIN) h += '<div class="field" style="margin-top:10px"><label>Titre de la facture</label><input id="a-titre" value="'+esc((autoEtat && autoEtat.titreParDefaut) || 'PLANCHE DTF SEMAINE')+'"></div>'
+    + '<div class="note" style="margin-top:4px">Après l\\'envoi, le compteur (Métrage) repart à zéro dans l\\'Excel.</div>';
+  return h + '<div class="msg" id="a-msg"></div><div id="a-cands"></div></div>';
+}
+function msg(t, cls){ const m = $('a-msg'); m.className = 'msg ' + cls; m.innerHTML = t; }
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+  return j;
+}
+function busy(on){ ['a-save','a-devis','a-facture'].forEach(id => { if ($(id)) $(id).disabled = on; }); }
+async function apresAction(planche, texte){
+  await charger(false);
+  const p = planche && planches.find(x => x.cle === planche.cle);
+  if (p) { panelCle = p.cle; await ouvrirPlanche(p.cle); }
+  if (texte) msg(texte, 'ok');
+}
+function brancherActions(p){
+  $('a-save').onclick = async () => {
+    const body = {};
+    const m = $('a-metres').value.trim(), st = $('a-statut').value, su = $('a-suivi').value.trim();
+    if (m !== (p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))) body.metres = m;
+    if (st && st !== plKey(p.statut)) body.statut = st;
+    if (su !== (p.numero_suivi || '')) body.numero_suivi = su;
+    const cl = $('a-client').value.trim(), dv = $('a-devis-num').value.trim(), pa = $('a-paiement').value.trim(), re = $('a-rem').value.trim();
+    if (cl && cl !== p.client) body.client = cl;
+    if (dv !== (p.n_devis || '')) body.n_devis = dv;
+    if (pa !== (p.paiement || '')) body.paiement = pa;
+    if (re !== (p.remarques || '')) body.remarques = re;
+    if (!Object.keys(body).length) return msg('Aucune modification', 'info');
+    busy(true); msg('Écriture dans l\\'Excel…', 'info');
+    try { const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/modifier', body); await apresAction(j.planche || p, '✅ Enregistré dans l\\'Excel'); }
+    catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
+  };
+  const lancer = async (type, extra) => {
+    const url = '/gestion/api/planches/'+encodeURIComponent(p.cle)+'/'+(type === 'devis' ? 'devis' : 'facturer');
+    const body = Object.assign(type === 'facture' ? { titre: $('a-titre').value } : {}, extra || {});
+    busy(true); msg(type === 'devis' ? 'Création du devis dans Odoo…' : 'Création et envoi de la facture…', 'info'); $('a-cands').innerHTML = '';
+    try {
+      const j = await post(url, body);
+      if (j.besoinClient) return choisirClient(p, j.candidats || [], pid => lancer(type, Object.assign({}, extra, { partnerId: pid })));
+      if (j.doublon) { if (confirm('Un devis '+j.doublon+' a été créé pour ce client il y a moins de 2 h. Créer quand même un nouveau devis ?')) return lancer(type, Object.assign({}, extra, { force: true })); return msg('Annulé : devis '+esc(j.doublon)+' déjà existant', 'info'); }
+      const d = j.devis || j.facture;
+      const lien = d.lien ? ' · <a href="'+esc(d.lien)+'" target="_blank" rel="noopener">ouvrir dans Odoo ↗</a>' : '';
+      const quoi = j.devis ? (d.envoye === false ? 'Devis ' + esc(d.numero) + ' préparé (non envoyé) : ajuste-le puis envoie-le depuis Odoo' : 'Devis ' + esc(d.numero) + ' envoyé au client') : 'Facture ' + esc(d.numero) + ' envoyée au client';
+      await apresAction(j.planche, '✅ ' + quoi + ' · ' + eur(d.montant_ht) + ' HT' + lien);
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
+  };
+  $('a-suppr').onclick = async () => { busy(true); if (await supprimerPl(p)) fermer(); else busy(false); };
+  if ($('a-devis')) $('a-devis').onclick = () => { if (confirm(plKey(p.statut) === 'A VERIFIER' ? 'Préparer le devis dans Odoo pour '+p.client+' (sans l\\'envoyer) ?' : 'Créer le devis dans Odoo et l\\'envoyer par mail à '+p.client+' ?')) lancer('devis'); };
+  if ($('a-facture')) $('a-facture').onclick = () => {
+    const q = p.format || (p.metres ? String(p.metres).replace('.',',')+' m' : '');
+    if (!q) return msg('Compteur à zéro : rien à facturer', 'info');
+    if (confirm('Créer, valider et envoyer la facture « '+$('a-titre').value+' » ('+q+') à '+p.client+' ?\\nLe compteur sera remis à zéro.')) lancer('facture');
+  };
+}
+// ---------- Sélecteur de client Odoo (recherche + suggestions + création) ----------
+// box : élément conteneur ; q : recherche initiale ; list : suggestions initiales ; onChoose(id, client)
+function picker(box, q, list, onChoose){
+  const item = c => '<div class="cand"><div><b>'+esc(c.name)+'</b>'+(c.score===1?' <span class="tag">identique</span>':c.score>=0.6?' <span class="tag">ressemblant</span>':'')
+    + '<div class="sub">'+esc([c.email, [c.zip, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div><button class="btn" data-id="'+c.id+'">Choisir</button></div>';
+  const draw = (items, query) => {
+    box.querySelector('.pk-list').innerHTML = (items.length ? items.map(item).join('') : '<div class="note" style="padding:6px 0">Aucun client Odoo trouvé'+(query?' pour « '+esc(query)+' »':'')+'</div>')
+      + (query ? '<div class="cand"><div class="sub">Pas dans la liste ?</div><button class="btn pink pk-new">＋ Créer « '+esc(query)+' » dans Odoo</button></div>' : '');
+    box._items = items;
+  };
+  box.innerHTML = '<div class="field" style="margin-top:8px"><input class="pk-q" placeholder="Rechercher dans Odoo (nom, email)…" value="'+esc(q||'')+'"></div><div class="pk-list"></div><div class="pk-form"></div>';
+  draw(list || [], q);
+  let t;
+  const chercher = async v => {
+    if (!v.trim()) return draw([], '');
+    try { const r = await fetch('/gestion/api/odoo/clients?q='+encodeURIComponent(v)); const j = await r.json(); if (box.querySelector('.pk-q').value === v) draw(j.clients || [], v); } catch(e){}
+  };
+  box.querySelector('.pk-q').oninput = e => { clearTimeout(t); t = setTimeout(() => chercher(e.target.value), 300); };
+  if (q && !(list && list.length)) chercher(q);
+  box.onclick = async e => {
+    const b = e.target.closest('button[data-id]');
+    if (b) { const c = (box._items||[]).find(x => x.id === Number(b.dataset.id)); return onChoose(Number(b.dataset.id), c); }
+    if (e.target.closest('.pk-new')) {
+      const name = box.querySelector('.pk-q').value.trim();
+      box.querySelector('.pk-form').innerHTML = '<div class="card" style="margin-top:8px;background:#faf9fd"><h3>Nouveau client Odoo (IGS)</h3><div class="actions">'
+        + '<div class="field" style="grid-column:1/-1"><label>Nom</label><input class="nf-name" value="'+esc(name)+'"></div>'
+        + '<div class="field"><label>Email</label><input class="nf-email" type="email"></div>'
+        + '<div class="field"><label>Téléphone</label><input class="nf-phone"></div>'
+        + '<div class="field"><label>Code postal</label><input class="nf-zip" placeholder="971xx / 972xx"></div>'
+        + '<div class="field"><label>Ville</label><input class="nf-city"></div>'
+        + '</div><div class="btnrow"><button class="btn primary nf-ok">Créer le client</button></div></div>';
+      box.querySelector('.nf-ok').onclick = async () => {
+        const v = c => box.querySelector(c).value;
+        if (!confirm('Créer le client « '+v('.nf-name')+' » dans Odoo (société IGS) ?')) return;
+        try { const j = await post('/gestion/api/odoo/clients', { name: v('.nf-name'), email: v('.nf-email'), phone: v('.nf-phone'), zip: v('.nf-zip'), city: v('.nf-city') }); onChoose(j.client.id, j.client); }
+        catch(err){ alert('Création impossible : ' + err.message); }
+      };
+    }
+  };
+}
+function choisirClient(p, cands, then){
+  msg('Client « '+esc(p.client)+' » non identifié dans Odoo : choisis la bonne fiche ou crée-la. Ce choix sera mémorisé.', 'info');
+  picker($('a-cands'), p.client, cands, id => { $('a-cands').innerHTML = ''; then(id); });
+}
+// Bloc "Client Odoo" de la fiche planche
+async function chargerClientOdoo(p){
+  const box = $('cliobox'); if (!box) return;
+  const affiche = j => {
+    if (j.partner) {
+      const src = { memorise: 'mémorisé', identique: 'nom identique', auto: 'trouvé automatiquement' }[j.source] || '';
+      box.innerHTML = '<div class="cand" style="border:none"><div><b>'+esc(j.partner.name)+'</b> <span class="tag">'+esc(src)+'</span>'+(j.partner.martinique?' <span class="tag">🇲🇶 Martinique</span>':'')
+        + '<div class="sub">'+esc([j.partner.email, [j.partner.zip, j.partner.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div><button class="btn" id="clio-chg">Changer</button></div><div id="clio-pk"></div>';
+      $('clio-chg').onclick = () => picker($('clio-pk'), '', [], choisir);
+      if (norm(j.partner.name) !== norm(p.client)) {
+        $('clio-pk').insertAdjacentHTML('beforebegin', '<div class="btnrow" style="margin-top:4px"><button class="btn" id="clio-ren">✏️ Renommer « '+esc(p.client)+' » en « '+esc(j.partner.name)+' » dans l\\'Excel</button></div>');
+        $('clio-ren').onclick = async () => {
+          if (!confirm('Remplacer le nom « '+p.client+' » par « '+j.partner.name+' » dans l\\'Excel ?')) return;
+          try { const r = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/modifier', { client: j.partner.name }); await apresAction(r.planche || p, '✅ Client renommé dans l\\'Excel'); }
+          catch(e){ alert(e.message); }
+        };
+      }
+    } else {
+      box.innerHTML = '<div class="note">Pas de correspondance sûre pour « '+esc(p.client)+' » : choisis la fiche Odoo ou crée-la.</div><div id="clio-pk"></div>';
+      picker($('clio-pk'), p.client, j.candidats || [], choisir);
+    }
+  };
+  const choisir = async id => {
+    box.innerHTML = '<div class="skel"></div>';
+    try { affiche(await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/client', { partnerId: id })); }
+    catch(e){ box.innerHTML = '<div class="warnbox">'+esc(e.message)+'</div>'; }
+  };
+  try { const r = await fetch('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/client'); const j = await r.json(); if (panelCle !== p.cle) return; if (j.error) throw new Error(j.error); affiche(j); }
+  catch(e){ box.innerHTML = '<div class="note">Odoo indisponible : '+esc(e.message)+'</div>'; }
+}
+async function chargerAuto(){
+  try { const r = await fetch('/gestion/api/planches/facturation-auto'); autoEtat = await r.json(); } catch(e){ autoEtat = null; }
+  if (!$('autobox') || !autoEtat) return;
+  const b = autoEtat.bilan;
+  $('autobox').innerHTML = '<button class="switch'+(autoEtat.active?' on':'')+'" id="auto-sw" aria-label="Activer la facturation automatique"></button>'
+    + '<div><b>Factures hebdo automatiques</b> · chaque lundi à 8h · '+(autoEtat.active?'<span style="color:var(--ok);font-weight:700">activées</span>':'<span class="sub">désactivées</span>')
+    + (autoEtat.odoo ? '' : ' · <span style="color:var(--bad)">Odoo non configuré</span>')
+    + (b ? '<div class="sub">Dernier envoi ('+esc(b.semaine)+') : '+esc((b.lignes||[]).join(' · ') || 'aucune facture')+'</div>' : '<div class="sub">Aucun envoi automatique pour l\\'instant</div>') + '</div>';
+  $('auto-sw').onclick = async () => {
+    const on = !autoEtat.active;
+    if (on && !confirm('Activer l\\'envoi automatique des factures hebdo chaque lundi à 8h ?')) return;
+    try { await post('/gestion/api/planches/facturation-auto', { active: on }); chargerAuto(); } catch(e){ alert(e.message); }
+  };
+}
+async function ouvrirPlanche(cle){
+  const p = planches.find(x => x.cle === cle); if (!p) return;
+  $('pbody').onclick = null;
+  $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '');
+  $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
+  $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
+    + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
+    + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant HT', eur(p.montant_ht))
+    + kv('Paiement', '<span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span>') + kv('Fréquence', esc(p.frequence))
+    + kv('N° de suivi', esc(p.numero_suivi))
+    + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
+    + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
+    + plActionsHtml(p)
+    + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
+  brancherActions(p);
+  chargerClientOdoo(p);
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  try{
+    const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichiers');
+    const d = await r.json();
+    if (cle !== panelCle) return;
+    if (d.erreur) throw new Error(d.erreur);
+    $('dossier').innerHTML = '<div class="card"><h3>Fichiers · '+d.fichiers.length+'</h3>' + (d.fichiers.length
+      ? '<div class="files">' + d.fichiers.map(f => {
+          const src = '/gestion/api/planches/fichier/'+encodeURIComponent(f.id);
+          const isPdf = /[.]pdf$/i.test(f.nom);
+          return '<div><a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
+            + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
+            + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>'
+            + '<a class="btn" style="display:block;text-align:center;margin-top:4px;font-size:12px;padding:5px" href="'+src+'?dl=1">⬇ Télécharger</a></div>';
+        }).join('') + '</div>'
+      : '<div class="note">Aucun fichier « '+esc(p.client)+' - P… » dans les dossiers Planches (peut-être déjà vidé de l\\'archive mensuelle, ou envoyé par lien).</div>') + '</div>';
+  } catch(e){
+    if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Fichiers indisponibles : '+esc(e.message)+'</div>';
+  }
+}
+
+function accueil(){
+  $('today').textContent = new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  const actifs = data.filter(actif), retards = actifs.filter(enRetard);
+  const semaine = actifs.filter(c => c.date_livraison && c.date_livraison >= today && c.date_livraison <= addDays(7));
+  const prets = data.filter(c => ['TERMINÉE','A EXPEDIER'].includes(statutKey(c.statut)));
+  const pretsPl = planches.filter(p => ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut)));
+  const k = (l,n,h,col,f) => '<a class="kpi" style="--accent:'+col+'" href="/gestion/commandes?filtre='+f+'"><div class="l">'+l+'</div><div class="n">'+n+'</div><div class="h">'+h+'</div></a>';
+  $('kpis').innerHTML = k('En cours', actifs.length, 'commandes actives', '#1e1b4b', 'ACTIFS')
+    + k('En retard', retards.length, retards.length ? 'date de livraison dépassée' : 'rien en retard 👌', retards.length ? '#b91c1c' : '#15803d', 'ACTIFS')
+    + k('À livrer sous 7 jours', semaine.length, 'd\\'ici le '+fdate(addDays(7)), '#e91e8c', 'ACTIFS')
+    + '<a class="kpi" style="--accent:#0f766e" href="#" id="kpi-remettre"><div class="l">Prêtes à remettre</div><div class="n">'+(prets.length + pretsPl.length)+'</div><div class="h">'+prets.length+' commande(s) · '+pretsPl.length+' planche(s) · cliquer</div></a>';
+  $('kpi-remettre').onclick = e => { e.preventDefault(); remettre(); };
+
+  const vus = new Set(), prios = [];
+  const add = (c, why, cls) => { if (!vus.has(c.cle)) { vus.add(c.cle); prios.push({c, why, cls}); } };
+  retards.sort((a,b)=>a.date_livraison.localeCompare(b.date_livraison)).forEach(c => add(c, 'En retard · '+fdate(c.date_livraison), 'r'));
+  actifs.filter(c => c.date_livraison === today).forEach(c => add(c, 'Livraison aujourd\\'hui', 'o'));
+  actifs.filter(c => c.date_livraison === addDays(1)).forEach(c => add(c, 'Livraison demain', 'o'));
+  data.filter(AVANT_BAT).forEach(c => { const e = batEtape(c); if (e === 'faire') add(c, 'BAT à faire', 'o'); else if (e === 'envoyer') add(c, 'BAT à envoyer', 'o'); else if (e === 'formulaire') add(c, 'Attend le formulaire', 'b'); });
+  actifs.filter(c => c.controle && c.controle.ecart).forEach(c => add(c, 'Écart devis '+c.controle.devis+' / tableau '+c.controle.tableau, 'r'));
+  actifs.filter(c => c.date_dynamique && !c.date_livraison_manuelle).forEach(c => add(c, 'Date auto (=TODAY)', 'y'));
+  $('prios').innerHTML = prios.length ? prios.slice(0,10).map(p =>
+    '<div class="prio" data-k="'+esc(p.c.cle)+'"><div><div class="client">'+esc(p.c.client)+'</div><div class="sub">'+esc(p.c.n_devis||'')+(p.c.affectation?' · '+esc(p.c.affectation):'')+'</div></div>'
+    + badge(p.c.statut)+'<span class="why '+p.cls+'">'+esc(p.why)+'</span></div>').join('')
+    + (prios.length > 10 ? '<div class="note" style="margin-top:8px">+ '+(prios.length-10)+' autres</div>' : '')
+    : '<div class="ok-empty">✅ Rien d\\'urgent pour le moment</div>';
+
+  const counts = {}; data.forEach(c => { const s = statutKey(c.statut); counts[s] = (counts[s]||0)+1; });
+  const max = Math.max(1, ...Object.values(counts));
+  $('flow').innerHTML = STATUTS.map(s => { const n = counts[s]||0, col = (COULEURS[s]||[])[1]||'#999';
+    return '<a class="frow" href="/gestion/commandes?filtre='+encodeURIComponent(s)+'" style="text-decoration:none"><span>'+esc(s)+'</span><span class="track"><span class="fill" style="display:block;width:'+(n/max*100)+'%;background:'+col+'"></span></span><b>'+n+'</b></a>'; }).join('');
+
+  const parP = {}; actifs.forEach(c => { const p = c.affectation || 'Non affectée'; parP[p] = (parP[p]||0)+1; });
+  const pm = Math.max(1, ...Object.values(parP));
+  $('charge').innerHTML = Object.keys(parP).length ? Object.entries(parP).sort((a,b)=>b[1]-a[1]).map(([p,n]) =>
+    '<div class="frow" style="cursor:default"><span>'+esc(p)+'</span><span class="track"><span class="fill" style="display:block;width:'+(n/pm*100)+'%;background:var(--ink)"></span></span><b>'+n+'</b></div>').join('')
+    : '<div class="note">Aucune commande active</div>';
+}
+
+function liste(){
+  if ($('bat-n')) $('bat-n').textContent = data.filter(c => AVANT_BAT(c) && ['modif','faire','envoyer'].includes(batEtape(c))).length || '';
+  const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
+  const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
+  if (filtre === 'TOUS') filtre = 'ACTIFS';
+  const chips = [['ACTIFS','En cours',actifs]].concat(STATUTS.map(s=>[s,s,counts[s]||0]));
+  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('')
+    + (filtre === 'LIVRÉE' ? '<span class="note" style="align-self:center">Les commandes livrées sont retirées de l\\'Excel à minuit : retrouve les plus anciennes dans l\\'onglet Historique.</span>' : '');
+
+  const q = norm(recherche);
+  let rows = data.filter(c => filtre==='TOUS' || (filtre==='ACTIFS' ? !FINIS.includes(statutKey(c.statut)) : statutKey(c.statut)===filtre));
+  if (q) rows = rows.filter(c => norm([c.n_devis,c.client,c.zone_flocage,c.affectation,c.infos,c.remarque,c.email].join(' ')).includes(q));
+  // Priorité : à expédier, en flocage, production, commande, validée, payée, terminée, devis ; puis livraison la plus urgente
+  const rang = c => { const i = ORDRE_TRI.indexOf(statutKey(c.statut)); return i < 0 ? ORDRE_TRI.length : i; };
+  rows.sort((a,b) => rang(a) - rang(b) || String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')) || String(a.date_commande||'').localeCompare(String(b.date_commande||'')));
+
+  $('rows').innerHTML = rows.length ? rows.map(c => {
+    const late = enRetard(c);
+    return '<tr class="row" data-k="'+esc(c.cle)+'">'
+      + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
+      + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
+      + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
+      + '<td class="c-hide">'+inlSel('cmd', c.cle, 'affectation', EQUIPE, c.affectation || '', null, true)+'</td>'
+      + '<td class="c-hide">'+fdate(c.date_commande)+(c.date_dynamique?' <span class="dyn" title="La cellule Excel contient =TODAY() : la date change chaque jour">⚠ date auto</span>':'')+'</td>'
+      + '<td class="c-hide'+(late?' late':'')+'">'+fdate(c.date_livraison)+(late?' ⏰':'')+(c.date_livraison_manuelle?' <span class="manual" title="Date modifiée manuellement">✏️</span>':'')+'</td>'
+      + '<td class="c-hide">'+inlSel('cmd', c.cle, 'planche', PLANCHE_ETATS, c.planche || '', null, true)+'</td>'
+      + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="10" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+}
+
+function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>' : ''; }
+
+// ---------- Nouvelle commande saisie à la main ----------
+function nouvelleCommande(){
+  panelCle = '__nouvelle__';
+  $('pbody').onclick = null;
+  $('ptitle').textContent = 'Nouvelle commande';
+  $('psub').textContent = 'Ajoutée dans l\\'Excel (tableau Commandes)';
+  const st = ['PAYÉE','EN DEVIS','VALIDÉE','EN COMMANDE'];
+  $('pbody').innerHTML = '<div class="card"><div class="actions">'
+    + '<div class="field"><label>N° de devis</label><input id="n-devis" placeholder="ex. DE2601234" autocomplete="off"></div>'
+    + '<div class="field"><label>Client *</label><input id="n-client"></div>'
+    + '<div class="field"><label>E-mail</label><input id="n-email" type="email"></div>'
+    + '<div class="field"><label>Téléphone</label><input id="n-tel" type="tel"></div>'
+    + '<div class="field"><label>Statut</label><select id="n-statut">'+st.map(x => '<option>'+x+'</option>').join('')+'</select></div>'
+    + '<div class="field"><label>Affectation</label><select id="n-aff"><option value="">— Non affectée —</option>'+EQUIPE.map(x => '<option>'+esc(x)+'</option>').join('')+'</select></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Zone de flocage</label><input id="n-zone" placeholder="ex. Cœur (9cm) + Dos (27cm)"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Contenu</label><input id="n-infos" placeholder="ex. 20 x T-shirt personnalisé avant/arrière"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="n-rem"></div>'
+    + '</div><label class="note" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="n-form" checked style="width:auto"> Ouvrir ensuite le formulaire prérempli pour saisir tailles et visuels</label>'
+    + '<div class="btnrow"><button class="btn primary" id="n-ok">Créer la commande</button></div><div class="msg" id="a-msg"></div></div>';
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   // Client, e-mail et téléphone repris du devis Odoo
   $('n-devis').addEventListener('change', async () => {
     const n = $('n-devis').value.trim(); if (!n) return;

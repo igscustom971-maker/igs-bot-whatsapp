@@ -109,7 +109,7 @@ async function suggest(nom, limit = 8) {
     add(await kw('res.partner', 'search_read', [[...dom, ...domMots]], { fields: PARTNER_FIELDS, limit: 15 }));
   }
   return [...vus.values()]
-    .map(p => ({ id: p.id, name: p.name, email: p.email || null, ville: p.city || null, zip: p.zip || null, score: similarite(nom, p.name) }))
+    .map(p => ({ id: p.id, name: p.name, email: p.email || null, phone: p.phone || null, ville: p.city || null, zip: p.zip || null, score: similarite(nom, p.name) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 }

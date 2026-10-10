@@ -42,15 +42,23 @@ async function setCell(t, rowIndex, colName, value) {
 }
 
 // Ajoute une ligne : réutilise la première ligne vide (colonne témoin vide), sinon ajoute en bas du tableau
+// Nom de champ : "Nom|Autre nom" (premier trouvé) ; préfixe "?" = colonne facultative (ignorée si absente du tableau)
+function colSouple(t, f) {
+  const facultatif = f.startsWith('?'), noms = f.replace(/^\?/, '').split('|');
+  for (const n of noms) if (t.idx[key(n)] !== undefined) return t.idx[key(n)];
+  if (facultatif) return null;
+  throw new Error(`Colonne « ${noms[0]} » absente du tableau ${t.table} (colonnes : ${t.header.filter(Boolean).join(', ')})`);
+}
 async function addRow(t, fields, colTemoin) {
-  const ct = col(t, colTemoin);
+  const ct = colSouple(t, colTemoin);
+  const cols = Object.entries(fields).map(([f, v]) => [colSouple(t, f), v]).filter(([c]) => c !== null);
   const vide = t.rows.find(r => !String(r.values[ct] ?? '').trim());
   if (vide) {
-    for (const [f, v] of Object.entries(fields)) await setCell(t, vide._row, f, v);
+    for (const [c, v] of cols) await setCell(t, vide._row, c, v);
     return vide._row;
   }
   const ligne = t.header.map(() => null); // null : colonnes calculées laissées à Excel
-  for (const [f, v] of Object.entries(fields)) ligne[col(t, f)] = v;
+  for (const [c, v] of cols) ligne[c] = v;
   await g.addTableRow(await classeur(), t.table, ligne);
   return t.rows.length;
 }

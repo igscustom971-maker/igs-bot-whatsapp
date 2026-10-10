@@ -377,7 +377,7 @@ async function creerCommande(data, user) {
   const n_devis = t(data.n_devis).toUpperCase().replace(/\s+/g, '');
   const client = t(data.client).slice(0, 100);
   if (!client) throw new Error('Le client est obligatoire');
-  if (n_devis && !/^[A-Z0-9-]{3,30}$/.test(n_devis)) throw new Error('N° de devis invalide');
+  if (n_devis && !/^[^"'<>\\]{1,30}$/.test(n_devis)) throw new Error('N° de devis invalide');
   if (n_devis && cache.rows.some(r => key(r.n_devis || '') === key(n_devis))) throw new Error(`La commande ${n_devis} existe déjà`);
   const email = t(data.email).toLowerCase(), tel = t(data.telephone);
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail invalide');
@@ -387,15 +387,15 @@ async function creerCommande(data, user) {
   const xl = require('./excel');
   const tab = await xl.readTable(cfg.TABLE_COMMANDES);
   await xl.addRow(tab, {
-    'N° Devis': n_devis,
+    'N° Devis|N Devis|Devis': n_devis,
     'Client': client,
-    'Contenu mail': [email, tel].filter(Boolean).join('\n'),
-    'Informations complémentaire': t(data.infos).slice(0, 500),
-    'Zone de flocage': t(data.zone_flocage).slice(0, 200),
+    '?Contenu mail': [email, tel].filter(Boolean).join('\n'),
+    '?Informations complémentaire|Informations complémentaires|Contenu': t(data.infos).slice(0, 500),
+    '?Zone de flocage': t(data.zone_flocage).slice(0, 200),
     'Statut': statut,
-    'Date commande': today,
-    'Remarque': t(data.remarque).slice(0, 500),
-    ...(t(data.affectation) ? { 'Affectation': t(data.affectation) } : {}),
+    '?Date commande': today,
+    '?Remarque|Remarques': t(data.remarque).slice(0, 500),
+    ...(t(data.affectation) ? { '?Affectation': t(data.affectation) } : {}),
   }, 'Client');
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_creee', cle: n_devis || client, details: { client, statut } });
   console.log(`Gestion : commande ${n_devis || '(sans devis)'} ${client} créée à la main (${user})`);
