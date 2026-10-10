@@ -158,12 +158,29 @@ async function gPost(path, body, method = 'POST') {
 // attachments : [{ name, contentType, buffer }]
 async function sendMail(mailbox, { to, subject, html, replyTo, attachments = [] }) {
   const box = `/users/${encodeURIComponent(mailbox)}`;
-  const draft = await gPost(`${box}/messages`, {
+  const message = {
     subject,
     body: { contentType: 'HTML', content: html },
     toRecipients: (Array.isArray(to) ? to : [to]).map(a => ({ emailAddress: { address: a } })),
     ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
-  });
+  };
+  // Petits envois (< 3 Mo de pièces jointes) : envoi direct, seule la permission Mail.Send suffit
+  const total = attachments.reduce((t, a) => t + a.buffer.length, 0);
+  if (total < 3 * 1024 * 1024) {
+    message.attachments = attachments.map(a => ({
+      '@odata.type': '#microsoft.graph.fileAttachment', name: a.name, contentType: a.contentType || 'application/octet-stream',
+      contentBytes: a.buffer.toString('base64'),
+    }));
+    await gPost(`${box}/sendMail`, { message, saveToSentItems: true });
+    return;
+  }
+  // Gros fichiers : brouillon + session d'envoi (nécessite la permission Mail.ReadWrite)
+  let draft;
+  try { draft = await gPost(`${box}/messages`, message); }
+  catch (err) {
+    if (/403/.test(err.message)) throw new Error(`Pièces jointes de plus de 3 Mo : la permission Mail.ReadWrite (application) manque sur l'app Azure. ${err.message}`);
+    throw err;
+  }
   for (const a of attachments) {
     if (a.buffer.length < 3 * 1024 * 1024) {
       await gPost(`${box}/messages/${draft.id}/attachments`, {
