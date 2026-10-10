@@ -16,6 +16,8 @@ function render(user, view = 'accueil') {
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', admin: 'Admin' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --ink:#1e1b4b; --pink:#e91e8c; --bg:#f6f4fb; --card:#fff; --line:#e7e3f1; --muted:#6b6880;
@@ -235,23 +237,95 @@ td.c-x{width:30px;text-align:right;padding-left:0}
   .bat{height:420px}
   .lines th:nth-child(3),.lines td:nth-child(3),.lines th:nth-child(6),.lines td:nth-child(6){display:none}
 }
+
+/* ===== Nouvelle interface : menu latéral, Plus Jakarta Sans, cartes arrondies ===== */
+:root{--ink:#1E1E4B;--pink:#E91E8C;--bg:#F4F3F8;--line:#ECEAF3;--muted:#7A7899;--soft:#F1EFF7;--radius:18px;--side:248px}
+html,body{background:var(--bg);font:14px/1.5 'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif}
+header{position:fixed;top:0;left:0;bottom:0;width:var(--side);background:#1E1E4B;border:none;z-index:6;overflow-y:auto}
+.bar{max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:4px;padding:22px 14px 16px}
+.bar .brand{display:flex;align-items:center;gap:10px;padding:2px 8px 20px}
+.bar .brand .logo{width:38px;height:38px;border-radius:11px;background:#E91E8C;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none}
+.bar h1{color:#fff;font-size:15px;letter-spacing:.3px}
+.bar .brand small{display:block;color:#8D8BB8;font-size:12px;font-weight:600}
+.bar img{display:none}
+.bar nav{flex-direction:column;gap:3px;margin:0}
+.bar nav a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;color:#C9C8E3;font-weight:600;font-size:14px}
+.bar nav a svg{flex:none;opacity:.9}
+.bar nav a:hover{background:rgba(255,255,255,.07);color:#fff}
+.bar nav a.on{background:#E91E8C;color:#fff}
+.bar nav a .nn{margin-left:auto;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;padding:0 8px;font-size:12px;font-weight:800}
+.bar nav a .nn.o{background:#FFB020;color:#1E1E4B}
+.bar nav a .nn:empty{display:none}
+.bar nav a.off{display:none}
+.who{margin:auto 0 0;flex-direction:column;align-items:stretch;gap:6px;background:rgba(255,255,255,.06);border-radius:14px;padding:12px;color:#8D8BB8}
+.who .me{display:flex;align-items:center;gap:10px}
+.who .nm{display:flex;flex-direction:column;line-height:1.25}.who .nm small{color:#8D8BB8;font-size:12px}
+a.btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.who b{color:#fff}
+.who .av{width:32px;height:32px;border-radius:50%;background:#3A3A78;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none}
+.who a{color:#C9C8E3;text-decoration:none;font-size:12px;padding:2px 0}
+.who a:hover{color:#fff}
+main{max-width:1680px;margin:0 0 0 var(--side);padding:26px 34px 48px}
+.hello h2{font-size:30px;letter-spacing:-.6px}
+.btn{border-radius:12px;padding:9px 14px;font-weight:700;border-color:#E3E1EE;min-height:40px}
+.btn.primary{background:#1E1E4B;border-color:#1E1E4B}
+.search{border-radius:12px;padding:10px 14px;border-color:#E3E1EE;min-height:42px}
+.chip{padding:7px 13px;font-size:13px;border-color:#E3E1EE;color:#3B3A5C}
+.chip.on{background:#1E1E4B;border-color:#1E1E4B}
+.card,.tablewrap,.kpi,.mod{border-radius:var(--radius);border-color:var(--line)}
+.card{padding:18px 20px}
+.card h3{font-size:12px;font-weight:800;letter-spacing:.7px;color:#8D8BA8}
+th{background:#fff;color:#8D8BA8;font-weight:800;letter-spacing:.6px;padding:14px 10px 10px}
+td{border-bottom-color:#F1EFF6;padding:11px 10px}
+tr.row:hover td{background:#FBFAFE}
+.kpi{padding:18px 20px}
+.kpi::before{display:none}
+.kpi .l{display:flex;align-items:center;gap:8px;font-weight:700;color:#5B5A7E}
+.kpi .l::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--accent,var(--ink));flex:none}
+.kpi .n{font-size:34px;letter-spacing:-1px}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px}
+.badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.esp{border-radius:999px;font-size:11.5px}
+.panel{width:min(820px,100%)}
+.phead{padding:18px 22px}
+.phead h2{font-size:21px;font-weight:800;letter-spacing:-.3px}
+.pbody{padding:18px 22px 48px;gap:14px}
+.steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.steps .st{display:flex;flex-direction:column;gap:6px;min-width:0}
+.steps .st i{display:block;height:6px;border-radius:99px;background:#E6E4EF}
+.steps .st.d i{background:#E91E8C}.steps .st.c i{background:#1E1E4B}
+.steps .st span{font-size:11.5px;font-weight:800;color:#A7A5BF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps .st.d span,.steps .st.c span{color:#1E1E4B}
+@media (max-width:760px){
+  header{position:static;width:auto;bottom:auto;overflow:visible}
+  .bar{flex-direction:row;height:auto;padding:12px 16px;align-items:center}
+  .bar .brand{padding:0}
+  .bar nav{position:fixed;left:0;right:0;bottom:0;flex-direction:row;justify-content:space-around;background:#fff;border-top:1px solid var(--line);padding:6px 4px calc(8px + env(safe-area-inset-bottom));z-index:9;overflow-x:auto;width:auto;order:0}
+  .bar nav a{flex-direction:column;gap:2px;padding:6px 8px;font-size:10.5px;color:#8D8BA8;border-radius:10px;min-width:58px}
+  .bar nav a.on{background:none;color:#E91E8C}
+  .bar nav a .nn{display:none}
+  .who{margin:0 0 0 auto;flex-direction:row;background:none;padding:0}
+  .who .me{display:none}
+  main{margin:0;padding:16px 14px 90px}
+  .steps .st span{font-size:10px}
+}
 </style>
 </head>
 <body>
 <header><div class="bar">
-  <img src="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png" alt="" onerror="this.style.display='none'">
-  <h1>IGS DASHBOARD</h1>
+  <div class="brand"><div class="logo">IGS</div><div><h1>IGS DASHBOARD</h1><small>Custom Bar</small></div></div>
   <nav>
-    <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion">Accueil</a>
-    <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes">Commandes</a>
-    <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
-    <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock">Stock</a>
-    <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse">Espèces</a>
-    <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures">Heures</a>
-    ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin">Admin</a>` : ''}
+    <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>Aujourd'hui</a>
+    <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg>Commandes<span class="nn" id="nav-n-cmd"></span></a>
+    <a href="/gestion/commandes#bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>BAT<span class="nn o" id="nav-n-bat"></span></a>
+    <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>Planches DTF</a>
+    <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg>Stock</a>
+    <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>Espèces</a>
+    <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Heures</a>
+    ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Admin</a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
-  <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
+  <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
 </div></header>
 
 <main>
@@ -489,8 +563,8 @@ async function charger(force){
     const erreur = (jc && jc.erreur) || (jp && jp.erreur);
     const at = (jc || jp).syncedAt;
     const s = $('sync');
-    if (erreur){ s.className='sync err'; s.textContent = '⚠️ Synchro en échec : ' + erreur; }
-    else { s.className='sync'; s.textContent = at ? 'Synchro Excel : ' + new Date(at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : ''; }
+    if (erreur){ s.className='sync err'; s.textContent = '⚠️ Actualisation en échec : ' + erreur; }
+    else { s.className='sync'; s.textContent = at ? 'Actualisé à ' + new Date(at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : ''; }
     afficher();
   } catch(e){ $('sync').className='sync err'; $('sync').textContent='⚠️ Serveur injoignable'; }
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
@@ -512,7 +586,16 @@ async function hrHome(){
     }
   } catch(e){ box.innerHTML = '<span class="sub">Heures indisponibles</span>'; }
 }
-function afficher(){ if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
+function navCompteurs(){
+  try {
+    if (!Array.isArray(data) || !data.length) return;
+    const enCours = data.filter(c => statutKey(c.statut) !== 'LIVRÉE').length;
+    const bat = data.filter(c => AVANT_BAT(c) && ['modif','faire','envoyer'].includes(batEtape(c))).length;
+    if ($('nav-n-cmd')) $('nav-n-cmd').textContent = enCours || '';
+    if ($('nav-n-bat')) $('nav-n-bat').textContent = bat || '';
+  } catch(e){}
+}
+function afficher(){ navCompteurs(); if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -1887,7 +1970,7 @@ async function ouvrir(cle){
     c.email ? '<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>' : '',
     c.telephone ? '<a href="https://wa.me/'+esc(c.telephone)+'" target="_blank" rel="noopener">'+esc(fphone(c.telephone))+'</a>' : '',
   ].filter(Boolean).join('<br>');
-  $('pbody').innerHTML =
+  $('pbody').innerHTML = stepsHtml(c) +
     (c.date_dynamique ? '<div class="warnbox">⚠️ La date de commande de cette ligne est une formule <b>=TODAY()</b> dans l\\'Excel : elle change chaque jour, et la date de livraison avec.</div>' : '')
     + '<div class="card"><h3>Commande</h3><div class="grid">'
     + kv('Contenu', esc(c.infos)) + kv('Zone de flocage', esc(c.zone_flocage)) + kv('Planche', esc(c.planche))
@@ -1994,6 +2077,16 @@ function jrAfficher(c, j){
   };
   $('jr-go').onclick = go;
   $('jr-q').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+}
+// Frise d'avancement de la commande (fiche)
+function stepsHtml(c){
+  const ETAPES = ['Payée','BAT','Validée','En commande','Production','Flocage','Terminée'];
+  const k = statutKey(c.statut);
+  let i = { 'EN DEVIS': -1, 'PAYÉE': 0, 'VALIDÉE': 2, 'EN COMMANDE': 3, 'EN PRODUCTION': 4, 'EN FLOCAGE': 5, 'TERMINÉE': 6, 'A EXPEDIER': 6, 'EXPÉDIÉE': 7, 'LIVRÉE': 7 }[k];
+  if (i === undefined) i = -1;
+  if (k === 'PAYÉE' && c.bat_info && c.bat_info.formulaire) i = 1;
+  if (k === 'EN COMMANDE' && !(c.bat_reponse && c.bat_reponse.verdict === 'valide')) i = 3;
+  return '<div class="card" style="padding:14px 18px"><div class="steps">' + ETAPES.map((e, n) => '<div class="st '+(n < i ? 'd' : n === i ? 'c' : '')+'"><i></i><span>'+e+'</span></div>').join('') + '</div></div>';
 }
 // ---------- Liste des BAT (commandes PAYÉE) ----------
 let modeBat = false;
@@ -2293,6 +2386,7 @@ if (VIEW === 'commandes') {
   $('nv-cmd').onclick = nouvelleCommande;
   $('tab-cours').onclick = () => onglet('cours'); $('tab-histo').onclick = () => onglet('histo'); $('tab-bat').onclick = () => onglet('bat');
   if (location.hash === '#bat') onglet('bat');
+  window.addEventListener('hashchange', () => { if (location.hash === '#bat') onglet('bat'); });
   $('batbox').addEventListener('click', batClic);
   if (location.hash === '#historique') onglet('histo');
 } else if (VIEW === 'admin') {
