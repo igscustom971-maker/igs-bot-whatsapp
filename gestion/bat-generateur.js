@@ -17,6 +17,7 @@ async function lirePositions() {
   const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'bat_positions').maybeSingle();
   try { return data ? JSON.parse(data.valeur) : {}; } catch { return {}; }
 }
+const uploadVisuel = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } }).single('fichier');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } }).single('pdf');
 let logoIgs = { buf: null, type: 'image/png', at: 0 };
 
@@ -52,6 +53,15 @@ function mount(app) {
   app.post('/gestion/api/bat/positions', auth.requireUser, auth.requireAdmin, async (req, res) => {
     try {
       const b = req.body || {};
+      if (b.echelle != null) {
+        const e = Number(b.echelle);
+        if (!(e >= 0.5 && e <= 3)) throw new Error('Échelle invalide');
+        const pos = await lirePositions(); pos._echelle = Math.round(e * 100) / 100;
+        if (!supabase) throw new Error('Supabase non configuré');
+        const { error } = await supabase.from('gestion_reglages').upsert({ cle: 'bat_positions', valeur: JSON.stringify(pos), updated_at: new Date().toISOString() });
+        if (error) throw new Error(error.message);
+        return res.json({ ok: true, positions: pos });
+      }
       const produit = String(b.produit || ''), zone = String(b.zone || '');
       if (!/^(tshirt|polo|debardeur|tote)$/.test(produit) || !/^(coeur|poitrine|dos|manche|bas|centre)$/.test(zone)) throw new Error('Produit ou zone inconnu');
       const n = v => { const x = Number(v); if (!isFinite(x) || Math.abs(x) > 80) throw new Error('Valeur invalide'); return Math.round(x * 2) / 2; };
@@ -64,6 +74,15 @@ function mount(app) {
       console.log(`Gestion BAT : position par défaut ${produit}/${zone}`, pos[produit][zone]);
       res.json({ ok: true, positions: pos });
     } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Visuel ajouté ou remplacé depuis le générateur (enregistré dans le dossier SharePoint de la commande)
+  app.post('/gestion/api/commandes/:cle/visuel', auth.requireUser, (req, res, next) => uploadVisuel(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Image trop lourde (25 Mo max)' : err.message });
+    next();
+  }), async (req, res) => {
+    try { res.json(await commandes.deposerVisuel(req.params.cle, { visuel: req.body?.visuel, face: req.body?.face, remplace: req.body?.remplace || null, file: req.file }, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion visuel :', err.message); res.status(400).json({ error: err.message }); }
   });
 
   app.post('/gestion/api/commandes/:cle/bat-pdf', auth.requireUser, (req, res, next) => upload(req, res, err => {

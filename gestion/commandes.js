@@ -336,6 +336,40 @@ async function trouverBat(ndevis) {
   return files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name))) || null;
 }
 
+// Visuel déposé depuis le générateur de BAT : nouveau fichier dans le dossier du visuel (NOM_Avant / NOM_Arriere),
+// ou remplacement d'un fichier existant du dossier de la commande (même nom, extension du nouveau fichier)
+async function deposerVisuel(cle, { visuel, face, remplace, file }, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row || !row.n_devis) throw new Error('Commande introuvable');
+  if (!file || !/^image\//.test(file.mimetype || '')) throw new Error('Fichier image attendu (PNG, JPG…)');
+  const f = await findCommandeFolder(row.n_devis);
+  if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
+  const ext = ((file.originalname || '').match(/\.[A-Za-z0-9]{2,5}$/) || ['.png'])[0].toLowerCase();
+  let it;
+  if (remplace) {
+    const ancien = await g.item(remplace);
+    const chemin = g.norm(decodeURIComponent(ancien.parentReference?.path || ''));
+    if (!ancien.file || !chemin.includes(g.norm(f.name))) throw new Error('Ce fichier n\'appartient pas au dossier de la commande');
+    const nom = ancien.name.replace(/\.[^.]+$/, '') + ext;
+    it = await g.uploadFile(ancien.parentReference.id, nom, file.buffer, file.mimetype, undefined, 'replace');
+    if (nom !== ancien.name) await g.deleteItem(ancien.id).catch(() => {});
+  } else {
+    const nomVisuel = String(visuel || '').trim().replace(/[\\/:*?"<>|#%{}~&]/g, '').replace(/\s+/g, '_').slice(0, 60);
+    if (!nomVisuel) throw new Error('Nom du visuel manquant');
+    const enfants = await g.children(f.id);
+    let dossier = enfants.find(x => x.folder && g.norm(x.name) === g.norm(nomVisuel));
+    if (!dossier) dossier = await g.createFolder(f.id, nomVisuel);
+    const base = `${nomVisuel}_${face === 'arriere' ? 'Arriere' : 'Avant'}`;
+    const deja = (await g.children(dossier.id)).filter(x => x.file).map(x => g.norm(x.name.replace(/\.[^.]+$/, '')));
+    let nom = base, n = 2;
+    while (deja.includes(g.norm(nom))) nom = `${base}${n++}`;
+    it = await g.uploadFile(dossier.id, nom + ext, file.buffer, file.mimetype, undefined, 'rename');
+  }
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: remplace ? 'visuel_remplace' : 'visuel_ajoute', cle, details: { nom: it.name } });
+  console.log(`Gestion : visuel ${it.name} ${remplace ? 'remplacé' : 'ajouté'} pour ${row.n_devis} (${user})`);
+  return { id: it.id, nom: it.name };
+}
+
 // Dépôt du BAT généré (« BON A TIRER.pdf », remplace l'existant)
 async function deposerBat(cle, buffer, user) {
   const row = cache.rows.find(r => r.cle === cle);
@@ -688,4 +722,4 @@ async function supprimerBordereau(cle, itemId, user) {
 
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 
-module.exports = { deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
