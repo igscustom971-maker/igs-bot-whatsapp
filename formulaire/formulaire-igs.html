@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fiche de personnalisation — IGS Custom Bar</title>
+<link href="https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;600;700;900&family=Nunito:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bleu-fond: #1e1b4b; --bleu-card: #252266; --bleu-input: #2a2770;
+    --rose: #e91e8c; --rose-hover: #d4177f; --vert: #4a9c2f; --vert-hover: #3d8526;
+    --rouge: #ef4444; --blanc: #ffffff; --blanc-muted: rgba(255,255,255,0.7);
+    --border: rgba(255,255,255,0.12); --radius: 12px; --radius-sm: 8px;
+  }
+  body { background: var(--bleu-fond); color: var(--blanc); font-family: 'Nunito', sans-serif; font-size: 15px; line-height: 1.6; padding: 40px 20px 80px; }
+  .hero { max-width: 860px; margin: 0 auto 32px; text-align: center; }
+  .hero-badge { display: inline-block; background: var(--rose); color: var(--blanc); font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; padding: 6px 20px; border-radius: 999px; margin-bottom: 18px; }
+  .hero h1 { color: #fff; font-family: 'League Spartan', sans-serif; font-weight: 900; font-size: clamp(30px, 5.5vw, 52px); letter-spacing: -0.01em; line-height: 1.05; margin-bottom: 12px; text-transform: uppercase; }
+  .hero-desc { color: var(--blanc-muted); font-size: 15px; max-width: 520px; margin: 0 auto; font-weight: 300; }
+  .commande-card { max-width: 860px; margin: 0 auto 28px; background: var(--bleu-card); border: 1px solid var(--border); border-left: 4px solid var(--rose); border-radius: var(--radius); padding: 18px 28px; display: flex; gap: 48px; align-items: center; }
+  .commande-field label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--blanc-muted); display: block; margin-bottom: 4px; }
+  .commande-field .value { font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 22px; }
+  .form-wrap { max-width: 860px; margin: 0 auto; }
+  .form-section { background: var(--bleu-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; margin-bottom: 18px; }
+  .section-title { font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rose); margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .section-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: var(--rose); color: var(--blanc); font-size: 12px; border-radius: 50%; font-family: 'Nunito', sans-serif; font-weight: 700; flex-shrink: 0; }
+  .form-group { margin-bottom: 16px; }
+  .form-group:last-child { margin-bottom: 0; }
+  .form-group label, .lbl { display: block; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--blanc-muted); margin-bottom: 7px; font-weight: 700; }
+  .required { color: var(--rose); margin-left: 2px; }
+  .optional { color: rgba(255,255,255,0.3); font-size: 10px; margin-left: 4px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  input[type="text"], input[type="email"], input[type="tel"], input[type="number"], textarea, select { width: 100%; background: var(--bleu-input); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px; color: var(--blanc); font-family: 'Nunito', sans-serif; font-size: 15px; transition: border-color 0.2s; outline: none; }
+  input:focus, textarea:focus, select:focus { border-color: var(--rose); }
+  input.error, select.error { border-color: var(--rouge); }
+  input::placeholder, textarea::placeholder { color: rgba(255,255,255,0.25); }
+  select option { background: var(--bleu-card); color: var(--blanc); }
+  textarea { min-height: 80px; resize: vertical; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .upload-notice { background: rgba(233,30,140,0.08); border: 1px solid rgba(233,30,140,0.25); border-radius: var(--radius-sm); padding: 12px 16px; font-size: 13px; color: var(--blanc-muted); margin-bottom: 16px; line-height: 1.5; }
+  .upload-notice strong { color: var(--blanc); }
+  .info-notice { background: rgba(74,156,47,0.1); border: 1px solid rgba(74,156,47,0.3); border-radius: var(--radius-sm); padding: 12px 16px; font-size: 13px; color: var(--blanc-muted); margin-bottom: 16px; }
+  .info-notice strong { color: var(--blanc); }
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius-sm); padding: 22px 16px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; background: var(--bleu-input); }
+  .upload-zone:hover { border-color: var(--rose); }
+  .upload-zone.has-file { border-color: var(--vert); border-style: solid; background: rgba(74,156,47,0.08); }
+  .upload-zone.error { border-color: var(--rouge); }
+  .upload-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 22px; margin-bottom: 6px; display: block; }
+  .upload-text { font-size: 13px; color: var(--blanc-muted); margin-bottom: 4px; }
+  .upload-text strong { color: var(--blanc); }
+  .upload-hint { font-size: 11px; color: rgba(255,255,255,0.25); }
+  .upload-filename { display: none; font-size: 12px; color: var(--vert); margin-top: 6px; font-weight: 700; word-break: break-all; }
+  .upload-zone.has-file .upload-filename { display: block; }
+  .btn-remove { display: none; margin-top: 6px; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; font-size: 11px; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-family: 'Nunito', sans-serif; }
+  .field-error { font-size: 12px; color: var(--rouge); margin-top: 6px; display: none; align-items: center; gap: 4px; }
+  .field-error.show { display: flex; }
+  .error-banner { display: none; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.4); border-radius: var(--radius-sm); padding: 12px 16px; font-size: 13px; color: #fca5a5; margin-bottom: 16px; align-items: center; gap: 10px; }
+  .error-banner.show { display: flex; }
+  .error-banner::before { content: '⚠️'; font-size: 16px; flex-shrink: 0; }
+  .total-bar-wrap { margin-bottom: 16px; }
+  .total-bar-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--blanc-muted); margin-bottom: 6px; }
+  .total-bar-track { background: rgba(255,255,255,0.08); border-radius: 999px; height: 8px; overflow: hidden; }
+  .total-bar-fill { height: 100%; border-radius: 999px; background: var(--vert); width: 0%; transition: width 0.3s, background 0.3s; }
+  .total-bar-fill.warn { background: #f59e0b; }
+  .total-bar-fill.danger { background: var(--rouge); }
+  .option-compresse { margin-top: 14px; padding: 14px 16px; background: rgba(255,255,255,0.04); border: 1px dashed var(--border); border-radius: var(--radius-sm); }
+  .option-compresse-title { font-size: 13px; color: var(--blanc); font-weight: 600; margin-bottom: 4px; }
+  .option-compresse-desc { font-size: 12px; color: var(--blanc-muted); margin-bottom: 12px; }
+  .flocage-section { display: none; margin-top: 16px; padding: 16px; background: rgba(233,30,140,0.06); border: 1px solid rgba(233,30,140,0.2); border-radius: var(--radius-sm); }
+  .flocage-section.show { display: block; }
+  .flocage-title { font-size: 13px; font-weight: 700; color: var(--rose); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .dim-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .dim-row input[type="number"] { width: 90px; }
+  .dim-row span { font-size: 13px; color: var(--blanc-muted); }
+  .dim-default { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 4px; }
+  .submit-section { background: var(--bleu-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; }
+  .btn-submit { width: 100%; background: var(--rose); color: var(--blanc); border: none; padding: 17px 32px; font-family: 'League Spartan', sans-serif; font-weight: 900; font-size: 20px; letter-spacing: 0.08em; cursor: pointer; border-radius: 999px; transition: all 0.2s; text-transform: uppercase; }
+  .btn-submit:hover { background: var(--rose-hover); transform: translateY(-2px); }
+  .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+  .submit-note { text-align: center; font-size: 12px; color: var(--blanc-muted); margin-top: 12px; }
+  .upload-progress { display: none; margin-top: 20px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; }
+  .upload-progress.show { display: block; }
+  .progress-label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .progress-label .step-text { font-size: 13px; color: var(--blanc-muted); font-weight: 600; }
+  .progress-label .pct-text { font-size: 13px; font-weight: 700; color: var(--rose); }
+  .progress-track { background: rgba(255,255,255,0.08); border-radius: 999px; height: 10px; overflow: hidden; margin-bottom: 14px; }
+  .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #e91e8c, #ff6bbf); width: 0%; transition: width 0.4s ease; }
+  .progress-steps { display: flex; gap: 8px; flex-wrap: wrap; }
+  .progress-step { font-size: 11px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--blanc-muted); }
+  .progress-step.active { border-color: var(--rose); color: var(--rose); background: rgba(233,30,140,0.1); }
+  .progress-step.done { border-color: var(--vert); color: var(--vert); background: rgba(74,156,47,0.1); }
+  .progress-step.done::before { content: '✓ '; }
+  .success-overlay { display: none; position: fixed; inset: 0; background: var(--bleu-fond); z-index: 100; align-items: center; justify-content: center; flex-direction: column; text-align: center; padding: 40px; }
+  .success-overlay.show { display: flex; }
+  .success-icon { font-size: 64px; margin-bottom: 24px; }
+  .success-title { font-family: 'League Spartan', sans-serif; font-weight: 900; font-size: 48px; color: var(--rose); margin-bottom: 16px; text-transform: uppercase; }
+  .success-text { color: var(--blanc-muted); max-width: 420px; font-size: 16px; }
+  .nuancier-btn { display: inline-flex; align-items: center; gap: 8px; background: rgba(233,30,140,0.15); border: 1px solid rgba(233,30,140,0.4); color: var(--rose); padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Nunito', sans-serif; margin-bottom: 16px; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
+  .modal-overlay.show { display: flex; }
+  .modal-box { background: var(--bleu-card); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+  .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h3 { font-family: 'League Spartan', sans-serif; font-size: 18px; font-weight: 700; }
+  .modal-close { background: rgba(255,255,255,0.1); border: none; color: var(--blanc); width: 32px; height: 32px; border-radius: 50%; font-size: 18px; cursor: pointer; }
+  .modal-body { flex: 1; overflow: hidden; }
+  .modal-body iframe { width: 100%; height: 100%; min-height: 65vh; border: none; }
+  .modal-footer { padding: 12px 20px; border-top: 1px solid var(--border); font-size: 12px; color: var(--blanc-muted); text-align: center; }
+  .visuel-block, .article { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 18px; margin-bottom: 14px; }
+  .visuel-block-header, .article-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
+  .visuel-block-title, .article-title { font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 14px; color: var(--blanc); letter-spacing: 0.05em; }
+  .btn-remove-visuel { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; font-size: 11px; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-family: 'Nunito', sans-serif; white-space: nowrap; }
+  .btn-add { display: inline-flex; align-items: center; gap: 8px; background: rgba(74,156,47,0.1); border: 1px solid rgba(74,156,47,0.3); color: var(--vert); padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Nunito', sans-serif; margin-top: 4px; }
+  .btn-add:hover { background: rgba(74,156,47,0.2); }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--blanc-muted); font-size: 11px; padding: 4px 12px; border-radius: 999px; cursor: pointer; font-family: 'Nunito', sans-serif; white-space: nowrap; }
+  .sizes { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+  .size { text-align: center; }
+  .size span { display: block; font-size: 11px; font-weight: 700; color: var(--blanc-muted); margin-bottom: 4px; }
+  .size input { padding: 10px 6px; text-align: center; font-weight: 700; }
+  .size input.has { border-color: var(--vert); background: rgba(74,156,47,0.12); }
+  .article-total { font-size: 12px; color: var(--blanc-muted); margin-top: 10px; }
+  .recap { margin-top: 14px; padding: 14px 16px; background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); font-size: 13px; color: var(--blanc-muted); }
+  .recap b { color: var(--blanc); }
+  .check { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 16px; font-size: 14px; }
+  .check input { width: 20px; height: 20px; accent-color: var(--rose); flex: none; margin-top: 2px; }
+  .check.on { border-color: var(--rose); background: rgba(233,30,140,0.08); }
+  .link-alt { background: none; border: none; color: var(--blanc-muted); text-decoration: underline; font-size: 12px; cursor: pointer; font-family: 'Nunito', sans-serif; margin-top: 10px; }
+  .hidden { display: none !important; }
+  @media (max-width: 600px) {
+    body { padding: 20px 14px 60px; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    .commande-card { flex-direction: column; gap: 14px; padding: 16px 18px; }
+    .form-section { padding: 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="modal-overlay" id="nuancierModal">
+  <div class="modal-box">
+    <div class="modal-header"><h3>🎨 Nuancier IGS Custom Bar</h3><button type="button" class="modal-close" onclick="document.getElementById('nuancierModal').classList.remove('show')">✕</button></div>
+    <div class="modal-body"><iframe src="https://igscustom.fr/Nuancier_IGS_Custom_Bar.pdf" title="Nuancier IGS Custom Bar"></iframe></div>
+    <div class="modal-footer">Les teintes sont indicatives — variations possibles selon lot de fabrication &nbsp;·&nbsp; <a href="https://igscustom.fr/Nuancier_IGS_Custom_Bar.pdf" download style="color:var(--rose);text-decoration:none;">⬇ Télécharger le nuancier</a></div>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="hero-badge">Fiche de personnalisation</div>
+  <h1>Finalisez votre<br>commande textile</h1>
+  <p class="hero-desc">Renseignez vos articles, tailles et visuels directement ici : plus besoin de télécharger de fichier. Traitement sous 24h.</p>
+</div>
+
+<div class="commande-card">
+  <div class="commande-field"><label>Numéro de devis</label><div class="value" id="display-devis">—</div></div>
+  <div class="commande-field"><label>Client</label><div class="value" id="display-client">—</div></div>
+</div>
+
+<form id="mainForm" class="form-wrap" novalidate>
+
+  <div class="error-banner" id="errorBanner">Des champs obligatoires sont manquants ou des fichiers dépassent les limites autorisées.</div>
+
+  <!-- 1. IDENTIFICATION -->
+  <div class="form-section">
+    <div class="section-title"><span class="section-num">1</span> Identification</div>
+    <div class="grid-3">
+      <div class="form-group"><label>Numéro de devis <span class="required">*</span></label><input type="text" id="devis" name="devis" placeholder="Ex: DE2600350" required><div class="field-error" id="err-devis">Champ obligatoire</div></div>
+      <div class="form-group"><label>Nom du client <span class="required">*</span></label><input type="text" id="client" name="client" placeholder="Ex: IGS CUSTOM BAR" required><div class="field-error" id="err-client">Champ obligatoire</div></div>
+      <div class="form-group"><label>Téléphone <span class="required">*</span></label><input type="tel" id="tel" name="tel" placeholder="Ex: 0690 00 00 00" required><div class="field-error" id="err-tel">Champ obligatoire</div></div>
+    </div>
+    <div class="form-group"><label>Email <span class="required">*</span></label><input type="email" id="email" name="email" placeholder="votre@email.com" required><div class="field-error" id="err-email">Email invalide</div></div>
+  </div>
+
+  <!-- 2. VISUELS -->
+  <div class="form-section">
+    <div class="section-title"><span class="section-num">2</span> Vos visuels</div>
+
+    <label class="check" id="check-sans-visuel">
+      <input type="checkbox" id="sans-visuel" name="sans_visuel" value="oui">
+      <span><strong>Je transmets mon visuel via WeTransfer, ou je n'ai pas de visuel à transmettre</strong><br><span style="font-size:12px;color:var(--blanc-muted)">Cochez si vous n'envoyez pas vos fichiers ici. Vous pouvez quand même nommer vos visuels pour les associer à vos articles.</span></span>
+    </label>
+
+    <div class="upload-notice" id="consignes">
+      <strong>Consignes :</strong> fichiers <strong>sans fond</strong>, de préférence en <strong>PNG</strong>, 300 dpi minimum. IGS Custom Bar ne pourra être tenu responsable d'un résultat insuffisant dû à des visuels de basse résolution. <strong>Max 20 Mo par fichier, 30 Mo au total.</strong> Un visuel peut avoir uniquement un avant, uniquement un arrière, ou les deux.
+    </div>
+
+    <button type="button" class="nuancier-btn" onclick="document.getElementById('nuancierModal').classList.add('show')">🎨 Consulter le nuancier des couleurs disponibles</button>
+
+    <div class="total-bar-wrap" id="total-wrap">
+      <div class="total-bar-label"><span>Taille totale des fichiers</span><span id="total-size-text">0 Mo / 30 Mo max</span></div>
+      <div class="total-bar-track"><div class="total-bar-fill" id="total-bar-fill"></div></div>
+    </div>
+    <div class="field-error" id="err-total-size" style="margin-bottom:12px;">Taille totale dépassée (30 Mo max) : supprimez un fichier ou utilisez WeTransfer</div>
+
+    <div id="visuels-container"></div>
+    <div class="field-error" id="err-visuels" style="margin-bottom:10px;">Ajoutez au moins un fichier (avant ou arrière) pour chaque visuel, ou cochez la case WeTransfer / pas de visuel</div>
+    <button type="button" class="btn-add" id="btn-add-visuel" onclick="addVisuel()">➕ Ajouter un autre visuel <span id="visuels-count-note" style="font-size:11px;color:rgba(255,255,255,0.4);"></span></button>
+
+    <!-- FLOCAGE FACE -->
+    <div class="flocage-section" id="bloc-face">
+      <div class="flocage-title">🎯 Zone de flocage — Face</div>
+      <div class="form-group">
+        <label>Position <span class="required">*</span></label>
+        <select id="position-face" name="position_face">
+          <option value="">— Choisir une position —</option>
+          <option value="Cœur">Cœur</option>
+          <option value="Poitrine">Poitrine</option>
+          <option value="Autre">Autre</option>
+        </select>
+        <div class="field-error" id="err-position-face">Veuillez choisir une position</div>
+      </div>
+      <div class="form-group" id="bloc-position-autre" style="display:none;"><label>Précisez la position</label><input type="text" id="position-face-autre" name="position_face_autre" placeholder="Ex: bas du dos, épaule..."></div>
+      <div class="form-group"><label>Dimension (largeur)</label><div class="dim-row"><input type="number" id="dim-face" name="dim_face" min="1" max="60" step="0.5" value="9"><span>cm</span></div><div class="dim-default" id="dim-face-default">Dimension par défaut : 9 cm</div></div>
+    </div>
+
+    <!-- FLOCAGE DOS -->
+    <div class="flocage-section" id="bloc-dos">
+      <div class="flocage-title">🎯 Zone de flocage — Dos</div>
+      <div class="form-group"><label>Dimension (largeur)</label><div class="dim-row"><input type="number" id="dim-dos" name="dim_dos" min="1" max="60" step="0.5" value="27"><span>cm</span></div><div class="dim-default">Dimension par défaut : 27 cm</div></div>
+    </div>
+
+    <!-- ZONE SUPPLEMENTAIRE -->
+    <div class="flocage-section show" style="background:rgba(255,255,255,0.03);border-color:var(--border);margin-top:14px;">
+      <div class="flocage-title" style="color:var(--blanc-muted);">➕ Zone supplémentaire <span style="font-weight:400;font-size:11px;text-transform:none;letter-spacing:0;">(optionnel — ex: manche)</span></div>
+      <div class="form-group"><label>Localisation</label><input type="text" id="zone-extra-nom" name="zone_extra_nom" placeholder="Ex: manche gauche, col..."></div>
+      <div class="form-group" id="bloc-dim-extra" style="display:none;"><label>Dimension (largeur)</label><div class="dim-row"><input type="number" id="dim-extra" name="dim_extra" min="1" max="30" step="0.5" value="10"><span>cm</span></div><div class="dim-default">Dimension par défaut : 10 cm</div></div>
+    </div>
+
+    <!-- ARCHIVE ZIP -->
+    <div class="option-compresse" id="bloc-zip" style="margin-top:18px;">
+      <div class="option-compresse-title">🗜️ Archive compressée <span class="optional">(optionnel — alternative aux visuels séparés)</span></div>
+      <div class="option-compresse-desc">Si vous avez de nombreux visuels, regroupez-les dans un fichier ZIP (max 25 Mo). Avec une archive, les visuels séparés ne sont plus obligatoires.</div>
+      <div class="upload-zone" id="zone-zip" style="padding:16px;">
+        <input type="file" id="file-zip" name="file-zip" accept=".zip,.rar,.7z">
+        <span class="upload-icon" style="font-size:18px;">📦</span>
+        <div class="upload-text" style="font-size:12px;">Archive <strong>ZIP</strong> de vos visuels</div>
+        <div class="upload-hint">.zip · .rar · .7z · max 25 Mo</div>
+        <div class="upload-filename" id="name-zip"></div>
+      </div>
+      <button type="button" class="btn-remove" id="remove-zip" onclick="removeFile('zip')">✕ Supprimer l'archive</button>
+      <div class="field-error" id="err-zip-size">Archive trop lourde — 25 Mo maximum</div>
+    </div>
+  </div>
+
+  <!-- 3. ARTICLES ET TAILLES -->
+  <div class="form-section">
+    <div class="section-title"><span class="section-num">3</span> Vos articles et tailles</div>
+    <div class="info-notice">Ajoutez un bloc par <strong>produit + couleur + visuel</strong>, puis indiquez la quantité pour chaque taille. ⚠️ La coupe <strong>Femme</strong> habille plus serré : prenez une taille au-dessus. Toutes les couleurs ne sont pas disponibles en 3XL : nous vous contacterons si besoin.</div>
+
+    <div id="articles"></div>
+    <div class="field-error" id="err-articles" style="margin-bottom:10px;">Ajoutez au moins un article avec une quantité</div>
+    <button type="button" class="btn-add" onclick="addArticle()">➕ Ajouter un article</button>
+    <div class="recap" id="recap"></div>
+
+    <div id="bloc-excel-alt" class="hidden" style="margin-top:16px;">
+      <div class="form-group">
+        <label>Votre fichier Excel déjà rempli</label>
+        <div class="upload-zone" id="zone-excel">
+          <input type="file" id="file-excel-manuel" accept=".xlsx,.xls,.csv">
+          <span class="upload-icon">📊</span>
+          <div class="upload-text">Glissez votre fichier ou <strong>cliquez pour parcourir</strong></div>
+          <div class="upload-hint">.xlsx · .xls · .csv — remplace la saisie ci-dessus</div>
+          <div class="upload-filename" id="name-excel"></div>
+        </div>
+        <button type="button" class="btn-remove" id="remove-excel" onclick="removeFile('excel')">✕ Supprimer ce fichier</button>
+      </div>
+    </div>
+    <button type="button" class="link-alt" id="toggle-excel">Vous avez déjà rempli notre fichier Excel ? Importez-le plutôt</button>
+  </div>
+
+  <!-- 4. INSTRUCTIONS -->
+  <div class="form-section">
+    <div class="section-title"><span class="section-num">4</span> Instructions complémentaires</div>
+    <div class="form-group"><label>Précisions <span class="optional">(optionnel)</span></label><textarea id="instructions-saisie" placeholder="Prénoms à ajouter, instructions particulières..."></textarea></div>
+  </div>
+
+  <input type="hidden" id="instructions" name="instructions">
+
+  <div class="submit-section">
+    <button type="submit" class="btn-submit" id="btnSubmit">✓ Envoyer ma commande</button>
+    <p class="submit-note">Vos fichiers sont transmis de manière sécurisée · Notre équipe vous contacte sous 24h</p>
+    <div class="upload-progress" id="uploadProgress">
+      <div class="progress-label"><span class="step-text" id="progressText">Préparation de l'envoi...</span><span class="pct-text" id="progressPct">0%</span></div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-steps">
+        <span class="progress-step" id="step1">Préparation du tableau</span>
+        <span class="progress-step" id="step2">Envoi des visuels</span>
+        <span class="progress-step" id="step3">Envoi du tableau</span>
+        <span class="progress-step" id="step4">Finalisation</span>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="success-overlay" id="successOverlay">
+  <div class="success-icon">✅</div>
+  <div class="success-title">Commande envoyée !</div>
+  <p class="success-text">Votre fiche a bien été reçue. Notre équipe reviendra vers vous sous 24h.</p>
+</div>
+
+<script>
+  // ---------------- Réglages ----------------
+  const ENDPOINT     = 'https://igscustom.fr/wp-json/igs/v1/commande';
+  const TEMPLATE_URL = 'https://igscustom.fr/Template_Commande_IGS.xlsx'; // modèle officiel (tableau LignesCommande)
+  const MAX_VISUEL = 20 * 1024 * 1024;
+  const MAX_ZIP    = 25 * 1024 * 1024;
+  const MAX_TOTAL  = 30 * 1024 * 1024;  // limite d'un mail
+  const MAX_V      = 4;
+  const MAX_LIGNES = 100;               // lignes du modèle Excel
+  const DIM_DEFAULTS = { 'Cœur': 9, 'Poitrine': 27 };
+
+  const PRODUITS = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
+  const COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
+  const T_ADULTE = ['XS','S','M','L','XL','2XL','3XL'];
+  const T_ENFANT = ['2A','4A','6A','8A','10A','12A'];
+  const taillesPour = p => p === 'T-Shirt Enfant' ? T_ENFANT : (p === 'Tote Bag' || p === 'Casquette') ? ['TU'] : T_ADULTE;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // ---------------- Pré-remplissage ----------------
+  const getParam = n => new URLSearchParams(window.location.search).get(n) || '';
+  ['devis','client','email','tel'].forEach(k => { $(k).value = getParam(k); });
+  $('display-devis').textContent  = getParam('devis')  || '—';
+  $('display-client').textContent = getParam('client') || '—';
+  $('devis').addEventListener('input', function(){ $('display-devis').textContent = this.value || '—'; });
+  $('client').addEventListener('input', function(){ $('display-client').textContent = this.value || '—'; });
+  $('nuancierModal').addEventListener('click', function(e){ if (e.target === this) this.classList.remove('show'); });
+
+  // ---------------- Visuels (jusqu'à 4, avant et/ou arrière) ----------------
+  const visuelSizes = {};
+  const fileSizes = { zip: 0, excel: 0 };
+  let nextVisuelId = 0;
+
+  function visuelIds(){ return [...document.querySelectorAll('.visuel-block')].map(b => Number(b.dataset.id)); }
+
+  function zoneHtml(id, side){
+    const lib = side === 'avant' ? 'AVANT' : 'ARRIÈRE';
+    return '<div class="form-group">'
+      + '<label>Fichier ' + side + ' <span class="optional">(optionnel)</span></label>'
+      + '<div class="upload-zone" id="zone-' + side + '-' + id + '">'
+      + '<input type="file" id="file-' + side + '-' + id + '" accept="image/*,.pdf,.ai,.eps,.svg">'
+      + '<span class="upload-icon">🖼️</span><div class="upload-text">Visuel <strong>' + lib + '</strong></div>'
+      + '<div class="upload-hint">PNG · JPG · PDF · AI · SVG · max 20 Mo</div><div class="upload-filename" id="name-' + side + '-' + id + '"></div></div>'
+      + '<button type="button" class="btn-remove" id="remove-' + side + '-' + id + '" onclick="removeVisuelFile(' + id + ',\'' + side + '\')">✕ Supprimer</button>'
+      + '<div class="field-error" id="err-' + side + '-size-' + id + '">Fichier trop lourd — 20 Mo maximum (utilisez WeTransfer)</div></div>';
+  }
+
+  function addVisuel(){
+    if (visuelIds().length >= MAX_V) return;
+    const id = ++nextVisuelId;
+    visuelSizes['avant_' + id] = 0; visuelSizes['arriere_' + id] = 0;
+    const block = document.createElement('div');
+    block.className = 'visuel-block'; block.dataset.id = id; block.id = 'visuel-block-' + id;
+    block.innerHTML = '<div class="visuel-block-header"><div class="visuel-block-title">🖼️ Visuel</div>'
+      + (id > 1 ? '<button type="button" class="btn-remove-visuel" onclick="removeVisuel(' + id + ')">✕ Supprimer ce visuel</button>' : '') + '</div>'
+      + '<div class="form-group"><label>Nom du visuel <span class="optional">(ex: Logo, Nom de l\'association…)</span></label>'
+      + '<input type="text" class="nom-visuel" id="nom-visuel-' + id + '" placeholder="Ex: Logo principal"></div>'
+      + '<div class="grid-2 zones-visuel">' + zoneHtml(id, 'avant') + zoneHtml(id, 'arriere') + '</div>';
+    $('visuels-container').appendChild(block);
+    setupVisuelUpload(id, 'avant'); setupVisuelUpload(id, 'arriere');
+    $('nom-visuel-' + id).addEventListener('input', majVisuelsArticles);
+    renumeroterVisuels();
+  }
+
+  function removeVisuel(id){
+    const b = $('visuel-block-' + id); if (b) b.remove();
+    delete visuelSizes['avant_' + id]; delete visuelSizes['arriere_' + id];
+    renumeroterVisuels(); updateTotalBar(); updateFlocageBlocs();
+  }
+
+  function renumeroterVisuels(){
+    const ids = visuelIds();
+    ids.forEach((id, i) => { $('visuel-block-' + id).querySelector('.visuel-block-title').textContent = '🖼️ Visuel ' + (i + 1); });
+    $('btn-add-visuel').style.display = ids.length >= MAX_V ? 'none' : 'inline-flex';
+    $('visuels-count-note').textContent = '(' + ids.length + '/' + MAX_V + ')';
+    majVisuelsArticles();
+  }
+
+  function removeVisuelFile(id, side){
+    const input = $('file-' + side + '-' + id); if (!input) return;
+    input.value = ''; $('zone-' + side + '-' + id).classList.remove('has-file','error'); $('name-' + side + '-' + id).textContent = '';
+    $('remove-' + side + '-' + id).style.display = 'none';
+    visuelSizes[side + '_' + id] = 0; updateTotalBar(); updateFlocageBlocs();
+  }
+
+  function setupVisuelUpload(id, side){
+    const input = $('file-' + side + '-' + id), zone = $('zone-' + side + '-' + id), nameEl = $('name-' + side + '-' + id), btn = $('remove-' + side + '-' + id);
+    input.addEventListener('change', function(){
+      if (!this.files || !this.files[0]) return;
+      const file = this.files[0], sizeErr = $('err-' + side + '-size-' + id);
+      if (file.size > MAX_VISUEL) {
+        zone.classList.add('error'); zone.classList.remove('has-file'); nameEl.textContent = ''; btn.style.display = 'none';
+        sizeErr.classList.add('show'); this.value = ''; visuelSizes[side + '_' + id] = 0; updateTotalBar(); updateFlocageBlocs(); return;
+      }
+      sizeErr.classList.remove('show'); zone.classList.add('has-file'); zone.classList.remove('error');
+      nameEl.textContent = '✓ ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + ' Mo)';
+      btn.style.display = 'inline-block'; visuelSizes[side + '_' + id] = file.size;
+      $('err-visuels').classList.remove('show');
+      updateTotalBar(); updateFlocageBlocs();
+    });
+  }
+
+  function sansVisuel(){ return $('sans-visuel').checked; }
+  $('sans-visuel').addEventListener('change', function(){
+    $('check-sans-visuel').classList.toggle('on', this.checked);
+    document.querySelectorAll('.zones-visuel').forEach(z => z.classList.toggle('hidden', this.checked));
+    ['consignes','total-wrap','bloc-zip'].forEach(id => $(id).classList.toggle('hidden', this.checked));
+    $('err-visuels').classList.remove('show');
+    updateFlocageBlocs();
+  });
+
+  function updateFlocageBlocs(){
+    let hasAvant = false, hasArriere = false;
+    for (const k in visuelSizes) { if (k.startsWith('avant_') && visuelSizes[k] > 0) hasAvant = true; if (k.startsWith('arriere_') && visuelSizes[k] > 0) hasArriere = true; }
+    const libre = sansVisuel() || fileSizes.zip > 0;
+    $('bloc-face').classList.toggle('show', hasAvant || libre);
+    $('bloc-dos').classList.toggle('show', hasArriere || libre);
+  }
+
+  function updateTotalBar(){
+    const total = Object.values(visuelSizes).reduce((a, b) => a + b, 0) + fileSizes.zip + fileSizes.excel;
+    const pct = Math.min(100, total / MAX_TOTAL * 100);
+    $('total-size-text').textContent = (total/1024/1024).toFixed(1) + ' Mo / 30 Mo max';
+    $('total-bar-fill').style.width = pct + '%';
+    $('total-bar-fill').className = 'total-bar-fill' + (pct >= 100 ? ' danger' : pct >= 80 ? ' warn' : '');
+    $('err-total-size').classList.toggle('show', total > MAX_TOTAL);
+    return total;
+  }
+
+  function removeFile(key){
+    const input = key === 'excel' ? $('file-excel-manuel') : $('file-' + key);
+    input.value = ''; $('zone-' + key).classList.remove('has-file','error'); $('name-' + key).textContent = '';
+    $('remove-' + key).style.display = 'none'; fileSizes[key] = 0;
+    const se = $('err-' + key + '-size'); if (se) se.classList.remove('show');
+    updateTotalBar(); updateFlocageBlocs();
+  }
+
+  $('file-zip').addEventListener('change', function(){
+    if (!this.files || !this.files[0]) return;
+    const f = this.files[0];
+    if (f.size > MAX_ZIP) { $('zone-zip').classList.add('error'); $('err-zip-size').classList.add('show'); this.value = ''; fileSizes.zip = 0; updateTotalBar(); updateFlocageBlocs(); return; }
+    $('err-zip-size').classList.remove('show'); $('zone-zip').classList.add('has-file'); $('zone-zip').classList.remove('error');
+    $('name-zip').textContent = '✓ ' + f.name + ' (' + (f.size/1024/1024).toFixed(1) + ' Mo)'; $('remove-zip').style.display = 'inline-block';
+    fileSizes.zip = f.size; $('err-visuels').classList.remove('show'); updateTotalBar(); updateFlocageBlocs();
+  });
+
+  $('position-face').addEventListener('change', function(){
+    const v = this.value;
+    if (v === 'Autre') { $('bloc-position-autre').style.display = 'block'; $('dim-face').value = ''; $('dim-face-default').textContent = 'Saisissez la dimension souhaitée'; }
+    else if (DIM_DEFAULTS[v]) { $('bloc-position-autre').style.display = 'none'; $('dim-face').value = DIM_DEFAULTS[v]; $('dim-face-default').textContent = 'Dimension par défaut : ' + DIM_DEFAULTS[v] + ' cm'; }
+    else { $('bloc-position-autre').style.display = 'none'; $('dim-face').value = 9; $('dim-face-default').textContent = 'Dimension par défaut : 9 cm'; }
+  });
+  $('zone-extra-nom').addEventListener('input', function(){ $('bloc-dim-extra').style.display = this.value.trim() ? 'block' : 'none'; });
+
+  // ---------------- Articles (remplace le fichier Excel) ----------------
+  let nextArticle = 0;
+  function nomsVisuels(){
+    return visuelIds().map((id, i) => ($('nom-visuel-' + id).value.trim() || 'Visuel ' + (i + 1)));
+  }
+  function optionsVisuels(sel){
+    const noms = nomsVisuels();
+    return noms.map(n => '<option' + (n === sel ? ' selected' : '') + '>' + esc(n) + '</option>').join('')
+      + '<option value="__texte__"' + (sel && !noms.includes(sel) ? ' selected' : '') + '>Autre / texte…</option>';
+  }
+  function majVisuelsArticles(){
+    document.querySelectorAll('.article').forEach(a => {
+      const s = a.querySelector('.a-visuel'), cur = s.value === '__texte__' ? a.querySelector('.a-visuel-txt').value : s.value;
+      s.innerHTML = optionsVisuels(cur);
+      if (s.value === '__texte__') a.querySelector('.a-visuel-txt').classList.remove('hidden');
+    });
+    majRecap();
+  }
+
+  function addArticle(copie){
+    const id = ++nextArticle;
+    const a = document.createElement('div');
+    a.className = 'article'; a.dataset.id = id;
+    const prod = copie ? copie.produit : 'T-Shirt';
+    a.innerHTML = '<div class="article-header"><div class="article-title">👕 Article</div><div style="display:flex;gap:6px"><button type="button" class="btn-ghost a-dup">⧉ Dupliquer</button><button type="button" class="btn-remove-visuel a-del">✕</button></div></div>'
+      + '<div class="grid-3">'
+      + '<div class="form-group"><label>Produit</label><select class="a-produit">' + PRODUITS.map(p => '<option' + (p === prod ? ' selected' : '') + '>' + esc(p) + '</option>').join('') + '</select><input type="text" class="a-produit-txt hidden" placeholder="Précisez le produit" style="margin-top:8px"></div>'
+      + '<div class="form-group"><label>Couleur</label><select class="a-couleur">' + COULEURS.map(c => '<option' + (copie && c === copie.couleur ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>'
+      + '<div class="form-group"><label>Coupe</label><select class="a-coupe"><option>Unisexe</option><option' + (copie && copie.coupe === 'Femme' ? ' selected' : '') + '>Femme</option></select></div>'
+      + '</div>'
+      + '<div class="grid-2">'
+      + '<div class="form-group"><label>Visuel / texte</label><select class="a-visuel">' + optionsVisuels(copie && copie.visuel) + '</select><input type="text" class="a-visuel-txt hidden" placeholder="Ex: prénom, numéro, texte…" style="margin-top:8px"></div>'
+      + '<div class="form-group"><label>Remarque <span class="optional">(optionnel)</span></label><input type="text" class="a-rem" placeholder="Ex: flocage manche, prénom…"></div>'
+      + '</div>'
+      + '<span class="lbl">Quantité par taille</span><div class="sizes"></div><div class="article-total"></div>';
+    $('articles').appendChild(a);
+    const sProd = a.querySelector('.a-produit');
+    const renderTailles = (vals) => {
+      const p = sProd.value;
+      a.querySelector('.a-produit-txt').classList.toggle('hidden', p !== 'Autre : (saisie manuelle)');
+      a.querySelector('.a-coupe').closest('.form-group').classList.toggle('hidden', p === 'Tote Bag' || p === 'Casquette' || p === 'T-Shirt Enfant');
+      a.querySelector('.sizes').innerHTML = taillesPour(p).map(t => '<label class="size"><span>' + t + '</span><input type="number" min="0" inputmode="numeric" data-t="' + t + '" value="' + ((vals && vals[t]) || '') + '" placeholder="0"></label>').join('');
+      majRecap();
+    };
+    sProd.addEventListener('change', () => renderTailles());
+    a.querySelector('.a-visuel').addEventListener('change', e => { a.querySelector('.a-visuel-txt').classList.toggle('hidden', e.target.value !== '__texte__'); majRecap(); });
+    a.addEventListener('input', majRecap);
+    a.querySelector('.a-del').onclick = () => { a.remove(); renumeroterArticles(); majRecap(); };
+    a.querySelector('.a-dup').onclick = () => { const d = lireArticle(a); addArticle({ produit: d.produitSel, couleur: d.couleur, coupe: d.coupe, visuel: d.visuel, tailles: {} }); };
+    renderTailles(copie && copie.tailles);
+    renumeroterArticles();
+  }
+  function renumeroterArticles(){
+    document.querySelectorAll('.article').forEach((a, i) => { a.querySelector('.article-title').textContent = '👕 Article ' + (i + 1); a.querySelector('.a-del').classList.toggle('hidden', document.querySelectorAll('.article').length === 1); });
+  }
+  function lireArticle(a){
+    const produitSel = a.querySelector('.a-produit').value;
+    const produit = produitSel === 'Autre : (saisie manuelle)' ? (a.querySelector('.a-produit-txt').value.trim() || produitSel) : produitSel;
+    const sv = a.querySelector('.a-visuel').value;
+    const visuel = sv === '__texte__' ? a.querySelector('.a-visuel-txt').value.trim() : sv;
+    const coupeVisible = !a.querySelector('.a-coupe').closest('.form-group').classList.contains('hidden');
+    const tailles = {};
+    a.querySelectorAll('.sizes input').forEach(i => { const n = Math.max(0, Math.round(Number(i.value) || 0)); i.classList.toggle('has', n > 0); if (n) tailles[i.dataset.t] = n; });
+    return { produitSel, produit, couleur: a.querySelector('.a-couleur').value, coupe: coupeVisible ? a.querySelector('.a-coupe').value : '', visuel, remarque: a.querySelector('.a-rem').value.trim(), tailles };
+  }
+  function lignesCommande(){
+    const out = [];
+    document.querySelectorAll('.article').forEach(a => {
+      const d = lireArticle(a);
+      Object.entries(d.tailles).forEach(([t, q]) => out.push({ type: d.produit, couleur: d.couleur, qte: q, taille: t, coupe: d.coupe, visuel: d.visuel, remarques: d.remarque }));
+    });
+    return out;
+  }
+  function majRecap(){
+    let total = 0;
+    document.querySelectorAll('.article').forEach(a => {
+      const d = lireArticle(a); const n = Object.values(d.tailles).reduce((s, x) => s + x, 0); total += n;
+      a.querySelector('.article-total').textContent = n ? n + ' pièce(s) · ' + d.produit + ' ' + d.couleur + (d.visuel ? ' · ' + d.visuel : '') : 'Indiquez au moins une quantité';
+    });
+    const n = lignesCommande().length;
+    $('recap').innerHTML = '<b>' + total + ' pièce(s)</b> au total · ' + n + ' ligne(s)' + (n > MAX_LIGNES ? ' — <span style="color:var(--rouge)">trop de lignes (' + MAX_LIGNES + ' max), contactez-nous</span>' : '');
+    if (total) $('err-articles').classList.remove('show');
+  }
+
+  // Import d'un Excel déjà rempli (ancien fonctionnement, toujours possible)
+  $('toggle-excel').onclick = () => {
+    const alt = $('bloc-excel-alt'), on = alt.classList.toggle('hidden');
+    $('toggle-excel').textContent = on ? 'Vous avez déjà rempli notre fichier Excel ? Importez-le plutôt' : 'Finalement, je préfère saisir mes articles ici';
+    if (on) removeFile('excel');
+  };
+  $('file-excel-manuel').addEventListener('change', function(){
+    if (!this.files || !this.files[0]) return;
+    $('zone-excel').classList.add('has-file'); $('name-excel').textContent = '✓ ' + this.files[0].name; $('remove-excel').style.display = 'inline-block';
+    fileSizes.excel = this.files[0].size; $('err-articles').classList.remove('show'); updateTotalBar();
+  });
+  const excelManuel = () => !$('bloc-excel-alt').classList.contains('hidden') && $('file-excel-manuel').files.length;
+
+  // ---------------- Génération du Tailles.xlsx à partir du modèle officiel ----------------
+  // Le modèle est ouvert tel quel (tableau LignesCommande, listes, récapitulatif) et seules les cellules sont remplies.
+  async function genererTailles(client, lignes){
+    const buf = await (await fetch(TEMPLATE_URL, { cache: 'no-store' })).arrayBuffer();
+    const zip = await JSZip.loadAsync(buf);
+    const wb = new DOMParser().parseFromString(await zip.file('xl/workbook.xml').async('string'), 'application/xml');
+    const rels = new DOMParser().parseFromString(await zip.file('xl/_rels/workbook.xml.rels').async('string'), 'application/xml');
+    const sheets = [...wb.getElementsByTagName('sheet')];
+    const feuille = sheets.find(s => /commande/i.test(s.getAttribute('name'))) || sheets[0];
+    const rid = feuille.getAttribute('r:id') || feuille.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const rel = [...rels.getElementsByTagName('Relationship')].find(r => r.getAttribute('Id') === rid);
+    const chemin = 'xl/' + rel.getAttribute('Target').replace(/^\/?xl\//, '').replace(/^\.\//, '');
+    const doc = new DOMParser().parseFromString(await zip.file(chemin).async('string'), 'application/xml');
+    const NS = doc.documentElement.namespaceURI;
+    const sheetData = doc.getElementsByTagName('sheetData')[0];
+    const cells = {}; [...doc.getElementsByTagName('c')].forEach(c => { cells[c.getAttribute('r')] = c; });
+    const rowsEl = {}; [...doc.getElementsByTagName('row')].forEach(r => { rowsEl[r.getAttribute('r')] = r; });
+    const colNum = ref => ref.replace(/\d+/g, '').split('').reduce((t, ch) => t * 26 + ch.charCodeAt(0) - 64, 0);
+    function cellule(ref){
+      if (cells[ref]) return cells[ref];
+      const r = ref.replace(/\D+/g, '');
+      let row = rowsEl[r];
+      if (!row) {
+        row = doc.createElementNS(NS, 'row'); row.setAttribute('r', r);
+        const apres = [...sheetData.getElementsByTagName('row')].find(x => Number(x.getAttribute('r')) > Number(r));
+        sheetData.insertBefore(row, apres || null); rowsEl[r] = row;
+      }
+      const c = doc.createElementNS(NS, 'c'); c.setAttribute('r', ref);
+      const apres = [...row.getElementsByTagName('c')].find(x => colNum(x.getAttribute('r')) > colNum(ref));
+      row.insertBefore(c, apres || null); cells[ref] = c; return c;
+    }
+    function ecrire(ref, val){
+      const c = cellule(ref);
+      while (c.firstChild) c.removeChild(c.firstChild);
+      c.removeAttribute('t');
+      if (val === '' || val === null || val === undefined) return;
+      if (typeof val === 'number') { const v = doc.createElementNS(NS, 'v'); v.textContent = String(val); c.appendChild(v); return; }
+      c.setAttribute('t', 'inlineStr');
+      const is = doc.createElementNS(NS, 'is'), t = doc.createElementNS(NS, 't');
+      t.setAttribute('xml:space', 'preserve'); t.textContent = String(val); is.appendChild(t); c.appendChild(is);
+    }
+    ecrire('D4', client);
+    for (let i = 0; i < MAX_LIGNES; i++) {
+      const l = lignes[i], r = 8 + i;
+      ecrire('C' + r, l ? l.type : ''); ecrire('D' + r, l ? l.couleur : ''); ecrire('E' + r, l ? l.qte : '');
+      ecrire('F' + r, l ? l.taille : ''); ecrire('G' + r, l ? l.coupe : ''); ecrire('H' + r, l ? l.visuel : ''); ecrire('I' + r, l ? l.remarques : '');
+    }
+    zip.file(chemin, new XMLSerializer().serializeToString(doc));
+    // Recalcul du récapitulatif à l'ouverture
+    let calc = wb.getElementsByTagName('calcPr')[0];
+    if (!calc) { calc = wb.createElementNS(wb.documentElement.namespaceURI, 'calcPr'); wb.documentElement.appendChild(calc); }
+    calc.setAttribute('fullCalcOnLoad', '1');
+    zip.file('xl/workbook.xml', new XMLSerializer().serializeToString(wb));
+    return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
+  }
+
+  // ---------------- Envoi ----------------
+  function setProgress(pct, text, activeStep){
+    $('progressFill').style.width = pct + '%'; $('progressPct').textContent = pct + '%'; $('progressText').textContent = text;
+    ['step1','step2','step3','step4'].forEach((id, i) => { const el = $(id); el.classList.remove('active','done'); if (i < activeStep - 1) el.classList.add('done'); else if (i === activeStep - 1) el.classList.add('active'); });
+  }
+
+  $('mainForm').addEventListener('submit', async function(e){
+    e.preventDefault();
+    let valid = true, firstErr = null;
+    const marque = (el, err, ok) => { el.classList.toggle('error', !ok); if (err) $(err).classList.toggle('show', !ok); if (!ok) { valid = false; if (!firstErr) firstErr = el; } };
+
+    marque($('devis'), 'err-devis', $('devis').value.trim() !== '');
+    marque($('client'), 'err-client', $('client').value.trim() !== '');
+    marque($('tel'), 'err-tel', $('tel').value.trim() !== '');
+    marque($('email'), 'err-email', /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('email').value.trim()));
+
+    // Visuels : chaque bloc doit avoir un avant OU un arrière, sauf case WeTransfer / ZIP
+    if (!sansVisuel() && !fileSizes.zip) {
+      const manquants = visuelIds().filter(id => !visuelSizes['avant_' + id] && !visuelSizes['arriere_' + id]);
+      manquants.forEach(id => { $('zone-avant-' + id).classList.add('error'); $('zone-arriere-' + id).classList.add('error'); });
+      if (manquants.length) { valid = false; $('err-visuels').classList.add('show'); if (!firstErr) firstErr = $('visuel-block-' + manquants[0]); }
+    }
+    if ($('bloc-face').classList.contains('show') && (Object.keys(visuelSizes).some(k => k.startsWith('avant_') && visuelSizes[k] > 0))) {
+      marque($('position-face'), 'err-position-face', !!$('position-face').value);
+    }
+
+    // Articles
+    const lignes = lignesCommande();
+    if (!excelManuel() && !lignes.length) { valid = false; $('err-articles').classList.add('show'); if (!firstErr) firstErr = $('articles'); }
+    if (!excelManuel() && lignes.length > MAX_LIGNES) { valid = false; if (!firstErr) firstErr = $('recap'); }
+
+    if (updateTotalBar() > MAX_TOTAL) { valid = false; if (!firstErr) firstErr = $('total-wrap'); }
+
+    if (!valid) {
+      $('errorBanner').classList.add('show');
+      setTimeout(() => { if (firstErr) window.scrollTo({ top: firstErr.getBoundingClientRect().top + window.scrollY - 90, behavior: 'smooth' }); }, 50);
+      return;
+    }
+    $('errorBanner').classList.remove('show');
+
+    const btn = $('btnSubmit'); btn.disabled = true; btn.textContent = 'Envoi en cours...';
+    $('uploadProgress').classList.add('show');
+    setTimeout(() => $('uploadProgress').scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+    setProgress(5, 'Préparation du tableau des tailles...', 1);
+
+    // Instructions : saisie du client + mention WeTransfer / sans visuel (visible dans le mail reçu)
+    const instr = [];
+    if (sansVisuel()) instr.push('📎 VISUEL : transmis via WeTransfer ou pas de visuel à transmettre (case cochée par le client)');
+    if ($('instructions-saisie').value.trim()) instr.push($('instructions-saisie').value.trim());
+    $('instructions').value = instr.join('\n');
+
+    // Construction du formulaire envoyé (mêmes champs qu'avant : le mail garde la même forme)
+    const fd = new FormData();
+    ['devis','client','tel','email','instructions'].forEach(k => fd.append(k, $(k).value.trim()));
+    if (sansVisuel()) fd.append('sans_visuel', 'oui');
+    visuelIds().forEach((id, i) => {
+      const n = i + 1;
+      fd.append('nom_visuel_' + n, $('nom-visuel-' + id).value.trim());
+      if (!sansVisuel()) {
+        const av = $('file-avant-' + id).files[0], ar = $('file-arriere-' + id).files[0];
+        if (av) fd.append('file-avant-' + n, av);
+        if (ar) fd.append('file-arriere-' + n, ar);
+      }
+    });
+    ['position_face','position_face_autre','dim_face','dim_dos','zone_extra_nom','dim_extra'].forEach(k => { const el = document.querySelector('[name="' + k + '"]'); if (el) fd.append(k, el.value); });
+    if (!$('bloc-face').classList.contains('show')) { fd.set('position_face', ''); }
+    if (!$('bloc-dos').classList.contains('show')) { fd.set('dim_dos', ''); }
+    if (!sansVisuel() && $('file-zip').files[0]) fd.append('file-zip', $('file-zip').files[0]);
+
+    try {
+      if (excelManuel()) fd.append('file-excel', $('file-excel-manuel').files[0]);
+      else fd.append('file-excel', await genererTailles($('client').value.trim(), lignes), 'Tailles.xlsx');
+    } catch (err) {
+      btn.disabled = false; btn.textContent = '✓ Envoyer ma commande'; $('uploadProgress').classList.remove('show');
+      alert('Impossible de préparer le tableau des tailles. Réessayez, ou importez le fichier Excel.\n(' + err.message + ')');
+      return;
+    }
+    setProgress(25, 'Envoi des visuels en cours...', 2);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', ENDPOINT);
+    xhr.upload.addEventListener('progress', ev => {
+      if (!ev.lengthComputable) return;
+      const pct = Math.min(95, 25 + Math.round(ev.loaded / ev.total * 70));
+      setProgress(pct, pct < 60 ? 'Envoi des visuels...' : pct < 85 ? 'Envoi du tableau...' : 'Finalisation...', pct < 60 ? 2 : pct < 85 ? 3 : 4);
+    });
+    const fini = () => {
+      setProgress(100, 'Envoi terminé !', 4);
+      ['step1','step2','step3','step4'].forEach(id => { $(id).classList.remove('active'); $(id).classList.add('done'); });
+      setTimeout(() => $('successOverlay').classList.add('show'), 600);
+    };
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 400) {
+        btn.disabled = false; btn.textContent = '✓ Envoyer ma commande';
+        alert('L\'envoi a échoué (' + xhr.status + '). Vos fichiers sont peut-être trop lourds : réessayez avec WeTransfer, ou contactez-nous au 0690 69 18 63.');
+        return;
+      }
+      fini();
+    });
+    xhr.addEventListener('error', fini);
+    xhr.send(fd);
+  });
+
+  // ---------------- Démarrage ----------------
+  addVisuel();
+  addArticle();
+</script>
+</body>
+</html>
