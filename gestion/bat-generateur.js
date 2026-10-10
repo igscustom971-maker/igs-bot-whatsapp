@@ -26,6 +26,11 @@ function mount(app) {
     res.set('Cache-Control', 'no-store').sendFile(path.join(__dirname, 'bat-generateur.html'));
   });
 
+  // Règles communes du BAT (aussi utilisées par le BAT automatique du serveur)
+  app.get('/gestion/bat-commun.js', auth.requireUser, (req, res) => {
+    res.set({ 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache' }).sendFile(path.join(__dirname, 'bat-commun.js'));
+  });
+
   // Gabarits produits (PNG blancs sur fond transparent) et logo IGS (relayé depuis igscustom.fr)
   app.get('/gestion/gabarits/:nom', auth.requireUser, async (req, res) => {
     const nom = String(req.params.nom);

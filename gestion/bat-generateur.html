@@ -82,6 +82,7 @@ table.t td{padding:8px 10px;vertical-align:top;white-space:pre-line}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="/gestion/bat-commun.js"></script>
 <script>
 'use strict';
 // ============================================
@@ -93,60 +94,10 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 const cle = decodeURIComponent(location.pathname.split('/').pop());
 
-// ---------- Produits : gabarit, mesures fournisseur (A = longueur, B = largeur à plat, taille M) ----------
-// x/y des zones en cm : x depuis le centre du corps (positif = côté cœur, à droite à l'écran), y depuis le haut du vêtement
-const PRODUITS = {
-  tshirt:    { nom: 'T-shirt', avant: 'tshirt-avant', dos: 'tshirt-dos', A: 72, B: 53, femme: [63, 44], enfant: [49, 38],
-               zones: { coeur: { x: 11, y: 15 }, poitrine: { x: 0, y: 13 }, dos: { x: 0, y: 10 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
-  polo:      { nom: 'Polo', avant: 'polo-avant', dos: 'polo-dos', A: 72, B: 53, femme: [63, 46], echelle: 1.25,
-               zones: { coeur: { x: 13, y: 17 }, poitrine: { x: 0, y: 18 }, dos: { x: 0, y: 11 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
-  debardeur: { nom: 'Débardeur', avant: 'debardeur-avant', dos: 'debardeur-dos', A: 68, B: 47, femme: [66, 43],
-               zones: { coeur: { x: 9, y: 13 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 7 } } },
-  tote:      { nom: 'Tote bag', avant: 'tote', dos: 'tote', A: 42, B: 38, tote: true,
-               zones: { centre: { x: 0, yCentre: 21 } } },
-};
-function produitDe(type){
-  const t = norm(type);
-  if (/tote|sac/.test(t)) return 'tote';
-  if (/polo/.test(t)) return 'polo';
-  if (/debardeur|marcel|tank/.test(t)) return 'debardeur';
-  if (/t-?shirt|tee|tshirt|col v|longue/.test(t)) return 'tshirt';
-  return null;
-}
-// ---------- Couleurs du nuancier ----------
-const COULEURS = {
-  'noir profond':'#1b1b1d','noir':'#1b1b1d','gris fonce':'#4b4e56','gris clair':'#b8b9bd','gris':'#8d8f94','blanc':'#ffffff',
-  'rose bonbon':'#f6a9c8','rose':'#f6a9c8','fuchsia':'#d6197a','bordeaux':'#6b1e30','rouge':'#c8102e','hibiscus':'#e83e5f',
-  'orange':'#f26a21','jaune citron':'#f3e04f','jaune gold':'#f2b705','jaune':'#f3d34a','vert pomme':'#69bd47','vert prairie':'#2c9a46',
-  'vert bouteille':'#0f4a2c','vert':'#2c9a46','kaki fonce':'#4d4a2d','kaki':'#6b6a3d','terre':'#8b5a3c','chocolat':'#4a2e23',
-  'violet fonce':'#4a2a6b','violet':'#5b2d8a','marine':'#1b2440','french marine':'#23305d','royal':'#1f4ea3','bleu royal':'#1f4ea3',
-  'aqua':'#19b4c8','bleu atoll':'#0e7fb4','ciel':'#8fcaec','bleu ciel':'#8fcaec','bleu':'#1f4ea3','sable':'#d9c49d','beige':'#d9c49d',
-};
-function hexCouleur(nom){
-  const n = norm(nom);
-  if (COULEURS[n]) return COULEURS[n];
-  const k = Object.keys(COULEURS).sort((a,b) => b.length - a.length).find(k => n.includes(k));
-  return k ? COULEURS[k] : '#9ca3af';
-}
-// ---------- Zones de flocage ("Cœur (9cm) + Dos (27cm)") ----------
-const ZONES = { coeur: { lib: 'Cœur', face: 'avant', l: 9 }, poitrine: { lib: 'Poitrine', face: 'avant', l: 25 }, dos: { lib: 'Dos', face: 'dos', l: 27 },
-                manche: { lib: 'Manche', face: 'avant', l: 7 }, bas: { lib: 'Bas de tee-shirt', face: 'avant', l: 10 }, centre: { lib: 'Face', face: 'avant', l: 27 } };
-function zoneDe(lib){
-  const n = norm(lib);
-  if (/coeur|cœur|poitrine gauche/.test(n)) return 'coeur';
-  if (/dos|arriere/.test(n)) return 'dos';
-  if (/manche/.test(n)) return 'manche';
-  if (/bas/.test(n)) return 'bas';
-  if (/poitrine|devant|face|avant|centre/.test(n)) return 'poitrine';
-  return 'poitrine';
-}
-function parserZones(txt){
-  return String(txt || '').split('+').map(s => s.trim()).filter(Boolean).map(s => {
-    const m = s.match(/\(?\s*(\d+(?:[.,]\d+)?)\s*cm/i);
-    const z = zoneDe(s);
-    return { zone: z, libelle: s.replace(/\s+/g, ' '), largeur: m ? Number(m[1].replace(',', '.')) : ZONES[z].l, sansTaille: !m };
-  });
-}
+// Règles communes avec le BAT automatique du serveur (produits, zones, nuancier, pages, positions) : /gestion/bat-commun.js
+const BC = BATCOMMUN.creer();
+const { PRODUITS, ZONES } = BC;
+const { produitDe, hexCouleur, parserZones } = BATCOMMUN;
 
 // ---------- Chargement des images ----------
 const cacheImg = new Map();
@@ -161,33 +112,26 @@ async function gabarit(nom){
   if (!mesures.has(nom)) {
     const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
     const x = c.getContext('2d'); x.drawImage(img, 0, 0);
-    const ligne = fr => { const y = Math.round(img.height * fr); const d = x.getImageData(0, y, img.width, 1).data; let a = -1, b = -1;
-      for (let i = 0; i < img.width; i++) if (d[i*4+3] > 40) { if (a < 0) a = i; b = i; } return [a, b]; };
-    const [l, r] = ligne(nom === 'tote' ? 0.75 : 0.6);
-    let hautCorps = 0;
-    if (nom === 'tote') { for (let fr = 0.2; fr < 0.8; fr += 0.01) { const [a, b] = ligne(fr); if (b - a > (r - l) * 0.9) { hautCorps = Math.round(img.height * fr); break; } } }
-    const centres = [];
-    for (let k = 0; k <= 100; k++) { const [a, b] = ligne(Math.min(0.995, k / 100)); centres.push(a < 0 ? null : { c: (a + b) / 2, w: b - a }); }
-    mesures.set(nom, { img, corps: r - l, cx: (l + r) / 2, hautCorps, centres });
+    const d = x.getImageData(0, 0, img.width, img.height).data;
+    mesures.set(nom, Object.assign({ img }, BATCOMMUN.mesurer(nom, img.width, img.height, (i, y) => d[(y * img.width + i) * 4 + 3])));
   }
   return mesures.get(nom);
 }
-// Centre du vêtement à une hauteur donnée (hors manches : sinon centre du corps)
-function centreA(m, y){
-  const k = Math.max(0, Math.min(100, Math.round(y / m.img.height * 100))), r = m.centres && m.centres[k];
-  return r && r.w <= m.corps * 1.15 ? r.c : m.cx;
-}
+const centreA = (m, y) => BC.centreA(m, y);
 // Logo : marges (transparentes ou blanches) rognées automatiquement -> la largeur en cm est celle du dessin visible ;
 // option "fond blanc transparent" pour les JPG à fond blanc. Logos importés depuis l'ordinateur : id "local-…"
 const cacheLogo = new Map(), logosLocaux = new Map();
 async function logo(id, sansBlanc){
-  const k = id + (sansBlanc ? '|b' : '');
+  const k = id + '|' + String(sansBlanc);
   if (!cacheLogo.has(k)) cacheLogo.set(k, (async () => {
     const img = await charger(logosLocaux.get(id) || ('/gestion/api/fichier/' + encodeURIComponent(id)));
     const W = img.naturalWidth, H = img.naturalHeight;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'); x.drawImage(img, 0, 0);
     const d = x.getImageData(0, 0, W, H), p = d.data;
+    const coins0 = [0, (W - 1) * 4, (H - 1) * W * 4, ((H - 1) * W + W - 1) * 4];
+    const opaque = !coins0.some(i => p[i + 3] < 16);
+    sansBlanc = sansBlanc === true || (sansBlanc === 'auto' && opaque);
     if (sansBlanc) for (let i = 0; i < p.length; i += 4) { const m = Math.min(p[i], p[i+1], p[i+2]); if (m > 235) p[i+3] = 0; else if (m > 215) p[i+3] = Math.min(p[i+3], (235 - m) * 12); }
     // Image avec transparence : on rogne sur la transparence ; sinon sur le fond blanc
     const coins = [0, (W - 1) * 4, (H - 1) * W * 4, ((H - 1) * W + W - 1) * 4];
@@ -212,25 +156,19 @@ const RESOLUTION = 2; // canvas des mockups en double résolution (net à l'impr
 function msg(t, k){ const m = $('msg'); m.className = 'msg on ' + k; m.innerHTML = t; }
 
 // Positions par défaut réglées par l'atelier (📌), enregistrées sur le serveur : décalages en cm par produit et zone
-let ADMIN = false, ECHELLE = 1.3, NUANCIER = [];
+let ADMIN = false, NUANCIER = [];
 async function chargerPositions(){
   try {
     const j = await (await fetch('/gestion/api/bat/positions')).json();
     ADMIN = !!j.admin;
-    if (j.positions && j.positions._echelle) ECHELLE = Number(j.positions._echelle) || ECHELLE;
-    for (const [prod, zs] of Object.entries(j.positions || {})) for (const [z, o] of Object.entries(zs || {})) {
-      const P = PRODUITS[prod]; if (!P) continue;
-      const cible = P.tote ? P.zones.centre : P.zones[z]; if (!cible) continue;
-      cible.ddx = Number(o.dx) || 0; cible.ddy = Number(o.dy) || 0; if (o.rot != null) cible.drot = Number(o.rot);
-      if (o.largeur) (P.largeurs = P.largeurs || {})[z] = Number(o.largeur);
-    }
+    BC.appliquerPositions(j.positions || {});
   } catch(e){}
 }
 const VIERGE = cle === 'vierge';
 async function init(){
   await chargerPositions();
   try { const l = await (await fetch('/gestion/api/listes')).json(); NUANCIER = (l && l.couleurs) || []; } catch(e){}
-  if (!NUANCIER.length) NUANCIER = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
+  if (!NUANCIER.length) NUANCIER = BATCOMMUN.NUANCIER_DEFAUT.slice();
   if (VIERGE) {
     // BAT vierge : aucune commande, tout se remplit à la main (logos importés depuis l'ordinateur), PDF téléchargé
     C = { cle: 'vierge', n_devis: '', client: '', email: '', zone_flocage: '' };
@@ -259,96 +197,12 @@ async function init(){
   } catch(e){ $('previews').innerHTML = '<div class="card msg on err">' + esc(e.message) + '</div>'; }
 }
 
-// Une page par visuel ; couleurs, produits et tailles tirés du tableau des tailles du client
-function construirePages(){
-  const visuels = D.visuels || [];
-  const groupes = (D.tailles && D.tailles.groupes) || [];
-  const zonesCmd = parserZones(C.zone_flocage);
-  const imagesDe = v => (v ? v.images : visuels.flatMap(x => x.images));
-  let sources = groupes.length ? groupes.map(g => ({ g, v: visuels.find(v => v.nom === g.dossierVisuel) || (groupes.length === 1 && visuels.length === 1 ? visuels[0] : null) }))
-                                 : (visuels.length ? visuels.map(v => ({ g: null, v })) : []);
-  if (!sources.length) sources = [{ g: null, v: { nom: VIERGE ? 'BAT' : 'Visuel', images: [] } }];
-  pages = sources.map(({ g, v }, i) => {
-    const imgs = imagesDe(v);
-    const avant = imgs.find(x => x.face === 'avant') || imgs.find(x => x.face === 'autre') || imgs[0];
-    const arriere = imgs.find(x => x.face === 'arriere');
-    // Articles : (produit, couleur, coupe) avec quantités
-    const lignes = g ? g.lignes : [];
-    const articles = [];
-    for (const l of lignes) {
-      const produit = produitDe(l.type) || 'tshirt';
-      const coupe = /femme/i.test(l.coupe || '') ? 'femme' : (/enfant|\b\d+\s*a(ns)?\b/i.test((l.type || '') + ' ' + (l.taille || '')) ? 'enfant' : '');
-      const k = produit + '|' + norm(l.couleur) + '|' + coupe;
-      let a = articles.find(x => x.k === k);
-      if (!a) articles.push(a = { k, produit, type: l.type || PRODUITS[produit].nom, couleur: l.couleur || 'Blanc', hex: hexCouleur(l.couleur || 'Blanc'), coupe, qte: 0, actif: true });
-      a.qte += l.quantite || 0;
-    }
-    if (!articles.length) articles.push({ k: 'tshirt|blanc|', produit: 'tshirt', type: 'T-shirt', couleur: 'Blanc', hex: '#ffffff', coupe: '', qte: 0, actif: true });
-    // Placements : zones de la commande, logo Avant sur les zones de face, Arrière sur le dos
-    let zones = zonesCmd.length ? zonesCmd : [ ...(avant ? [{ zone: 'poitrine', libelle: 'Poitrine (25cm)', largeur: 25 }] : []), ...(arriere ? [{ zone: 'dos', libelle: 'Dos (27cm)', largeur: 27 }] : []) ];
-    const placements = zones.map(z => {
-      const img = ZONES[z.zone].face === 'dos' ? (arriere || null) : (avant || null);
-      const lDefaut = ((PRODUITS[articles[0].produit] || {}).largeurs || {})[z.zone];
-      return img ? { zone: z.zone, libelle: z.libelle, largeur: z.sansTaille && lDefaut ? lDefaut : z.largeur, image: img.id, dx: 0, dy: 0, rot: null, sansBlanc: false } : null;
-    }).filter(Boolean);
-    // Tailles par couleur : "Noir : 10 S / 20 M"
-    const parCouleur = {};
-    const plusieursTypes = new Set(lignes.map(l => norm(l.type))).size > 1;
-    for (const l of lignes) { const k = (plusieursTypes ? (l.type || '') + ' ' : '') + (l.couleur || '—') + (/femme/i.test(l.coupe || '') ? ' (femme)' : ''); (parCouleur[k] = parCouleur[k] || []).push(l.quantite + ' ' + l.taille); }
-    const tailles = Object.entries(parCouleur).map(([c, t]) => c + ' : ' + t.join(' / ')).join('\n');
-    const total = lignes.reduce((t, l) => t + (l.quantite || 0), 0);
-    const avantZ = placements.filter(z => ZONES[z.zone].face === 'avant' && z.zone !== 'manche').map(z => z.libelle).join(' + ');
-    const dosZ = placements.filter(z => z.zone === 'dos').map(z => z.libelle).join(' + ');
-    const autres = placements.filter(z => z.zone === 'manche').map(z => z.libelle).join(' + ');
-    return {
-      titre: (v && v.nom) || (g && g.visuel) || ('Visuel ' + (i + 1)), images: imgs, articles, placements,
-      modele: [...new Set(articles.map(a => a.type))].join(' & '),
-      couleur: [...new Set(articles.map(a => a.couleur))].join(' & '),
-      quantite: total ? String(total) : '', tailles, face: avantZ, dos: dosZ, autres,
-      zone: placements.map(z => z.libelle).join(' + ') || C.zone_flocage || '', legende: '',
-      // Commande uniquement en tote bags : une face, 27 cm
-      ...(articles.every(a => a.produit === 'tote') && placements.length ? { face: 'Face (27cm)', dos: '', autres: '', zone: 'Face (27cm)' } : {}),
-    };
-  });
-}
+function construirePages(){ pages = BC.construirePages(C, D, { vierge: VIERGE }); }
 
 // ---------- Rendu d'un mockup (gabarit recoloré + logos) ----------
-function dims(a){
-  const p = PRODUITS[a.produit];
-  if (a.coupe === 'femme' && p.femme) return { A: p.femme[0], B: p.femme[1] };
-  if (a.coupe === 'enfant' && p.enfant) return { A: p.enfant[0], B: p.enfant[1] };
-  return { A: p.A, B: p.B };
-}
-// Rectangle du logo dans le repère du gabarit (px du gabarit)
-function rectLogo(pl, a, face, m, img){
-  const p = PRODUITS[a.produit], { A, B } = dims(a);
-  const pxW = m.corps / B, pxH = p.tote ? pxW : m.img.height / A;
-  const zd = p.tote ? p.zones.centre : (p.zones[pl.zone] || p.zones.poitrine);
-  const w = pl.largeur * pxW * ECHELLE * (p.echelle || 1), h = w * (img.height / img.width);
-  const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0);
-  pl = Object.assign({}, pl, { dx, dy });
-  let cx, top;
-  if (p.tote) { cx = m.cx + (zd.x + pl.dx) * pxW; top = m.hautCorps + (zd.yCentre + pl.dy) * pxH - h / 2; }
-  else if (zd.fx != null) { cx = m.img.width * zd.fx + pl.dx * pxW; top = m.img.height * zd.fy + pl.dy * pxH - h / 2; }
-  else if (zd.yBas != null) { top = m.img.height - (zd.yBas - pl.dy) * pxH - h; cx = centreA(m, top + h / 2) + (zd.x + pl.dx) * pxW; }
-  else { top = (zd.y + pl.dy) * pxH; cx = centreA(m, top + h / 2) + (zd.x + pl.dx) * pxW; }
-  return { x: cx - w / 2, y: top, w, h, rot: pl.rot != null ? pl.rot : (zd.drot != null ? zd.drot : (zd.rot || 0)), pxW, pxH };
-}
-function placementsDe(page, face, a){
-  const p = PRODUITS[a.produit];
-  // Tote bag : une seule face, avec le visuel principal (celui du dos s'il existe) à 27 cm
-  if (p.tote) return face === 'avant' ? [totePlacement(page)].filter(Boolean) : [];
-  // Zone non prévue sur ce produit (ex. manche sur un débardeur) : placée comme une poitrine, ajustable à la main
-  return page.placements.filter(pl => ZONES[pl.zone].face === face);
-}
-function totePlacement(page){
-  if (!page.totePl) {
-    const base = page.placements.find(pl => pl.zone === 'dos') || page.placements[0];
-    if (!base) return null;
-    page.totePl = { zone: 'centre', libelle: 'Face (27cm)', largeur: 27, image: base.image, dx: 0, dy: 0, rot: null, sansBlanc: base.sansBlanc, tote: true };
-  }
-  return page.totePl;
-}
+const rectLogo = (pl, a, face, m, img) => BC.rectLogo(pl, a, face, m, img.width, img.height);
+const placementsDe = (page, face, a) => BC.placementsDe(page, face, a);
+const totePlacement = page => BC.totePlacement(page);
 const cacheTeint = new Map();
 function teinte(m, nom, hex){
   const k = nom + '|' + hex;
@@ -383,20 +237,14 @@ async function vignette(page, a, face){
 async function dessinerMockups(i, guides = null){
   const page = pages[i], el = document.querySelector('#page' + i + ' canvas'); if (!el) return;
   const items = [];
-  for (const a of page.articles.filter(a => a.actif)) {
-    const faces = ['avant', 'dos'].filter(f => placementsDe(page, f, a).length || (f === 'avant' && !page.placements.length));
-    for (const f of faces) items.push({ a, f, v: await vignette(page, a, f) });
-  }
+  for (const vg of BC.vignettesDe(page)) items.push({ a: vg.a, f: vg.f, v: await vignette(page, vg.a, vg.f) });
   const W = 1059, H = page.legende.trim() ? 330 : 412;
   el.width = W * RESOLUTION; el.height = H * RESOLUTION; el.style.width = W + 'px'; el.style.height = H + 'px';
   const x = el.getContext('2d'); x.clearRect(0, 0, el.width, el.height);
-  const n = items.length || 1, rangs = n <= 4 ? 1 : 2, cols = Math.ceil(n / rangs);
-  const cw = Math.min(W / cols, 260 * (rangs === 1 ? 1.35 : 1)), ch = H / rangs, total = cw * cols, x0 = (W - total) / 2;
+  const cells = BC.grille(items.length, W, H, items.map(it => ({ w: it.v.canvas.width, h: it.v.canvas.height })));
   page._cells = [];
   items.forEach((it, k) => {
-    const col = k % cols, row = Math.floor(k / cols);
-    const im = it.v.canvas, s = Math.min((cw - 10) / im.width, (ch - 12) / im.height);
-    const w = im.width * s, h = im.height * s, px = x0 + col * cw + (cw - w) / 2, py = row * ch + (ch - h) / 2;
+    const im = it.v.canvas, { px, py, s, w, h } = cells[k];
     x.drawImage(im, px * RESOLUTION, py * RESOLUTION, w * RESOLUTION, h * RESOLUTION);
     page._cells.push({ px, py, s, it });
     // Repères (écran uniquement, pendant le déplacement) : axe central du vêtement, axes du logo
@@ -457,13 +305,13 @@ function reglages(){
   const optZone = sel => Object.entries(ZONES).map(([k, z]) => '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + z.lib + '</option>').join('');
   const visuelsDossier = (D.visuels || []);
   $('reglages').innerHTML = '<h3>Réglages · ' + esc(p.titre) + '</h3>'
-    + '<label class="f">Taille des logos sur le mockup</label><div class="row"><input type="number" step="5" min="50" max="300" data-f="echelle" value="' + Math.round(ECHELLE * 100) + '"><span class="note" style="flex:none">%</span>'
+    + '<label class="f">Taille des logos sur le mockup</label><div class="row"><input type="number" step="5" min="50" max="300" data-f="echelle" value="' + Math.round(BC.etat.echelle * 100) + '"><span class="note" style="flex:none">%</span>'
     + (ADMIN ? '<button class="btn" data-a="echelle" title="Utiliser cette taille pour tous les BAT">📌</button>' : '') + '</div>'
     + (visuelsDossier.length > 1 ? '<label class="f">Visuel du dossier pour cette page</label><select data-f="visuel">' + visuelsDossier.map(v => '<option' + (v.nom === p.titre ? ' selected' : '') + '>' + esc(v.nom) + '</option>').join('') + '</select>' : '')
     + '<label class="f">Logos</label>'
     + p.placements.map((pl, k) => '<div class="pl" data-k="' + k + '"><div class="row"><select data-f="zone">' + optZone(pl.zone) + '</select><select data-f="image">' + optImg(pl.image) + '</select></div>'
       + '<div class="row"><label class="note">Largeur (cm)</label><input type="number" step="0.5" min="1" max="60" data-f="largeur" value="' + pl.largeur + '"><label class="note">Rotation</label><input type="number" step="5" data-f="rot" value="' + (pl.rot ?? '') + '" placeholder="auto"></div>'
-      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><label class="btn" title="Remplacer ce visuel par un fichier de l\'ordinateur' + (VIERGE ? '' : ' (remplacé aussi dans SharePoint)') + '">⬆<input type="file" accept="image/*" data-remplace="' + k + '" style="display:none"></label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
+      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc !== false ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent' + (pl.sansBlanc === 'auto' ? ' (auto)' : '') + '</label><label class="btn" title="Remplacer ce visuel par un fichier de l\'ordinateur' + (VIERGE ? '' : ' (remplacé aussi dans SharePoint)') + '">⬆<input type="file" accept="image/*" data-remplace="' + k + '" style="display:none"></label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
       + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
     + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
@@ -473,7 +321,7 @@ function reglages(){
     + p.articles.map((a, k) => '<div class="coul" data-c="' + k + '"><input type="checkbox" data-f="actif"' + (a.actif ? ' checked' : '') + '><input type="color" data-f="hex" value="' + a.hex + '" title="Teinte exacte">'
       + '<select data-f="couleurNom" style="flex:1" title="' + esc(a.type) + (a.coupe ? ' ' + a.coupe : '') + (a.qte ? ' · ' + a.qte + ' pièce(s)' : '') + '">' + [...new Set((NUANCIER.some(n => norm(n) === norm(a.couleur)) ? [] : [a.couleur]).concat(NUANCIER))].map(n => '<option' + (norm(n) === norm(a.couleur) ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>'
       + '<select data-f="produit" style="width:105px">' + Object.entries(PRODUITS).map(([k, x]) => '<option value="' + k + '"' + (k === a.produit ? ' selected' : '') + '>' + x.nom + '</option>').join('') + '</select></div>').join('')
-    + '<button class="btn" data-a="ajoutCouleur" style="margin-top:4px">＋ Couleur</button>'
+    + '<select data-f="ajoutCouleur" style="margin-top:4px"><option value="">＋ Ajouter une couleur…</option>' + NUANCIER.map(n => '<option>' + esc(n) + '</option>').join('') + '</select>'
     + '<label class="f">Texte dans le cadre (facultatif)</label><textarea data-f="legende" placeholder="ex. jude : Taille S (x2) bleu royal">' + esc(p.legende) + '</textarea>'
     + '<div class="note" style="margin-top:6px">Les champs Modèle, Couleur, Tailles, Face, Dos… se modifient directement sur l\'aperçu.</div>';
 }
@@ -500,7 +348,7 @@ $('reglages').addEventListener('input', e => {
     if (f === 'largeur') o.largeur = Math.max(1, Number(t.value) || 1);
     else if (f === 'rot') o.rot = t.value === '' ? null : Number(t.value);
     else if (f === 'sansBlanc') o.sansBlanc = t.checked;
-    else if (f === 'zone') { o.zone = t.value; o.dx = 0; o.dy = 0; o.largeur = ZONES[t.value].l; o.libelle = ZONES[t.value].lib + ' (' + o.largeur + 'cm)'; reglages(); }
+    else if (f === 'zone') { o.zone = t.value; o.dx = 0; o.dy = 0; o.largeur = ZONES[t.value].l; o.libelle = ZONES[t.value].court + ' (' + o.largeur + 'cm)'; reglages(); }
     else if (f === 'image') o.image = t.value;
     return redessiner();
   }
@@ -509,10 +357,16 @@ $('reglages').addEventListener('input', e => {
     else if (f === 'couleurNom') { a.couleur = t.value; a.hex = hexCouleur(t.value); p.couleur = [...new Set(p.articles.filter(x => x.actif).map(x => x.couleur))].join(' & '); reglages(); return redessiner(true); }
     return redessiner();
   }
+  if (f === 'ajoutCouleur' && t.value) {
+    const base = p.articles[0] || { produit: 'tshirt', type: 'T-shirt' };
+    p.articles.push({ k: 'x' + Date.now(), produit: base.produit, type: base.type, couleur: t.value, hex: hexCouleur(t.value), coupe: '', qte: 0, actif: true });
+    p.couleur = [...new Set(p.articles.filter(x => x.actif).map(x => x.couleur))].join(' & ');
+    reglages(); return redessiner(true);
+  }
   if (f === 'toteImage') { p.totePl.image = t.value; return redessiner(); }
   if (f === 'toteLargeur') { p.totePl.largeur = Math.max(1, Number(t.value) || 27); p.totePl.libelle = 'Face (' + p.totePl.largeur + 'cm)'; return redessiner(); }
   if (f === 'toteBlanc') { p.totePl.sansBlanc = t.checked; return redessiner(); }
-  if (f === 'echelle') { ECHELLE = Math.max(0.5, Math.min(3, (Number(t.value) || 100) / 100)); clearTimeout(attente); attente = setTimeout(async () => { for (let i = 0; i < pages.length; i++) await dessinerMockups(i); }, 200); return; }
+  if (f === 'echelle') { BC.etat.echelle = Math.max(0.5, Math.min(3, (Number(t.value) || 100) / 100)); clearTimeout(attente); attente = setTimeout(async () => { for (let i = 0; i < pages.length; i++) await dessinerMockups(i); }, 200); return; }
   if (f === 'visuel') { changerVisuel(p, t.value); return; }
   if (f === 'legende') { p.legende = t.value; return redessiner(true); }
 });
@@ -545,7 +399,7 @@ $('reglages').addEventListener('change', async e => {
       msg('Envoi du visuel' + (VIERGE ? '' : ' dans le dossier SharePoint') + '…', 'info');
       const j = await envoyerVisuel(t.files[0], { visuel: p.titre, face });
       p.images.push({ id: j.id, nom: j.nom, face });
-      p.placements.push({ zone: z, libelle: ZONES[z].lib + ' (' + ZONES[z].l + 'cm)', largeur: ZONES[z].l, image: j.id, dx: 0, dy: 0, rot: null, sansBlanc: false });
+      p.placements.push({ zone: z, libelle: ZONES[z].court + ' (' + ZONES[z].l + 'cm)', largeur: ZONES[z].l, image: j.id, dx: 0, dy: 0, rot: null, sansBlanc: 'auto' });
       majTextes(p); reglages(); await afficherTout();
       msg('✅ ' + esc(j.nom) + (VIERGE ? ' ajouté' : ' enregistré dans le dossier « ' + esc(p.titre) + ' »'), 'ok');
     } catch(err){ msg('❌ ' + esc(err.message), 'err'); }
@@ -577,9 +431,9 @@ function changerVisuel(p, nom){
 }
 async function enregistrerEchelle(){
   try {
-    const r = await fetch('/gestion/api/bat/positions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ echelle: ECHELLE }) });
+    const r = await fetch('/gestion/api/bat/positions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ echelle: BC.etat.echelle }) });
     const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Erreur');
-    msg('✅ Taille des logos (' + Math.round(ECHELLE * 100) + ' %) enregistrée pour tous les BAT', 'ok');
+    msg('✅ Taille des logos (' + Math.round(BC.etat.echelle * 100) + ' %) enregistrée pour tous les BAT', 'ok');
   } catch(e){ msg('❌ ' + esc(e.message), 'err'); }
 }
 // Nouveau visuel : nouvelle page + fichiers enregistrés dans un nouveau dossier visuel de la commande
@@ -607,13 +461,7 @@ async function nouveauVisuel(){
     msg('✅ Visuel « ' + esc(p.titre) + ' » ajouté' + (VIERGE ? '' : ' et enregistré dans le dossier de la commande'), 'ok');
   } catch(err){ msg('❌ ' + esc(err.message), 'err'); }
 }
-// Colonnes Face / Dos / Autres et ligne de zone recalculées quand on ajoute un logo
-function majTextes(p){
-  p.face = p.placements.filter(z => ZONES[z.zone].face === 'avant' && z.zone !== 'manche').map(z => z.libelle).join(' + ');
-  p.dos = p.placements.filter(z => z.zone === 'dos').map(z => z.libelle).join(' + ');
-  p.autres = p.placements.filter(z => z.zone === 'manche').map(z => z.libelle).join(' + ');
-  p.zone = p.placements.map(z => z.libelle).join(' + ');
-}
+const majTextes = p => BC.majTextes(p);
 $('tabs').addEventListener('click', e => { if (e.target.closest('#nv-visuel')) return nouveauVisuel(); const t = e.target.closest('[data-p]'); if (!t) return; courante = Number(t.dataset.p); document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); reglages(); $('page' + courante).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 // Champs modifiables directement sur l'aperçu
 $('previews').addEventListener('input', e => {
