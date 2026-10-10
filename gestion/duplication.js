@@ -19,16 +19,29 @@ const txt = v => (v === null || v === undefined ? '' : String(v).trim());
 
 async function historique(q) {
   const recherche = txt(q).slice(0, 60);
+  let livrees = [];
   if (supabase) {
     // Historique = commandes livrées uniquement (TERMINÉE = prête mais pas encore récupérée)
-    let req = supabase.from('gestion_commandes').select('*').in('statut', ['LIVRÉE', 'LIVREE']).order('date_commande', { ascending: false, nullsFirst: false }).limit(300);
+    let req = supabase.from('gestion_commandes').select('*').in('statut', ['LIVRÉE', 'LIVREE']).order('date_commande', { ascending: false, nullsFirst: false }).limit(500);
     if (recherche) req = req.or(`client.ilike.%${recherche.replace(/[%,()]/g, ' ')}%,n_devis.ilike.%${recherche.replace(/[%,()]/g, ' ')}%`);
     const { data, error } = await req;
     if (error) throw new Error(`Supabase : ${error.message}`);
-    return data;
+    livrees = data;
+  } else {
+    const { rows } = await commandes.listCommandes();
+    livrees = rows.filter(r => key(r.statut) === 'livree');
   }
-  const { rows } = await commandes.listCommandes();
-  return rows.filter(r => key(r.statut) === 'livree' && (!recherche || key(`${r.client} ${r.n_devis}`).includes(key(recherche))));
+  // + les dossiers de Clients/Commandes/ARCHIVES (commandes livrées avant la mise en place de l'interface)
+  const vus = new Set(livrees.map(r => key(r.n_devis)));
+  let archives = [];
+  try { archives = await commandes.listArchives(); } catch (err) { console.error('Gestion historique archives :', err.message); }
+  const enPlus = archives
+    .filter(a => !vus.has(key(a.n_devis)))
+    .map(a => ({ cle: a.n_devis, n_devis: a.n_devis, client: a.client, statut: 'LIVRÉE', date_commande: a.date, present: false, archive_seule: true }));
+  const tout = livrees.concat(enPlus)
+    .filter(r => !recherche || key(`${r.client} ${r.n_devis}`).includes(key(recherche)))
+    .sort((a, b) => String(b.date_commande || '').localeCompare(String(a.date_commande || '')));
+  return tout.slice(0, 500);
 }
 
 async function source(cle) {
@@ -38,8 +51,10 @@ async function source(cle) {
   }
   const { rows } = await commandes.listCommandes();
   const r = rows.find(x => x.cle === cle);
-  if (!r) throw new Error('Commande d\'origine introuvable');
-  return r;
+  if (r) return r;
+  const a = (await commandes.listArchives()).find(x => key(x.n_devis) === key(cle));
+  if (a) return { cle: a.n_devis, n_devis: a.n_devis, client: a.client, contenu_mail: '', infos: '', zone_flocage: '' };
+  throw new Error('Commande d\'origine introuvable');
 }
 
 // Prochain suffixe libre : DE2601024-R1, -R2…

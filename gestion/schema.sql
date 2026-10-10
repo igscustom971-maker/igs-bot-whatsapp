@@ -131,3 +131,23 @@ create table if not exists gestion_stock_mouvements (
 create index if not exists gestion_stock_mouvements_idx on gestion_stock_mouvements (cree_le desc);
 alter table gestion_stock_clients enable row level security;
 alter table gestion_stock_mouvements enable row level security;
+
+-- ============================================
+-- MODULE ESPÈCES (caisse) — à exécuter une fois
+-- ============================================
+create table if not exists gestion_caisse (
+  id           bigserial primary key,
+  cree_le      timestamptz default now(),
+  type         text not null,       -- encaissement / releve
+  montant      numeric not null,    -- encaissement : montant reçu ; relevé : montant récupéré
+  compte       numeric,             -- relevé : espèces comptées dans la caisse
+  theorique    numeric,             -- relevé : ce qui aurait dû y être
+  ecart        numeric,             -- relevé : compté - théorique
+  client       text,
+  source       text,                -- commande / planche / autre
+  ref          text,                -- N° devis ou clé planche
+  note         text,
+  utilisateur  text
+);
+create index if not exists gestion_caisse_idx on gestion_caisse (cree_le);
+alter table gestion_caisse enable row level security;

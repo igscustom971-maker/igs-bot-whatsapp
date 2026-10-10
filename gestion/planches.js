@@ -207,6 +207,19 @@ async function writeCells(cle, fields) {
   await syncNow();
 }
 
+// Suppression manuelle : la ligne est vidée (comme le nettoyage de minuit), les formules restent
+async function supprimer(cle, user) {
+  const t = await lireTableau();
+  const row = t.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Ligne introuvable dans l\'Excel : actualise et réessaie');
+  const champs = ['date_commande', 'client', 'metres', 'frequence', 'paiement', 'remarques', 'statut', 'n_devis', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye']
+    .filter(f => t.rows.idx[f] !== undefined);
+  await ecrireLigne(t, row._row, Object.fromEntries(champs.map(f => [f, ''])));
+  await syncNow();
+  await journal(user, 'planche_supprimee', cle, { client: row.client, metres: row.metres || row.format, n_devis: row.n_devis, statut: row.statut });
+  return { ok: true };
+}
+
 // Nom Excel déjà associé à ce client Odoo (pour retrouver sa ligne hebdo)
 async function trouverNomExcel(partnerId) {
   for (const r of cache.rows) {
@@ -483,4 +496,4 @@ function startSync() {
 
 const drive = () => ({ drive: planchesDrive });
 
-module.exports = { clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

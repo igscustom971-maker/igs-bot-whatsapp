@@ -224,6 +224,24 @@ async function findCommandeFolder(ndevis) {
   return f ? { ...f, archive: true } : null;
 }
 
+// Dossiers de Clients/Commandes/ARCHIVES (commandes livrées et archivées), pour l'historique
+async function listArchives() {
+  if (!commandesFolder.id) commandesFolder.id = (await g.itemByPath(cfg.COMMANDES_PATH)).id;
+  if (Date.now() - commandesFolder.at > 60e3) {
+    commandesFolder.list = (await g.children(commandesFolder.id)).filter(i => i.folder);
+    commandesFolder.at = Date.now();
+  }
+  const arch = commandesFolder.list.find(f => /^archives?$/i.test(f.name.trim()));
+  if (!arch) return [];
+  if (Date.now() - archivesFolder.at > 120e3) {
+    archivesFolder = { list: (await g.children(arch.id)).filter(i => i.folder), at: Date.now() };
+  }
+  return archivesFolder.list.map(f => {
+    const [devis, ...reste] = f.name.split(/\s+-\s+/);
+    return { n_devis: devis.trim().toUpperCase(), client: reste.join(' - ').trim() || f.name, date: (f.lastModifiedDateTime || '').slice(0, 10) || null };
+  }).filter(x => /^[A-Z]{1,5}\d{3,}/.test(x.n_devis));
+}
+
 const isImage = n => /\.(png|jpe?g|webp|gif|svg)$/i.test(n);
 
 function face(name) {
@@ -402,4 +420,4 @@ async function modifier(cle, champs, user) {
   return r ? applyOverride(r, ov.get(cle)) : null;
 }
 
-module.exports = { modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

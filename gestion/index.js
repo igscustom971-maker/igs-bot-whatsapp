@@ -10,6 +10,7 @@ const commandes = require('./commandes');
 const planches = require('./planches');
 const stock = require('./stock');
 const duplication = require('./duplication');
+const caisse = require('./caisse');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -31,6 +32,20 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/planches', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
   });
+
+  app.get('/gestion/caisse', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'caisse'));
+  });
+  // ---------- Espèces ----------
+  const quiC = req => req.user.name || req.user.email;
+  const actC = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Gestion caisse :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.get('/gestion/api/caisse', auth.requireUser, actC(() => caisse.etat()));
+  app.post('/gestion/api/caisse/encaisser', auth.requireUser, actC(req => caisse.encaisser(req.body || {}, quiC(req))));
+  app.post('/gestion/api/caisse/relever', auth.requireUser, actC(req => caisse.relever(req.body || {}, quiC(req))));
+  app.post('/gestion/api/caisse/:id/supprimer', auth.requireUser, auth.requireAdmin, actC(req => caisse.supprimer(Number(req.params.id), quiC(req))));
 
   app.get('/gestion/stock', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
@@ -60,6 +75,7 @@ module.exports = function mountGestion(app) {
     try { res.json(await fn(req)); }
     catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   };
+  app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req))));
   app.post('/gestion/api/planches/ajouter', auth.requireUser, action(req => planches.ajouter(req.body || {}, qui(req))));
   app.get('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.clientPlanche(req.params.cle)));
   app.post('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.choisirClient(req.params.cle, req.body?.partnerId, qui(req))));
@@ -97,7 +113,7 @@ module.exports = function mountGestion(app) {
       if (!it) return res.status(403).send('Fichier non autorisé');
       const r = await require('./graph').content(it.id, planches.drive());
       res.set('Content-Type', it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream');
-      res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(it.name)}`);
+      res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
       res.set('Cache-Control', 'private, max-age=300');
       res.send(Buffer.from(await r.arrayBuffer()));
     } catch (err) {
@@ -154,7 +170,7 @@ module.exports = function mountGestion(app) {
       if (!it) return res.status(403).send('Fichier non autorisé');
       const r = await require('./graph').content(it.id);
       res.set('Content-Type', it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream');
-      res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(it.name)}`);
+      res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
       res.set('Cache-Control', 'private, max-age=300');
       res.send(Buffer.from(await r.arrayBuffer()));
     } catch (err) {

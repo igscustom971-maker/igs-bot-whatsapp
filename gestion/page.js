@@ -11,7 +11,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
 <style>
 :root{
@@ -45,7 +45,7 @@ main{max-width:1280px;margin:0 auto;padding:14px 16px 40px}
 .chip .n{background:var(--soft);border-radius:999px;padding:0 7px;color:var(--ink)}
 .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 .chip.on .n{background:rgba(255,255,255,.2);color:#fff}
-.tablewrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.tablewrap{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);text-align:left;padding:10px 12px;background:#faf9fd;border-bottom:1px solid var(--line);white-space:nowrap}
 td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -55,7 +55,7 @@ tr.row:last-child td{border-bottom:none}
 .devis{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .client{font-weight:600}
 .sub{font-size:12px;color:var(--muted)}
-.clip{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap;border:1px solid transparent}
 .c-zone{min-width:130px}
 .late{color:var(--bad);font-weight:700}
@@ -172,6 +172,16 @@ a.mod:hover{border-color:var(--pink)}
 .mvt{font-size:12px;padding:5px 0;border-bottom:1px solid var(--line);display:flex;gap:8px}
 .mvt:last-child{border-bottom:none}
 .mvt .d{color:var(--muted);white-space:nowrap}
+/* Édition directe dans les listes */
+select.inl{font:inherit;font-size:12px;font-weight:700;border:1px solid transparent;border-radius:999px;padding:3px 6px;max-width:150px;cursor:pointer;background:var(--soft);color:var(--ink)}
+select.inl:hover{border-color:#cfc8e6}
+select.inl.plain{font-weight:600;background:#fff;border-color:var(--line);border-radius:8px}
+select.inl:disabled{opacity:.5;cursor:wait}
+a.open{color:inherit;text-decoration:none}
+a.open:hover{color:var(--pink);text-decoration:underline}
+tr.row{cursor:default}
+/* Espèces */
+.big{font-size:40px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
 /* Date de livraison modifiable */
 .dliv{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
@@ -208,6 +218,7 @@ a.mod:hover{border-color:var(--pink)}
     <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes">Commandes</a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock">Stock</a>
+    <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse">Espèces</a>
     <a class="off" title="Bientôt">Journal</a>
   </nav>
   <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span><a href="/gestion/auth/logout">Déconnexion</a></div>
@@ -229,6 +240,7 @@ ${view === 'accueil' ? `
           <a class="mod" href="/gestion/planches"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></a>
           <a class="mod" href="/gestion/stock"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></a>
           <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
+          <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
           ${user.role === 'admin' ? '<a class="mod" href="/panel" target="_blank" rel="noopener"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Panneau du bot WhatsApp</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
         </div></div>
@@ -239,16 +251,30 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Charge par personne</h3><div class="flow" id="charge"></div></div>
       </div>
     </div>
+  </section>` : view === 'caisse' ? `
+  <section id="v-caisse">
+    <div class="tools"><div style="flex:1"></div><button id="cs-enc" class="btn">＋ Encaissement espèces</button><button id="cs-rel" class="btn pink">💰 Récupérer les espèces</button><button id="refresh" class="btn primary">↻ Actualiser</button><span id="sync" class="sync"></span></div>
+    <div class="cols">
+      <div class="stack">
+        <div class="card"><h3>Dans la caisse (théorique)</h3><div id="cs-solde"><div class="skel"></div></div></div>
+        <div class="card"><h3>Encaissements depuis le dernier relevé</h3><div id="cs-depuis"></div></div>
+        <div class="card"><h3>Historique de la caisse</h3><div id="cs-histo"></div></div>
+      </div>
+      <div class="stack">
+        <div class="card"><h3>Espèces encaissées par mois</h3><div id="cs-mois"></div></div>
+        <div class="card"><h3>Par année</h3><div id="cs-annee"></div></div>
+      </div>
+    </div>
   </section>` : view === 'stock' ? `
   <section id="v-stock">
     <div class="tools">
-      <input id="q" class="search" type="search" placeholder="Filtrer les t-shirts (couleur, taille, référence)…">
+      <input id="q" class="search" type="search" placeholder="Filtrer les articles (type, couleur, taille, référence)…">
       <button id="refresh" class="btn primary">↻ Actualiser</button>
       <span id="sync" class="sync"></span>
     </div>
     <div class="cols">
       <div class="stack">
-        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">T-shirts vierges <button class="btn" id="add-vierge">＋ Article</button></h3><div id="st-vierges"><div class="skel"></div><div class="skel"></div></div></div>
+        <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Articles vierges <button class="btn" id="add-vierge">＋ Article</button></h3><div id="st-vierges"><div class="skel"></div><div class="skel"></div></div></div>
       </div>
       <div class="stack">
         <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Consommables <button class="btn" id="add-conso">＋ Consommable</button></h3><div id="st-conso"><div class="skel"></div></div></div>
@@ -349,6 +375,12 @@ async function api(path, force){
 async function charger(force){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
+    if (VIEW === 'caisse') {
+      const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
+      const j = await r.json(); if (j.error) throw new Error(j.error);
+      caisseData = j; $('sync').className = 'sync'; $('sync').textContent = '';
+      return afficher();
+    }
     if (VIEW === 'stock') {
       const r = await fetch('/gestion/api/stock'); if (r.status === 401) return location.href = '/gestion/auth/login';
       const j = await r.json(); if (j.error) throw new Error(j.error);
@@ -371,7 +403,7 @@ async function charger(force){
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
 }
 
-function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else liste(); }
+function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -419,19 +451,124 @@ function plListe(){
 
   $('rows').innerHTML = rows.length ? rows.map(p => '<tr class="row" data-k="'+esc(p.cle)+'">'
       + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
-      + '<td><div class="client">'+esc(p.client)+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'</div><div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div></td>'
-      + '<td class="c-statut">'+(p.statut ? plBadge(p.statut) : '<span class="sub">—</span>')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div></td>'
+      + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS))+'</td>'
       + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
       + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
-      + '<td class="c-hide"><span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span></td>'
-      + '<td class="c-hide devis">'+esc(p.n_devis||'—')+'</td>'
+      + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || '', null, true)+'</td>'
+      + '<td class="c-hide devis"><a href="#" class="open">'+esc(p.n_devis||'—')+'</a></td>'
       + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td>'
       + '</tr>').join('') : '<tr><td colspan="8" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
 }
 
+// Sélecteur directement dans la ligne (comme une liste déroulante Excel)
+function inlSel(kind, cle, field, options, value, colors, plain){
+  const v = value || '';
+  const opts = [...new Set((v ? [v] : []).concat(options))];
+  const c = colors && colors[v];
+  return '<select class="inl'+(plain?' plain':'')+'" data-kind="'+kind+'" data-k="'+esc(cle)+'" data-f="'+field+'" data-old="'+esc(v)+'"'+(c?' style="background:'+c[0]+';color:'+c[1]+'"':'')+'>'
+    + (v ? '' : '<option value="">—</option>') + opts.map(o => '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('') + '</select>';
+}
+const PAIEMENTS = ['NON PAYÉE','PAYÉE','ESPECE','CB','VIREMENT'];
+const ttc = ht => ht == null ? '' : String(Math.round(ht * 1.085 * 100) / 100).replace('.', ',');
+async function encaisserEspeces(source, ref, client, defaut){
+  const v = prompt('Montant reçu en espèces pour '+client+' (TTC) :', defaut || '');
+  if (v === null) return false;
+  try { await post('/gestion/api/caisse/encaisser', { montant: v, source, ref, client }); return true; }
+  catch(e){ alert('Espèces non enregistrées : ' + e.message); return false; }
+}
+async function saveInline(sel){
+  const kind = sel.dataset.kind, cle = sel.dataset.k, f = sel.dataset.f, v = sel.value, old = sel.dataset.old;
+  if (v === old) return;
+  if (kind === 'cmd' && f === 'statut' && v === 'LIVRÉE' && !confirm('Passer en LIVRÉE ? La ligne sera retirée de l\\'Excel au nettoyage de minuit.')) { sel.value = old; return; }
+  if (kind === 'pl' && f === 'paiement' && norm(v) === 'ESPECE') {
+    const p = planches.find(x => x.cle === cle);
+    if (!(await encaisserEspeces('planche', p && (p.n_devis || p.cle), p ? p.client : '', p ? ttc(p.montant_ht) : ''))) { sel.value = old; return; }
+  }
+  sel.disabled = true;
+  try {
+    await post('/gestion/api/'+(kind === 'cmd' ? 'commandes' : 'planches')+'/'+encodeURIComponent(cle)+'/modifier', { [f]: v });
+    await charger(false);
+  } catch(e){ alert('Non enregistré : ' + e.message); sel.value = old; sel.disabled = false; }
+}
+// Panneau "À remettre" : commandes terminées / à expédier + planches à récupérer / à expédier, avec bouton Livré
+function remettre(){
+  panelCle = '__remettre__';
+  const cmds = data.filter(c => ['TERMINÉE','A EXPEDIER'].includes(statutKey(c.statut)));
+  const pls = planches.filter(p => ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut)));
+  $('ptitle').textContent = 'À remettre';
+  $('psub').textContent = (cmds.length + pls.length) + ' élément(s) prêts';
+  const ligne = (kind, cle, client, sous, statutHtml, boutons) => '<div class="cand"><div><b>'+esc(client)+'</b> '+statutHtml+'<div class="sub">'+sous+'</div></div><div style="display:flex;gap:6px">'+boutons+'</div></div>';
+  $('pbody').innerHTML = '<div class="card"><h3>Commandes · '+cmds.length+'</h3>'
+    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')), badge(c.statut),
+        '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
+    + '</div><div class="card"><h3>Planches DTF · '+pls.length+'</h3>'
+    + (pls.length ? pls.map(p => ligne('pl', p.cle, p.client, esc([p.n_devis, metrage(p), p.paiement].filter(Boolean).join(' · ')), plBadge(p.statut),
+        (plKey(p.statut) === 'A EXPEDIER' ? '<button class="btn" data-liv="pl-exp" data-k="'+esc(p.cle)+'">📦 Expédiée</button>' : '')
+        + '<button class="btn pink" data-liv="pl" data-k="'+esc(p.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune planche prête.</div>')
+    + '</div><div class="msg" id="a-msg"></div>';
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  $('pbody').onclick = async e => {
+    const b = e.target.closest('[data-liv]'); if (!b) return;
+    const kind = b.dataset.liv, cle = b.dataset.k;
+    const statut = kind === 'pl-exp' ? 'EXPÉDIÉE' : 'LIVRÉE';
+    b.disabled = true;
+    try {
+      await post('/gestion/api/'+(kind === 'cmd' ? 'commandes' : 'planches')+'/'+encodeURIComponent(cle)+'/modifier', { statut });
+      await charger(false); remettre(); msg('✅ Passé en '+statut, 'ok');
+    } catch(err){ msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
+  };
+}
+// ---------- Espèces ----------
+let caisseData = null;
+const MOIS_FR = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+function csRender(){
+  const d = caisseData; if (!d) return;
+  const r = d.dernierReleve;
+  $('cs-solde').innerHTML = '<div class="big">'+eur(d.solde)+'</div><div class="sub">'
+    + (r ? 'Dernier relevé le '+new Date(r.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})+' par '+esc(r.utilisateur||'?')+' : '+eur(Number(r.montant))+' récupérés'+(Number(r.ecart)?' · <b style="color:var(--bad)">écart '+(r.ecart>0?'+':'')+eur(Number(r.ecart))+'</b>':' · aucun écart')
+       : 'Aucun relevé pour l\\'instant')+'</div>';
+  const ligne = l => '<div class="mvt"><span class="d">'+new Date(l.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</span><span style="flex:1">'
+    + (l.type === 'releve' ? '💰 <b>Relevé</b> : compté '+eur(Number(l.compte))+' (théorique '+eur(Number(l.theorique))+'), récupéré '+eur(Number(l.montant))+(Number(l.ecart)?' · <b style="color:var(--bad)">écart '+eur(Number(l.ecart))+'</b>':'')
+       : '💵 <b>'+eur(Number(l.montant))+'</b> · '+esc(l.client||'—')+(l.ref?' · '+esc(l.ref):'')+' <span class="tag">'+esc(l.source||'autre')+'</span>')
+    + (l.note?' · '+esc(l.note):'')+' <span class="sub">par '+esc(l.utilisateur||'?')+'</span></span>'
+    + (ADMIN && l.type === 'encaissement' ? '<button class="btn" style="padding:2px 7px" data-cs-del="'+l.id+'" title="Supprimer (erreur de saisie)">✕</button>' : '') + '</div>';
+  $('cs-depuis').innerHTML = d.depuisReleve.length ? d.depuisReleve.map(ligne).join('') : '<div class="note">Aucun encaissement depuis le dernier relevé.</div>';
+  $('cs-histo').innerHTML = d.historique.length ? d.historique.slice(0,60).map(ligne).join('') : '<div class="note">Aucun mouvement.</div>';
+  const mois = Object.entries(d.parMois).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 18);
+  const max = Math.max(1, ...mois.map(m => m[1]));
+  $('cs-mois').innerHTML = mois.length ? '<div class="flow">' + mois.map(([m,v]) => { const [y,mm] = m.split('-'); return '<div class="frow" style="cursor:default;grid-template-columns:90px 1fr 90px"><span>'+MOIS_FR[Number(mm)-1]+' '+y+'</span><span class="track"><span class="fill" style="display:block;width:'+(v/max*100)+'%;background:#0f766e"></span></span><b>'+eur(v)+'</b></div>'; }).join('') + '</div>' : '<div class="note">Pas encore de données.</div>';
+  $('cs-annee').innerHTML = Object.keys(d.parAnnee).length ? Object.entries(d.parAnnee).sort((a,b)=>b[0]-a[0]).map(([y,v]) => '<div class="plrow"><span>'+y+'</span><b>'+eur(v)+'</b></div>').join('') : '<div class="note">Pas encore de données.</div>';
+}
+function csEvents(){
+  $('cs-enc').onclick = async () => {
+    const client = prompt('Client :'); if (!client) return;
+    const montant = prompt('Montant reçu en espèces (TTC) :'); if (!montant) return;
+    const ref = prompt('N° de devis / référence (facultatif) :', '') || '';
+    const note = prompt('Note (facultatif) :', '') || '';
+    try { await post('/gestion/api/caisse/encaisser', { client, montant, ref, note, source: 'autre' }); } catch(e){ alert(e.message); }
+    charger(false);
+  };
+  $('cs-rel').onclick = async () => {
+    const th = caisseData ? caisseData.solde : 0;
+    const compte = prompt('Montant compté dans la caisse (théorique : '+eur(th)+') :', String(th).replace('.',',')); if (compte === null) return;
+    const recup = prompt('Montant récupéré (par défaut : tout) :', compte); if (recup === null) return;
+    const note = prompt('Note (facultatif, ex. remis à Ismaël) :', '') || '';
+    try { await post('/gestion/api/caisse/relever', { compte, recupere: recup, note }); } catch(e){ alert(e.message); }
+    charger(false);
+  };
+  $('v-caisse').addEventListener('click', async e => {
+    const b = e.target.closest('[data-cs-del]'); if (!b) return;
+    if (!confirm('Supprimer cet encaissement (erreur de saisie) ?')) return;
+    try { await post('/gestion/api/caisse/'+b.dataset.csDel+'/supprimer'); } catch(err){ alert(err.message); }
+    charger(false);
+  });
+}
 let autoEtat = null;
 // ---------- Stock ----------
 let stockData = null, stClient = null, stZeros = false;
+// Type d'article déduit de la colonne COUPE (pas de colonne en plus dans l'Excel) : UNISEXE/FEMME/HOMME -> T-SHIRT
+const typeArticle = x => { const c = norm(x.coupe).trim(); return !c || ['UNISEXE','FEMME','HOMME','ENFANT','?','COL V'].includes(c) ? 'T-SHIRT' : c; };
 function qtyHtml(kind, attrs, n){
   return '<span class="qty" '+attrs+' data-kind="'+kind+'"><button data-d="-1" aria-label="Retirer">−</button><b class="'+(n?'':'zero')+'" title="Cliquer pour saisir la quantité">'+n+'</b><button data-d="1" aria-label="Ajouter">+</button></span>';
 }
@@ -442,8 +579,11 @@ function stRender(){
     .sort((a,b) => a.couleur.localeCompare(b.couleur,'fr') || a.coupe.localeCompare(b.coupe,'fr') || a.taille.localeCompare(b.taille,'fr'));
   const total = d.vierges.reduce((t,x) => t + x.quantite, 0);
   const nz = d.vierges.filter(x => !x.quantite).length;
+  const groupes = {};
+  v.forEach(x => (groupes[typeArticle(x)] = groupes[typeArticle(x)] || []).push(x));
   $('st-vierges').innerHTML = '<div class="note" style="margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>'+total+' pièce(s) en stock · un stock à 0 est normal (pas d\\'alerte)</span><label style="cursor:pointer"><input type="checkbox" id="st-zeros"'+(stZeros?' checked':'')+'> Afficher les '+nz+' article(s) à 0</label></div><table class="stk"><thead><tr><th>Couleur</th><th>Taille</th><th>Coupe</th><th>Réf.</th><th>Qté</th></tr></thead><tbody>'
-    + v.map(x => '<tr><td><b>'+esc(x.couleur)+'</b></td><td>'+esc(x.taille)+'</td><td>'+esc(x.coupe)+'</td><td class="sub">'+esc(x.reference)+'</td><td>'+qtyHtml('vierges','data-row="'+x.row+'" data-sig="'+esc(x.sig)+'"',x.quantite)+'</td></tr>').join('')
+    + Object.keys(groupes).sort((a,b) => (a==='T-SHIRT'?-1:b==='T-SHIRT'?1:a.localeCompare(b,'fr'))).map(t => '<tr><td colspan="5" style="background:var(--soft);font-weight:800;font-size:12px;letter-spacing:.4px">'+esc(t)+' · '+groupes[t].reduce((n,x)=>n+x.quantite,0)+'</td></tr>'
+      + groupes[t].map(x => '<tr><td><b>'+esc(x.couleur)+'</b></td><td>'+esc(x.taille)+'</td><td>'+esc(x.coupe)+'</td><td class="sub">'+esc(x.reference)+'</td><td>'+qtyHtml('vierges','data-row="'+x.row+'" data-sig="'+esc(x.sig)+'"',x.quantite)+'</td></tr>').join('')).join('')
     + '</tbody></table>';
   $('st-conso').innerHTML = '<table class="stk"><tbody>' + d.consommables.map(x => '<tr><td><b>'+esc(x.nom)+'</b><div class="sub">Seuil : <a href="#" class="seuil" data-row="'+x.row+'" data-sig="'+esc(x.sig)+'" data-v="'+(x.seuil ?? '')+'">'+(x.seuil ?? '—')+'</a></div></td><td>'+(x.alerte?'<span class="why r">⚠️ À commander</span>':'<span class="pay ok">✅ OK</span>')+'</td><td>'+qtyHtml('consommables','data-row="'+x.row+'" data-sig="'+esc(x.sig)+'"',x.stock)+'</td></tr>').join('') + '</tbody></table>';
   const parClient = {}; d.clients.forEach(l => (parClient[l.client] = parClient[l.client] || []).push(l));
@@ -490,10 +630,12 @@ function stEvents(){
       return charger(false);
     }
     if (e.target.id === 'add-vierge') {
+      const type = (prompt('Type d\\'article (T-SHIRT, TABLIER, NAPPE, CASQUETTE, TOTE BAG, POLO…) :', 'T-SHIRT') || '').trim().toUpperCase(); if (!type) return;
       const couleur = prompt('Couleur :'); if (!couleur) return;
-      const taille = prompt('Taille :'); if (!taille) return;
-      const coupe = prompt('Coupe (UNISEXE, FEMME, TOTE BAG…) :', 'UNISEXE'); if (coupe === null) return;
-      const reference = prompt('Référence (ex. IMPERIAL) :', 'IMPERIAL'); if (reference === null) return;
+      const estTs = type === 'T-SHIRT' || type === 'TSHIRT';
+      const taille = prompt('Taille :', estTs ? '' : 'TU'); if (!taille) return;
+      const coupe = estTs ? prompt('Coupe (UNISEXE, FEMME, HOMME) :', 'UNISEXE') : type; if (coupe === null) return;
+      const reference = prompt('Référence / modèle (facultatif) :', estTs ? 'IMPERIAL' : ''); if (reference === null) return;
       const quantite = prompt('Quantité :', '1'); if (quantite === null) return;
       try { await post('/gestion/api/stock/vierges/ajouter', { couleur, taille, coupe, reference, quantite }); } catch(err){ alert(err.message); }
       return charger(false);
@@ -509,6 +651,7 @@ function stEvents(){
 }
 function nouvellePlanche(){
   panelCle = '__nouvelle__';
+  $('pbody').onclick = null;
   $('ptitle').textContent = 'Nouvelle planche';
   $('psub').textContent = 'Ajoutée dans l\\'Excel (ligne vide réutilisée)';
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="actions">'
@@ -555,6 +698,7 @@ function plActionsHtml(p){
   const aVerif = plKey(p.statut) === 'A VERIFIER';
   if (!p.n_devis && !p.hebdo) h += '<button class="btn pink" id="a-devis">'+(aVerif ? '📝 Préparer le devis (sans envoi)' : '📄 Créer et envoyer le devis')+'</button>';
   if (p.n_devis) h += '<a class="btn" href="/gestion/odoo/devis/'+encodeURIComponent(p.n_devis)+'" target="_blank" rel="noopener">↗ Ouvrir le devis dans Odoo</a>';
+  h += '<button class="btn" id="a-suppr" style="margin-left:auto;color:var(--bad)">🗑 Supprimer la ligne</button>';
   if (p.hebdo && ADMIN) h += '<button class="btn pink" id="a-facture">🧾 Envoyer la facture maintenant</button>';
   h += '</div>';
   if (p.hebdo && ADMIN) h += '<div class="field" style="margin-top:10px"><label>Titre de la facture</label><input id="a-titre" value="'+esc((autoEtat && autoEtat.titreParDefaut) || 'PLANCHE DTF SEMAINE')+'"></div>'
@@ -605,6 +749,12 @@ function brancherActions(p){
       const quoi = j.devis ? (d.envoye === false ? 'Devis ' + esc(d.numero) + ' préparé (non envoyé) : ajuste-le puis envoie-le depuis Odoo' : 'Devis ' + esc(d.numero) + ' envoyé au client') : 'Facture ' + esc(d.numero) + ' envoyée au client';
       await apresAction(j.planche, '✅ ' + quoi + ' · ' + eur(d.montant_ht) + ' HT' + lien);
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
+  };
+  $('a-suppr').onclick = async () => {
+    if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\nLa ligne sera vidée dans l\\'Excel (comme au nettoyage de minuit).')) return;
+    busy(true);
+    try { await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer'); fermer(); await charger(false); }
+    catch(e){ msg('❌ ' + esc(e.message), 'err'); busy(false); }
   };
   if ($('a-devis')) $('a-devis').onclick = () => { if (confirm(plKey(p.statut) === 'A VERIFIER' ? 'Préparer le devis dans Odoo pour '+p.client+' (sans l\\'envoyer) ?' : 'Créer le devis dans Odoo et l\\'envoyer par mail à '+p.client+' ?')) lancer('devis'); };
   if ($('a-facture')) $('a-facture').onclick = () => {
@@ -703,6 +853,7 @@ async function chargerAuto(){
 }
 async function ouvrirPlanche(cle){
   const p = planches.find(x => x.cle === cle); if (!p) return;
+  $('pbody').onclick = null;
   $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '');
   $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
@@ -727,9 +878,10 @@ async function ouvrirPlanche(cle){
       ? '<div class="files">' + d.fichiers.map(f => {
           const src = '/gestion/api/planches/fichier/'+encodeURIComponent(f.id);
           const isPdf = /[.]pdf$/i.test(f.nom);
-          return '<a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
+          return '<div><a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
             + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
-            + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>';
+            + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>'
+            + '<a class="btn" style="display:block;text-align:center;margin-top:4px;font-size:12px;padding:5px" href="'+src+'?dl=1">⬇ Télécharger</a></div>';
         }).join('') + '</div>'
       : '<div class="note">Aucun fichier « '+esc(p.client)+' - P… » dans les dossiers Planches (peut-être déjà vidé de l\\'archive mensuelle, ou envoyé par lien).</div>') + '</div>';
   } catch(e){
@@ -742,11 +894,13 @@ function accueil(){
   const actifs = data.filter(actif), retards = actifs.filter(enRetard);
   const semaine = actifs.filter(c => c.date_livraison && c.date_livraison >= today && c.date_livraison <= addDays(7));
   const prets = data.filter(c => ['TERMINÉE','A EXPEDIER'].includes(statutKey(c.statut)));
+  const pretsPl = planches.filter(p => ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut)));
   const k = (l,n,h,col,f) => '<a class="kpi" style="--accent:'+col+'" href="/gestion/commandes?filtre='+f+'"><div class="l">'+l+'</div><div class="n">'+n+'</div><div class="h">'+h+'</div></a>';
   $('kpis').innerHTML = k('En cours', actifs.length, 'commandes actives', '#1e1b4b', 'ACTIFS')
     + k('En retard', retards.length, retards.length ? 'date de livraison dépassée' : 'rien en retard 👌', retards.length ? '#b91c1c' : '#15803d', 'ACTIFS')
     + k('À livrer sous 7 jours', semaine.length, 'd\\'ici le '+fdate(addDays(7)), '#e91e8c', 'ACTIFS')
-    + k('Prêtes à remettre', prets.length, 'terminées ou à expédier', '#0f766e', 'TERMINÉE');
+    + '<a class="kpi" style="--accent:#0f766e" href="#" id="kpi-remettre"><div class="l">Prêtes à remettre</div><div class="n">'+(prets.length + pretsPl.length)+'</div><div class="h">'+prets.length+' commande(s) · '+pretsPl.length+' planche(s) · cliquer</div></a>';
+  $('kpi-remettre').onclick = e => { e.preventDefault(); remettre(); };
 
   const vus = new Set(), prios = [];
   const add = (c, why, cls) => { if (!vus.has(c.cle)) { vus.add(c.cle); prios.push({c, why, cls}); } };
@@ -776,7 +930,8 @@ function accueil(){
 function liste(){
   const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
-  const chips = [['ACTIFS','En cours',actifs],['TOUS','Toutes',data.length]].concat(STATUTS.map(s=>[s,s,counts[s]||0]));
+  if (filtre === 'TOUS') filtre = 'ACTIFS';
+  const chips = [['ACTIFS','En cours',actifs]].concat(STATUTS.map(s=>[s,s,counts[s]||0]));
   $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('')
     + (filtre === 'LIVRÉE' ? '<span class="note" style="align-self:center">Les commandes livrées sont retirées de l\\'Excel à minuit : retrouve les plus anciennes dans l\\'onglet Historique.</span>' : '');
 
@@ -788,15 +943,15 @@ function liste(){
   $('rows').innerHTML = rows.length ? rows.map(c => {
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
-      + '<td class="devis">'+esc(c.n_devis || '—')+'</td>'
-      + '<td><div class="client">'+esc(c.client)+'</div>'+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
-      + '<td class="c-statut">'+badge(c.statut)+'</td>'
+      + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
-      + '<td class="c-hide">'+esc(c.affectation||'')+'</td>'
+      + '<td class="c-hide">'+inlSel('cmd', c.cle, 'affectation', EQUIPE, c.affectation || '', null, true)+'</td>'
       + '<td class="c-hide">'+fdate(c.date_commande)+(c.date_dynamique?' <span class="dyn" title="La cellule Excel contient =TODAY() : la date change chaque jour">⚠ date auto</span>':'')+'</td>'
       + '<td class="c-hide'+(late?' late':'')+'">'+fdate(c.date_livraison)+(late?' ⏰':'')+(c.date_livraison_manuelle?' <span class="manual" title="Date modifiée manuellement">✏️</span>':'')+'</td>'
-      + '<td class="c-hide">'+esc(c.planche||'')+'</td>'
+      + '<td class="c-hide">'+inlSel('cmd', c.cle, 'planche', PLANCHE_ETATS, c.planche || '', null, true)+'</td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="9" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
 }
@@ -805,6 +960,7 @@ function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div cla
 
 async function ouvrir(cle){
   const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
+  $('pbody').onclick = null;
   dernierDossier = null;
   $('ptitle').innerHTML = esc(c.client) + ' ' + badge(c.statut);
   $('psub').textContent = (c.n_devis || 'Sans devis') + (c.affectation ? ' · ' + c.affectation : '');
@@ -879,8 +1035,8 @@ async function chargerHisto(){
   catch(e){ $('rows').innerHTML = '<tr><td colspan="9" class="empty">Historique indisponible : '+esc(e.message)+'</td></tr>'; return; }
   $('chips').innerHTML = '<span class="note">'+histo.length+' commande(s)'+' livrée(s)'+(recherche?' pour « '+esc(recherche)+' »':' (les 300 plus récentes)')+' · clique pour voir le dossier et dupliquer</span>';
   $('rows').innerHTML = histo.length ? histo.map(c => '<tr class="row" data-k="'+esc(c.cle)+'">'
-    + '<td class="devis">'+esc(c.n_devis||'—')+'</td>'
-    + '<td><div class="client">'+esc(c.client)+'</div>'+(c.present===false?'<div class="sub">archivée</div>':'')+'</td>'
+    + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis||'—')+'</a></td>'
+    + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.archive_seule?'<div class="sub">dossier ARCHIVES</div>':c.present===false?'<div class="sub">archivée</div>':'')+'</td>'
     + '<td class="c-statut">'+badge(c.statut)+'</td>'
     + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
     + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -901,6 +1057,7 @@ function ligneDupHtml(l){
     + '<td><button class="btn d-del" style="padding:3px 8px" title="Supprimer la ligne">✕</button></td></tr>';
 }
 function dupliquerUI(c){
+  $('pbody').onclick = null;
   const lignes = dernierDossier && dernierDossier.tailles ? dernierDossier.tailles.groupes.flatMap(g => g.lignes) : [];
   const visuels = dernierDossier ? dernierDossier.visuels.map(v => v.nom.replace(/_/g,' ')) : [];
   $('ptitle').textContent = 'Dupliquer ' + (c.n_devis || c.client);
@@ -963,7 +1120,7 @@ function cmdActionsHtml(c){
     + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -980,6 +1137,11 @@ function brancherCmd(c){
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
   $('dup-btn').onclick = () => dupliquerUI(c);
+  $('cash-btn').onclick = async () => {
+    if (!(await encaisserEspeces('commande', c.n_devis || c.cle, c.client, ''))) return;
+    const rem = /ESP[EÈ]CE/i.test(c.remarque || '') ? null : [c.remarque, 'PAIEMENT EN ESPECE'].filter(Boolean).join(' - ');
+    if (rem) await envoyer({ remarque: rem }); else msg('✅ Espèces enregistrées dans la caisse', 'ok');
+  };
   $('c-save').onclick = () => {
     const body = {};
     const v = (id, f, cur) => { const x = $(id).value.trim(); if (x !== (cur || '')) body[f] = x; };
@@ -1013,17 +1175,21 @@ let panelCle = null;
 function fermer(){ panelCle=null; $('overlay').classList.remove('on'); $('panel').classList.remove('on'); $('panel').setAttribute('aria-hidden','true'); }
 
 if (VIEW === 'commandes') {
-  $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrir(panelCle); } });
+  $('rows').addEventListener('click', e => { const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrir(panelCle); } });
+  $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   let th; $('q').addEventListener('input', e => { recherche = e.target.value; if (modeHisto) { clearTimeout(th); th = setTimeout(chargerHisto, 350); } else afficher(); });
   const onglet = h => { modeHisto = h; $('tab-cours').classList.toggle('on', !h); $('tab-histo').classList.toggle('on', h); if (h) chargerHisto(); else afficher(); };
   $('tab-cours').onclick = () => onglet(false); $('tab-histo').onclick = () => onglet(true);
   if (location.hash === '#historique') onglet(true);
+} else if (VIEW === 'caisse') {
+  csEvents();
 } else if (VIEW === 'stock') {
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
   stEvents();
 } else if (VIEW === 'planches') {
-  $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrirPlanche(panelCle); } });
+  $('rows').addEventListener('click', e => { const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrirPlanche(panelCle); } });
+  $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
