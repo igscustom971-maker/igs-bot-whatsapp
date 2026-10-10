@@ -10,7 +10,13 @@ const multer = require('multer');
 const auth = require('./auth');
 const commandes = require('./commandes');
 
+const { supabase } = require('./db');
 const DOSSIER = path.join(__dirname, 'bat-gabarits');
+async function lirePositions() {
+  if (!supabase) return {};
+  const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'bat_positions').maybeSingle();
+  try { return data ? JSON.parse(data.valeur) : {}; } catch { return {}; }
+}
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1 } }).single('pdf');
 let logoIgs = { buf: null, type: 'image/png', at: 0 };
 
@@ -37,6 +43,27 @@ function mount(app) {
       console.error('Gestion gabarit :', err.message);
       res.status(502).send('Indisponible');
     }
+  });
+
+  // Positions par défaut des logos (décalages en cm par produit et zone), réglées depuis le générateur
+  app.get('/gestion/api/bat/positions', auth.requireUser, async (req, res) => {
+    res.json({ admin: req.user.role === 'admin', positions: await lirePositions() });
+  });
+  app.post('/gestion/api/bat/positions', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const produit = String(b.produit || ''), zone = String(b.zone || '');
+      if (!/^(tshirt|polo|debardeur|tote)$/.test(produit) || !/^(coeur|poitrine|dos|manche|bas|centre)$/.test(zone)) throw new Error('Produit ou zone inconnu');
+      const n = v => { const x = Number(v); if (!isFinite(x) || Math.abs(x) > 80) throw new Error('Valeur invalide'); return Math.round(x * 2) / 2; };
+      const pos = await lirePositions();
+      pos[produit] = pos[produit] || {};
+      pos[produit][zone] = { dx: n(b.dx || 0), dy: n(b.dy || 0), rot: b.rot == null || b.rot === '' ? null : n(b.rot), largeur: b.largeur ? n(b.largeur) : null, par: req.user.name || req.user.email, le: new Date().toISOString() };
+      if (!supabase) throw new Error('Supabase non configuré');
+      const { error } = await supabase.from('gestion_reglages').upsert({ cle: 'bat_positions', valeur: JSON.stringify(pos), updated_at: new Date().toISOString() });
+      if (error) throw new Error(error.message);
+      console.log(`Gestion BAT : position par défaut ${produit}/${zone}`, pos[produit][zone]);
+      res.json({ ok: true, positions: pos });
+    } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   app.post('/gestion/api/commandes/:cle/bat-pdf', auth.requireUser, (req, res, next) => upload(req, res, err => {

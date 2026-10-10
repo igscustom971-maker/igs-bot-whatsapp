@@ -144,7 +144,7 @@ function parserZones(txt){
   return String(txt || '').split('+').map(s => s.trim()).filter(Boolean).map(s => {
     const m = s.match(/\(?\s*(\d+(?:[.,]\d+)?)\s*cm/i);
     const z = zoneDe(s);
-    return { zone: z, libelle: s.replace(/\s+/g, ' '), largeur: m ? Number(m[1].replace(',', '.')) : ZONES[z].l };
+    return { zone: z, libelle: s.replace(/\s+/g, ' '), largeur: m ? Number(m[1].replace(',', '.')) : ZONES[z].l, sansTaille: !m };
   });
 }
 
@@ -192,7 +192,22 @@ const RESOLUTION = 2; // canvas des mockups en double résolution (net à l'impr
 
 function msg(t, k){ const m = $('msg'); m.className = 'msg on ' + k; m.innerHTML = t; }
 
+// Positions par défaut réglées par l'atelier (📌), enregistrées sur le serveur : décalages en cm par produit et zone
+let ADMIN = false;
+async function chargerPositions(){
+  try {
+    const j = await (await fetch('/gestion/api/bat/positions')).json();
+    ADMIN = !!j.admin;
+    for (const [prod, zs] of Object.entries(j.positions || {})) for (const [z, o] of Object.entries(zs || {})) {
+      const P = PRODUITS[prod]; if (!P) continue;
+      const cible = P.tote ? P.zones.centre : P.zones[z]; if (!cible) continue;
+      cible.ddx = Number(o.dx) || 0; cible.ddy = Number(o.dy) || 0; if (o.rot != null) cible.drot = Number(o.rot);
+      if (o.largeur) (P.largeurs = P.largeurs || {})[z] = Number(o.largeur);
+    }
+  } catch(e){}
+}
 async function init(){
+  await chargerPositions();
   try {
     const rc = await fetch('/gestion/api/commandes'); if (rc.status === 401) return location.href = '/gestion/auth/login';
     const jc = await rc.json();
@@ -239,7 +254,8 @@ function construirePages(){
     let zones = zonesCmd.length ? zonesCmd : [ ...(avant ? [{ zone: 'poitrine', libelle: 'Poitrine (25cm)', largeur: 25 }] : []), ...(arriere ? [{ zone: 'dos', libelle: 'Dos (27cm)', largeur: 27 }] : []) ];
     const placements = zones.map(z => {
       const img = ZONES[z.zone].face === 'dos' ? (arriere || null) : (avant || null);
-      return img ? { zone: z.zone, libelle: z.libelle, largeur: z.largeur, image: img.id, dx: 0, dy: 0, rot: null, sansBlanc: false } : null;
+      const lDefaut = ((PRODUITS[articles[0].produit] || {}).largeurs || {})[z.zone];
+      return img ? { zone: z.zone, libelle: z.libelle, largeur: z.sansTaille && lDefaut ? lDefaut : z.largeur, image: img.id, dx: 0, dy: 0, rot: null, sansBlanc: false } : null;
     }).filter(Boolean);
     // Tailles par couleur : "Noir : 10 S / 20 M"
     const parCouleur = {};
@@ -272,12 +288,14 @@ function rectLogo(pl, a, face, m, img){
   const pxW = m.corps / B, pxH = p.tote ? pxW : m.img.height / A;
   const zd = p.tote ? p.zones.centre : (p.zones[pl.zone] || p.zones.poitrine);
   const w = pl.largeur * pxW, h = w * (img.height / img.width);
+  const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0);
+  pl = Object.assign({}, pl, { dx, dy });
   let cx, top;
   if (p.tote) { cx = m.cx + (zd.x + pl.dx) * pxW; top = m.hautCorps + (zd.yCentre + pl.dy) * pxH - h / 2; }
   else if (zd.fx != null) { cx = m.img.width * zd.fx + pl.dx * pxW; top = m.img.height * zd.fy + pl.dy * pxH - h / 2; }
   else if (zd.yBas != null) { cx = m.cx + (zd.x + pl.dx) * pxW; top = m.img.height - (zd.yBas - pl.dy) * pxH - h; }
   else { cx = m.cx + (zd.x + pl.dx) * pxW; top = (zd.y + pl.dy) * pxH; }
-  return { x: cx - w / 2, y: top, w, h, rot: pl.rot != null ? pl.rot : (zd.rot || 0), pxW, pxH };
+  return { x: cx - w / 2, y: top, w, h, rot: pl.rot != null ? pl.rot : (zd.drot != null ? zd.drot : (zd.rot || 0)), pxW, pxH };
 }
 function placementsDe(page, face, a){
   const p = PRODUITS[a.produit];
@@ -363,7 +381,9 @@ function reglages(){
     + '<label class="f">Logos</label>'
     + p.placements.map((pl, k) => '<div class="pl" data-k="' + k + '"><div class="row"><select data-f="zone">' + optZone(pl.zone) + '</select><select data-f="image">' + optImg(pl.image) + '</select></div>'
       + '<div class="row"><label class="note">Largeur (cm)</label><input type="number" step="0.5" min="1" max="60" data-f="largeur" value="' + pl.largeur + '"><label class="note">Rotation</label><input type="number" step="5" data-f="rot" value="' + (pl.rot ?? '') + '" placeholder="auto"></div>'
-      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="reset" title="Revenir à la position standard">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div></div>').join('')
+      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
+      + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div>'
+      + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
     + '<button class="btn" data-a="ajout">＋ Ajouter un logo</button>'
     + '<label class="f">Couleurs et produits</label>'
     + p.articles.map((a, k) => '<div class="coul" data-c="' + k + '"><input type="checkbox" data-f="actif"' + (a.actif ? ' checked' : '') + '><input type="color" data-f="hex" value="' + a.hex + '"><span style="flex:1">' + esc(a.couleur) + ' <span class="note">· ' + esc(a.type) + (a.coupe ? ' ' + a.coupe : '') + (a.qte ? ' · ' + a.qte : '') + '</span></span>'
@@ -372,8 +392,22 @@ function reglages(){
     + '<label class="f">Texte dans le cadre (facultatif)</label><textarea data-f="legende" placeholder="ex. jude : Taille S (x2) bleu royal">' + esc(p.legende) + '</textarea>'
     + '<div class="note" style="margin-top:6px">Les champs Modèle, Couleur, Tailles, Face, Dos… se modifient directement sur l\'aperçu.</div>';
 }
+// Position réelle du logo (cm) : écart au centre du corps et distance sous le haut du col, sur le 1er produit de la page
+function positionTexte(p, pl){
+  const a = p.articles.find(x => x.actif) || p.articles[0]; if (!a) return '';
+  const P = PRODUITS[a.produit], zd = P.tote ? P.zones.centre : (P.zones[pl.zone] || P.zones.poitrine);
+  const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0), r = n => (Math.round(n * 2) / 2).toString().replace('.', ',');
+  if (P.tote) return '📏 ' + r(zd.x + dx) + ' cm du centre · centre du logo à ' + r(zd.yCentre + dy) + ' cm du haut du sac · largeur ' + r(pl.largeur) + ' cm';
+  if (zd.fx != null) return '📏 décalage ' + r(dx) + ' / ' + r(dy) + ' cm par rapport à la position standard manche';
+  if (zd.yBas != null) return '📏 ' + r(zd.x + dx) + ' cm du centre · bas du logo à ' + r(zd.yBas - dy) + ' cm du bas du vêtement';
+  return '📏 ' + (zd.x + dx === 0 ? 'centré' : r(Math.abs(zd.x + dx)) + ' cm du centre (' + (zd.x + dx > 0 ? 'côté cœur' : 'côté opposé') + ')') + ' · haut du logo à ' + r(zd.y + dy) + ' cm sous le haut du col · largeur ' + r(pl.largeur) + ' cm';
+}
+function majPositions(){
+  const p = pages[courante]; if (!p) return;
+  document.querySelectorAll('#reglages [data-pos]').forEach(el => { const pl = p.placements[el.dataset.pos]; if (pl) el.textContent = positionTexte(p, pl); });
+}
 let attente = null;
-const redessiner = (complet) => { clearTimeout(attente); attente = setTimeout(async () => { if (complet) { await afficherTout(); } else { await dessinerMockups(courante); } }, 120); };
+const redessiner = (complet) => { majPositions(); clearTimeout(attente); attente = setTimeout(async () => { if (complet) { await afficherTout(); } else { await dessinerMockups(courante); } }, 120); };
 $('reglages').addEventListener('input', e => {
   const p = pages[courante], t = e.target, f = t.dataset.f; if (!f) return;
   const pl = t.closest('.pl'), co = t.closest('.coul');
@@ -396,6 +430,7 @@ $('reglages').addEventListener('click', e => {
   const p = pages[courante], k = b.closest('.pl') && Number(b.closest('.pl').dataset.k);
   if (b.dataset.a === 'suppr') p.placements.splice(k, 1);
   if (b.dataset.a === 'reset') Object.assign(p.placements[k], { dx: 0, dy: 0, rot: null });
+  if (b.dataset.a === 'defaut') { definirDefaut(p, p.placements[k]); return; }
   if (b.dataset.a === 'ajout' && p.images.length) p.placements.push({ zone: 'poitrine', libelle: 'Poitrine (25cm)', largeur: 25, image: p.images[0].id, dx: 0, dy: 0, rot: null, sansBlanc: false });
   if (b.dataset.a === 'ajoutCouleur') { const nom = prompt('Couleur (ex. Noir profond, Marine, Blanc) :'); if (!nom) return; p.articles.push({ k: 'x' + Date.now(), produit: p.articles[0] ? p.articles[0].produit : 'tshirt', type: p.articles[0] ? p.articles[0].type : 'T-shirt', couleur: nom, hex: hexCouleur(nom), coupe: '', qte: 0, actif: true }); }
   reglages(); redessiner();
@@ -403,6 +438,24 @@ $('reglages').addEventListener('click', e => {
 $('tabs').addEventListener('click', e => { const t = e.target.closest('[data-p]'); if (!t) return; courante = Number(t.dataset.p); document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); reglages(); $('page' + courante).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 // Champs modifiables directement sur l'aperçu
 $('previews').addEventListener('input', e => { const t = e.target.closest('[contenteditable]'); if (!t) return; pages[t.dataset.i][t.dataset.k] = t.innerText; });
+
+async function definirDefaut(p, pl){
+  const prods = [...new Set(p.articles.filter(a => a.actif).map(a => a.produit))];
+  if (!confirm('Utiliser cette position (' + ZONES[pl.zone].lib + ', largeur ' + pl.largeur + ' cm) par défaut pour : ' + prods.map(x => PRODUITS[x].nom).join(', ') + ' ?\nElle s\'appliquera à tous les prochains BAT.')) return;
+  try {
+    for (const prod of prods) {
+      const P = PRODUITS[prod], zd = P.tote ? P.zones.centre : P.zones[pl.zone]; if (!zd) continue;
+      const o = { dx: pl.dx + (zd.ddx || 0), dy: pl.dy + (zd.ddy || 0), rot: pl.rot, largeur: pl.largeur };
+      const r = await fetch('/gestion/api/bat/positions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ produit: prod, zone: P.tote ? 'centre' : pl.zone, ...o }) });
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status);
+      zd.ddx = o.dx; zd.ddy = o.dy; if (o.rot != null) zd.drot = o.rot;
+    }
+    // Les décalages sont maintenant dans la position par défaut : on remet ceux du logo à zéro (aucun changement visuel)
+    p.placements.filter(x => x.zone === pl.zone).forEach(x => { x.dx = 0; x.dy = 0; });
+    msg('✅ Position par défaut enregistrée pour ' + ZONES[pl.zone].lib + ' (' + prods.map(x => PRODUITS[x].nom).join(', ') + ')', 'ok');
+    reglages(); redessiner();
+  } catch(e){ msg('❌ ' + esc(e.message), 'err'); }
+}
 
 // ---------- Glisser un logo sur un mockup ----------
 let drag = null;
