@@ -430,9 +430,13 @@ function nouvellePlanche(){
 function plActionsHtml(p){
   const opts = PL_STATUTS.map(s => '<option'+(plKey(p.statut)===s?' selected':'')+'>'+s+'</option>').join('');
   let h = '<div class="card"><h3>Actions</h3><div class="actions">'
+    + '<div class="field"><label>Client (nom dans l\\'Excel)</label><input id="a-client" value="'+esc(p.client)+'"></div>'
+    + '<div class="field"><label>N° de devis</label><input id="a-devis-num" value="'+esc(p.n_devis||'')+'" placeholder="ex. DE2601064"></div>'
+    + '<div class="field"><label>Paiement</label><input id="a-paiement" list="a-pay-list" value="'+esc(p.paiement||'')+'"><datalist id="a-pay-list"><option>NON PAYÉE</option><option>PAYÉE</option><option>ESPECE</option><option>CB</option><option>VIREMENT</option></datalist></div>'
     + '<div class="field"><label>Métrage (m, A3 ou A4)</label><input id="a-metres" value="'+esc(p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))+'" placeholder="ex. 2,5"></div>'
     + '<div class="field"><label>Statut</label><select id="a-statut"><option value="">—</option>'+opts+'</select></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="a-suivi" value="'+esc(p.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarques</label><input id="a-rem" value="'+esc(p.remarques||'')+'"></div>'
     + '</div><div class="btnrow"><button class="btn primary" id="a-save">Enregistrer</button>';
   const aVerif = plKey(p.statut) === 'A VERIFIER';
   if (!p.n_devis && !p.hebdo) h += '<button class="btn pink" id="a-devis">'+(aVerif ? '📝 Préparer le devis (sans envoi)' : '📄 Créer et envoyer le devis')+'</button>';
@@ -464,6 +468,11 @@ function brancherActions(p){
     if (m !== (p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))) body.metres = m;
     if (st && st !== plKey(p.statut)) body.statut = st;
     if (su !== (p.numero_suivi || '')) body.numero_suivi = su;
+    const cl = $('a-client').value.trim(), dv = $('a-devis-num').value.trim(), pa = $('a-paiement').value.trim(), re = $('a-rem').value.trim();
+    if (cl && cl !== p.client) body.client = cl;
+    if (dv !== (p.n_devis || '')) body.n_devis = dv;
+    if (pa !== (p.paiement || '')) body.paiement = pa;
+    if (re !== (p.remarques || '')) body.remarques = re;
     if (!Object.keys(body).length) return msg('Aucune modification', 'info');
     busy(true); msg('Écriture dans l\\'Excel…', 'info');
     try { const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/modifier', body); await apresAction(j.planche || p, '✅ Enregistré dans l\\'Excel'); }
@@ -543,6 +552,14 @@ async function chargerClientOdoo(p){
       box.innerHTML = '<div class="cand" style="border:none"><div><b>'+esc(j.partner.name)+'</b> <span class="tag">'+esc(src)+'</span>'+(j.partner.martinique?' <span class="tag">🇲🇶 Martinique</span>':'')
         + '<div class="sub">'+esc([j.partner.email, [j.partner.zip, j.partner.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div><button class="btn" id="clio-chg">Changer</button></div><div id="clio-pk"></div>';
       $('clio-chg').onclick = () => picker($('clio-pk'), '', [], choisir);
+      if (norm(j.partner.name) !== norm(p.client)) {
+        $('clio-pk').insertAdjacentHTML('beforebegin', '<div class="btnrow" style="margin-top:4px"><button class="btn" id="clio-ren">✏️ Renommer « '+esc(p.client)+' » en « '+esc(j.partner.name)+' » dans l\\'Excel</button></div>');
+        $('clio-ren').onclick = async () => {
+          if (!confirm('Remplacer le nom « '+p.client+' » par « '+j.partner.name+' » dans l\\'Excel ?')) return;
+          try { const r = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/modifier', { client: j.partner.name }); await apresAction(r.planche || p, '✅ Client renommé dans l\\'Excel'); }
+          catch(e){ alert(e.message); }
+        };
+      }
     } else {
       box.innerHTML = '<div class="note">Pas de correspondance sûre pour « '+esc(p.client)+' » : choisis la fiche Odoo ou crée-la.</div><div id="clio-pk"></div>';
       picker($('clio-pk'), p.client, j.candidats || [], choisir);

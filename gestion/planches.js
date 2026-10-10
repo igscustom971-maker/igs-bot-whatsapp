@@ -318,14 +318,34 @@ async function modifier(cle, champs, user) {
     if (v && !/^[A-Z0-9]{8,20}$/.test(v)) throw new Error('Numéro de suivi invalide');
     fields.numero_suivi = v;
   }
+  if ('client' in champs) {
+    const v = String(champs.client || '').trim().slice(0, 80);
+    if (!v) throw new Error('Le nom du client ne peut pas être vide');
+    if (v !== p.client) fields.client = v;
+  }
+  if ('n_devis' in champs) {
+    const v = String(champs.n_devis || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (v && !/^[A-Z]{1,5}\d{3,}$/.test(v)) throw new Error('N° de devis invalide (ex. DE2601064)');
+    fields.n_devis = v;
+  }
+  if ('paiement' in champs) {
+    const v = String(champs.paiement || '').trim().toUpperCase().slice(0, 25);
+    fields.paiement = v;
+  }
+  if ('remarques' in champs) fields.remarques = String(champs.remarques || '').trim().slice(0, 500);
   if (!Object.keys(fields).length) throw new Error('Rien à modifier');
+  // Renommage : le lien avec le client Odoo suit le nouveau nom
+  if (fields.client) {
+    const a = await odoo.getAlias(p.client);
+    if (a) await odoo.setAlias(fields.client, a.partner_id, a.partner_name, user);
+  }
   await writeCells(cle, fields);
   await journal(user, 'planche_modifiee', cle, { client: p.client, ...fields });
   return trouveApres(p);
 }
 
 // Après une écriture, la clé peut changer (ex. N° de devis ajouté) : on retrouve la ligne par sa position
-const trouveApres = p => cache.rows.find(r => r._row === p._row && key(r.client) === key(p.client)) || null;
+const trouveApres = p => cache.rows.find(r => r._row === p._row) || null;
 
 async function clientOdoo(p, partnerId, user) {
   if (partnerId) {
