@@ -84,6 +84,7 @@ module.exports = function mountGestion(app) {
   };
   app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir(req.body || {}, quiH(req), req.user.role)));
   app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role)));
+  app.get('/gestion/api/heures/mes', auth.requireUser, actH(req => heures.mesHeures(String(req.query.collaborateur || ''), String(req.query.lundi || ''))));
   app.get('/gestion/api/heures/semaine', auth.requireUser, auth.requireAdmin, actH(req => heures.semaine(String(req.query.lundi || ''))));
   app.post('/gestion/api/heures/:id(\\d+)/modifier', auth.requireUser, auth.requireAdmin, actH(req => heures.modifier(Number(req.params.id), req.body || {}, quiH(req))));
   app.post('/gestion/api/heures/payer', auth.requireUser, auth.requireAdmin, actH(req => heures.payer(String(req.body?.collaborateur || ''), String(req.body?.lundi || ''), quiH(req))));

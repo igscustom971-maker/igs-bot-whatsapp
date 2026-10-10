@@ -1,7 +1,7 @@
 // ============================================
 // IGS GESTION - HEURES DES COLLABORATEURS (remplace l'onglet "⏱ Saisie Heures" et "🔒 Paramètres")
-// - Équipe : choisit son nom, la date et la durée de la journée ; ne voit aucun historique
-//   (peut seulement annuler sa saisie dans les 15 minutes)
+// - Équipe : choisit son nom, saisit un ou plusieurs jours ; voit ses heures (semaine en cours et précédentes)
+//   sans taux ni montant, et peut supprimer une saisie tant que la semaine n'est pas payée
 // - Admin : vue par semaine (lundi -> dimanche), total, taux horaire, montant dû, bouton « Payé »
 // - Récap du dimanche soir envoyé par mail à l'admin (remplace le récap Power Automate)
 // Données dans Supabase (gestion_heures, gestion_heures_paiements).
@@ -14,7 +14,6 @@ const admin = require('./admin');
 
 const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
 const RECAP_TO = (process.env.HEURES_RECAP_TO || cfg.ADMIN_EMAILS[0] || '').split(',').map(s => s.trim()).filter(Boolean);
-const ANNULATION_MIN = 15;
 
 const txt = v => (v === null || v === undefined ? '' : String(v).trim());
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -61,27 +60,66 @@ async function equipe(tous = true) {
   return admin.collaborateurs({ admin: true, tous });
 }
 
-// ---------- Saisie (équipe et admin) ----------
-async function saisir(data, user, role) {
-  needDb();
-  const collaborateur = txt(data.collaborateur);
+// ---------- Saisie (équipe et admin) : un ou plusieurs jours d'un coup (rattrapage de retard) ----------
+async function verifierCollab(nom) {
+  const collaborateur = txt(nom);
   const actifs = (await equipe(false)).map(c => c.affichage);
   if (!actifs.includes(collaborateur)) throw new Error('Choisis ton nom dans la liste');
-  const jour = txt(data.jour) || aujourdhui();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) throw new Error('Date invalide');
-  if (jour > aujourdhui()) throw new Error('Impossible de saisir des heures pour une date future');
-  if (role !== 'admin' && jour < plusJours(aujourdhui(), -31)) throw new Error('Date trop ancienne : demande à Ismaël de faire la saisie');
-  const minutes = parseDuree(data.duree);
-  const { data: deja } = await supabase.from('gestion_heures').select('id, minutes').eq('collaborateur', collaborateur).eq('jour', jour).limit(1);
+  return collaborateur;
+}
+
+async function saisir(data, user, role) {
+  needDb();
+  const collaborateur = await verifierCollab(data.collaborateur);
+  const brutes = Array.isArray(data.lignes) ? data.lignes : [{ jour: data.jour, duree: data.duree, remarque: data.remarque }];
+  if (!brutes.length) throw new Error('Aucune journée à enregistrer');
+  if (brutes.length > 31) throw new Error('31 journées maximum par saisie');
+  const lignes = brutes.map((l, i) => {
+    const n = brutes.length > 1 ? `Ligne ${i + 1} : ` : '';
+    const jour = txt(l.jour) || aujourdhui();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(jour)) throw new Error(`${n}date invalide`);
+    if (jour > aujourdhui()) throw new Error(`${n}impossible de saisir des heures pour une date future`);
+    if (role !== 'admin' && jour < plusJours(aujourdhui(), -31)) throw new Error(`${n}date trop ancienne (plus de 31 jours) : demande à Ismaël`);
+    let minutes;
+    try { minutes = parseDuree(l.duree); } catch (err) { throw new Error(n + err.message); }
+    return { collaborateur, jour, minutes, remarque: txt(l.remarque).slice(0, 200) || null, saisi_par: user };
+  });
+  const jours = lignes.map(l => l.jour);
+  const doublon = jours.find((j, i) => jours.indexOf(j) !== i);
+  if (doublon) throw new Error(`Le ${fdate(doublon)} est saisi deux fois : additionne les heures sur une seule ligne`);
+  const { data: deja } = await supabase.from('gestion_heures').select('jour, minutes').eq('collaborateur', collaborateur).in('jour', jours);
   if (deja && deja.length) {
-    throw new Error(`Des heures (${fh(deja[0].minutes)}) sont déjà saisies pour ${collaborateur} le ${fdate(jour)}${role === 'admin' ? ' : modifie la ligne existante' : ' : demande à Ismaël de corriger'}`);
+    throw new Error(`Déjà saisi pour ${collaborateur} : ${deja.map(d => `${fdate(d.jour)} (${fh(d.minutes)})`).join(', ')}. Supprime l'ancienne saisie pour la remplacer.`);
   }
-  const { data: ins, error } = await supabase.from('gestion_heures').insert({
-    collaborateur, jour, minutes, remarque: txt(data.remarque).slice(0, 200) || null, saisi_par: user,
-  }).select().single();
+  const { data: ins, error } = await supabase.from('gestion_heures').insert(lignes).select();
   if (error) throw new Error(`Supabase : ${error.message}`);
-  console.log(`Gestion heures : ${collaborateur} ${jour} ${fh(minutes)} (saisi par ${user})`);
-  return { id: ins.id, collaborateur, jour, minutes, duree: fh(minutes), annulableJusqua: new Date(Date.now() + ANNULATION_MIN * 60e3).toISOString() };
+  console.log(`Gestion heures : ${collaborateur} ${lignes.map(l => `${l.jour} ${fh(l.minutes)}`).join(', ')} (saisi par ${user})`);
+  return { collaborateur, lignes: ins.map(l => ({ id: l.id, jour: l.jour, minutes: l.minutes, duree: fh(l.minutes) })), total: fh(lignes.reduce((t, l) => t + l.minutes, 0)) };
+}
+
+// Heures d'un collaborateur (sans taux ni montant) : semaine choisie + résumé des 8 dernières semaines
+async function mesHeures(nom, lundiDemande) {
+  needDb();
+  const collaborateur = await verifierCollab(nom);
+  const lundi = lundiDe(/^\d{4}-\d{2}-\d{2}$/.test(lundiDemande || '') ? lundiDemande : aujourdhui());
+  const depuis = plusJours(lundiDe(aujourdhui()), -7 * 8);
+  const debut = lundi < depuis ? lundi : depuis;
+  const { data, error } = await supabase.from('gestion_heures').select('id, jour, minutes, remarque, paiement_id')
+    .eq('collaborateur', collaborateur).gte('jour', debut).order('jour');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  const semaineLignes = data.filter(l => l.jour >= lundi && l.jour <= plusJours(lundi, 6));
+  const map = new Map();
+  for (const l of data.filter(x => x.jour >= depuis)) {
+    const k = lundiDe(l.jour);
+    if (!map.has(k)) map.set(k, { lundi: k, numero: semaineIso(k).semaine, minutes: 0, jours: 0, payees: 0 });
+    const s = map.get(k); s.minutes += l.minutes; s.jours++; if (l.paiement_id) s.payees++;
+  }
+  return {
+    collaborateur, lundi, dimanche: plusJours(lundi, 6), numero: semaineIso(lundi).semaine,
+    lignes: semaineLignes.map(l => ({ id: l.id, jour: l.jour, duree: fh(l.minutes), minutes: l.minutes, remarque: l.remarque, payee: !!l.paiement_id })),
+    total: fh(semaineLignes.reduce((t, l) => t + l.minutes, 0)),
+    semaines: [...map.values()].sort((a, b) => b.lundi.localeCompare(a.lundi)).map(s => ({ ...s, duree: fh(s.minutes), payee: s.payees === s.jours })),
+  };
 }
 
 async function ligne(id) {
@@ -90,14 +128,11 @@ async function ligne(id) {
   return data;
 }
 
-// Équipe : annulation de sa propre saisie dans les 15 minutes ; admin : toujours (si non payée)
+// Suppression d'une saisie tant que la semaine n'est pas payée (équipe et admin)
 async function supprimer(id, user, role) {
   needDb();
   const l = await ligne(id);
   if (l.paiement_id) throw new Error('Semaine déjà payée : annule d\'abord le paiement');
-  if (role !== 'admin' && Date.now() - new Date(l.cree_le).getTime() > ANNULATION_MIN * 60e3) {
-    throw new Error(`Délai d'annulation dépassé (${ANNULATION_MIN} min) : demande à Ismaël de corriger`);
-  }
   const { error } = await supabase.from('gestion_heures').delete().eq('id', id);
   if (error) throw new Error(`Supabase : ${error.message}`);
   await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'heures_supprimees', cle: String(id), details: l });
@@ -290,4 +325,4 @@ function startRecap() {
   setInterval(() => recapSiDu().catch(() => {}), 10 * 60e3);
 }
 
-module.exports = { saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };
+module.exports = { mesHeures, saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };

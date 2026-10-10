@@ -196,6 +196,11 @@ th{padding:10px 8px}
 td.c-x{width:30px;text-align:right;padding-left:0}
 .hrform{display:grid;gap:10px}
 .hrform .field input,.hrform .field select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.hrl{display:grid;grid-template-columns:1.2fr .8fr 1.4fr auto;gap:6px;align-items:end;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
+.hrl label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+.hrl input{width:100%;font:inherit;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fff}
+#hr-lignes{display:grid;gap:8px}
+@media (max-width:640px){.hrl{grid-template-columns:1fr 1fr auto}.hrl .rem{grid-column:1/-1;order:5}}
 .hrnav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .hrnav h3{margin:0;flex:1;min-width:200px}
 .hrtot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
@@ -300,14 +305,14 @@ ${view === 'accueil' ? `
         <div class="card"><h3>${user.role === 'admin' ? 'Saisir des heures' : 'Saisir mes heures'}</h3>
           <div class="hrform">
             <div class="field"><label>Collaborateur</label><select id="hr-collab"></select></div>
-            <div class="field"><label>Date</label><input type="date" id="hr-jour"></div>
-            <div class="field"><label>Heures travaillées</label><input id="hr-duree" placeholder="ex. 04:30" inputmode="decimal" autocomplete="off"></div>
-            <div class="field"><label>Remarque (facultatif)</label><input id="hr-rem" placeholder="ex. livraison Jarry"></div>
+            <div id="hr-lignes"></div>
+            <button class="btn" id="hr-plus">＋ Ajouter un autre jour</button>
             <button class="btn pink" id="hr-ok" style="padding:12px">Enregistrer</button>
-            <div class="note">Une saisie par jour. Format : 04:30, 4h30 ou 4,5 pour 4 h 30.${user.role === 'admin' ? '' : ' En cas d’erreur, tu peux annuler dans les 15 minutes, sinon préviens Ismaël.'}</div>
+            <div class="note">Une ligne par jour travaillé. Heures au format 04:30, 4h30 ou 4,5. En retard ? Ajoute une ligne par jour oublié. Une erreur ? Supprime la saisie dans « Mes heures » (tant que la semaine n’est pas payée), puis ressaisis.</div>
           </div>
           <div class="msg" id="hr-msg"></div>
         </div>
+        <div class="card" id="hr-mes"><h3>Mes heures</h3><div class="note">Choisis ton nom pour voir tes heures.</div></div>
       </div>
       ${user.role === 'admin' ? '<div class="stack" id="hr-admin"><div class="card"><div class="skel"></div><div class="skel"></div></div></div>' : ''}
     </div>
@@ -619,10 +624,39 @@ function hrOptions(){
   let last = cur; try { last = cur || localStorage.getItem('igs_hr_nom'); } catch(e){}
   if (last && EQUIPE.includes(last)) sel.value = last;
 }
+const hrMax = () => isoLocal(new Date());
+function hrLigneHtml(jour){
+  return '<div class="hrl"><div><label>Date</label><input type="date" class="hl-jour" value="'+jour+'" max="'+hrMax()+'"></div>'
+    + '<div><label>Heures</label><input class="hl-duree" placeholder="04:30" inputmode="decimal" autocomplete="off"></div>'
+    + '<div class="rem"><label>Remarque</label><input class="hl-rem" placeholder="facultatif"></div>'
+    + '<button class="xdel" data-hl-del="1" title="Retirer cette ligne">×</button></div>';
+}
+function hrResetLignes(){ $('hr-lignes').innerHTML = hrLigneHtml(hrMax()); }
+let hrMesLundi = null;
+async function hrMes(){
+  const nom = $('hr-collab').value, box = $('hr-mes');
+  if (!nom) { box.innerHTML = '<h3>Mes heures</h3><div class="note">Choisis ton nom pour voir tes heures.</div>'; return; }
+  try {
+    const r = await fetch('/gestion/api/heures/mes?collaborateur='+encodeURIComponent(nom)+(hrMesLundi?'&lundi='+hrMesLundi:''));
+    if (r.status === 401) return location.href = '/gestion/auth/login';
+    const d = await r.json(); if (d.error) throw new Error(d.error);
+    hrMesLundi = d.lundi;
+    const auj = hrMax();
+    let h = '<h3>Heures de '+esc(d.collaborateur)+'</h3><div class="hrnav"><button class="btn" data-mes-nav="-7">◀</button><b style="flex:1;text-align:center">Semaine '+d.numero+' · '+jourFr(d.lundi)+' → '+jourFr(d.dimanche)+'</b>'
+      + '<button class="btn" data-mes-nav="7"'+(d.dimanche >= auj ? ' disabled' : '')+'>▶</button></div>';
+    h += d.lignes.length ? '<table class="stk" style="margin-top:8px"><tbody>' + d.lignes.map(l => '<tr><td>'+jourFr(l.jour)+'</td><td><b>'+l.duree+'</b></td><td class="sub">'+esc(l.remarque||'')+'</td><td style="text-align:right">'
+        + (l.payee ? '<span class="paid">Payée</span>' : '<button class="xdel" data-mes-del="'+l.id+'" title="Supprimer cette saisie">×</button>') + '</td></tr>').join('') + '</tbody></table>'
+      : '<div class="note" style="margin-top:8px">Aucune heure saisie cette semaine.</div>';
+    h += '<div class="hrtot"><span>Total de la semaine</span><b class="m">'+d.total+'</b></div>';
+    if (d.semaines.length) h += '<div class="k" style="margin-top:14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase">8 dernières semaines</div>'
+      + d.semaines.map(x => '<div class="cand" style="cursor:pointer" data-mes-goto="'+x.lundi+'"><div>Semaine '+x.numero+' <span class="sub">('+jourFr(x.lundi)+')</span><div class="sub">'+x.jours+' jour(s)</div></div><div><b>'+x.duree+'</b> '+(x.payee?'<span class="paid">Payée</span>':'')+'</div></div>').join('');
+    box.innerHTML = h;
+  } catch(e){ box.innerHTML = '<h3>Mes heures</h3><div class="warnbox">'+esc(e.message)+'</div>'; }
+}
 async function hrCharger(){
   hrOptions();
-  if (!$('hr-jour').value) { $('hr-jour').value = isoLocal(new Date()); }
-  $('hr-jour').max = isoLocal(new Date());
+  if (!$('hr-lignes').children.length) hrResetLignes();
+  hrMes();
   if (!$('hr-admin')) return;
   const r = await fetch('/gestion/api/heures/semaine' + (hrLundi ? '?lundi=' + hrLundi : ''));
   if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -661,26 +695,42 @@ function hrRender(){
   $('hr-admin').innerHTML = h;
 }
 function hrEvents(){
+  $('hr-collab').addEventListener('change', () => { hrMesLundi = null; try { localStorage.setItem('igs_hr_nom', $('hr-collab').value); } catch(e){} hrMes(); });
+  $('hr-plus').onclick = () => {
+    const dates = [...document.querySelectorAll('.hl-jour')].map(i => i.value).filter(Boolean).sort();
+    const base = dates.length ? new Date(dates[0]+'T12:00:00') : new Date(); base.setDate(base.getDate() - 1);
+    $('hr-lignes').insertAdjacentHTML('beforeend', hrLigneHtml(isoLocal(base)));
+    const ins = document.querySelectorAll('.hl-duree'); ins[ins.length-1].focus();
+  };
+  $('hr-lignes').addEventListener('click', e => {
+    const b = e.target.closest('[data-hl-del]'); if (!b) return;
+    if ($('hr-lignes').children.length > 1) b.closest('.hrl').remove(); else { b.closest('.hrl').querySelector('.hl-duree').value = ''; }
+  });
+  $('hr-lignes').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('input')) $('hr-ok').click(); });
   $('hr-ok').onclick = async () => {
-    const collaborateur = $('hr-collab').value, jour = $('hr-jour').value, duree = $('hr-duree').value.trim(), remarque = $('hr-rem').value.trim();
+    const collaborateur = $('hr-collab').value;
     if (!collaborateur) return hrMsg('Choisis ton nom dans la liste', 'err');
-    if (!duree) return hrMsg('Indique tes heures (ex. 04:30)', 'err');
+    const lignes = [...document.querySelectorAll('.hrl')].map(r => ({ jour: r.querySelector('.hl-jour').value, duree: r.querySelector('.hl-duree').value.trim(), remarque: r.querySelector('.hl-rem').value.trim() })).filter(l => l.duree);
+    if (!lignes.length) return hrMsg('Indique tes heures (ex. 04:30)', 'err');
     $('hr-ok').disabled = true;
     try {
-      const j = await post('/gestion/api/heures', { collaborateur, jour, duree, remarque });
-      try { localStorage.setItem('igs_hr_nom', collaborateur); } catch(e){}
-      hrMsg('✅ <b>'+j.duree+'</b> enregistrées pour <b>'+esc(j.collaborateur)+'</b> le '+jourFr(j.jour)+' <button class="btn" data-hr-cancel="'+j.id+'" style="margin-left:8px">Annuler cette saisie</button>', 'ok');
-      $('hr-duree').value = ''; $('hr-rem').value = '';
+      const j = await post('/gestion/api/heures', { collaborateur, lignes });
+      hrMsg('✅ Enregistré pour <b>'+esc(j.collaborateur)+'</b> : '+j.lignes.map(l => jourFr(l.jour)+' <b>'+l.duree+'</b>').join(' · '), 'ok');
+      hrResetLignes();
+      hrMesLundi = null; hrMes();
       if ($('hr-admin')) hrCharger();
     } catch(e){ hrMsg('❌ ' + esc(e.message), 'err'); }
     finally { $('hr-ok').disabled = false; }
   };
-  $('hr-duree').addEventListener('keydown', e => { if (e.key === 'Enter') $('hr-ok').click(); });
-  $('hr-msg').addEventListener('click', async e => {
-    const b = e.target.closest('[data-hr-cancel]'); if (!b) return;
-    b.disabled = true;
-    try { await post('/gestion/api/heures/'+b.dataset.hrCancel+'/supprimer'); hrMsg('Saisie annulée', 'info'); if ($('hr-admin')) hrCharger(); }
-    catch(err){ hrMsg('❌ ' + esc(err.message), 'err'); }
+  $('hr-mes').addEventListener('click', async e => {
+    const t = e.target.closest('[data-mes-nav],[data-mes-goto],[data-mes-del]'); if (!t) return;
+    const ds = t.dataset;
+    if (ds.mesNav) { const d0 = new Date(hrMesLundi+'T12:00:00'); d0.setDate(d0.getDate()+Number(ds.mesNav)); hrMesLundi = isoLocal(d0); return hrMes(); }
+    if (ds.mesGoto) { hrMesLundi = ds.mesGoto; return hrMes(); }
+    if (ds.mesDel) {
+      if (!confirm('Supprimer cette saisie ? Tu pourras la ressaisir ensuite.')) return;
+      try { await post('/gestion/api/heures/'+ds.mesDel+'/supprimer'); hrMes(); if ($('hr-admin')) hrCharger(); } catch(err){ alert(err.message); }
+    }
   });
   if (!$('hr-admin')) return;
   $('hr-admin').addEventListener('change', async e => {
