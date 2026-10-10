@@ -30,9 +30,16 @@ module.exports = function mountGestion(app) {
   app.use('/webhook', (req, res, next) => {
     try {
       if (req.method === 'POST') {
-        const nums = new Set();
-        for (const e of req.body?.entry || []) for (const ch of e.changes || []) for (const m of ch.value?.messages || []) if (m.from) nums.add(String(m.from));
+        const nums = new Set(), textes = [];
+        for (const e of req.body?.entry || []) for (const ch of e.changes || []) for (const m of ch.value?.messages || []) {
+          if (!m.from) continue;
+          nums.add(String(m.from));
+          const t = m.text?.body || m.button?.text || m.interactive?.button_reply?.title || m.reaction?.emoji || m.image?.caption || m.document?.caption;
+          if (t) textes.push({ from: String(m.from), texte: t, le: m.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : new Date().toISOString() });
+        }
         if (nums.size) require('./bat-envoi').noterMessagesEntrants([...nums]).catch(() => {});
+        // Réponse d'un client à l'envoi de son BAT (validation automatique si favorable)
+        if (textes.length) require('./bat-reponses').messagesWhatsApp(textes).catch(err => console.error('Gestion BAT réponses :', err.message));
       }
     } catch {}
     next();
@@ -302,5 +309,6 @@ module.exports = function mountGestion(app) {
   planches.startSync();
   heures.startRecap();
   require('./telephones').start();
+  require('./bat-reponses').start();
   console.log('Module Gestion IGS monté sur /gestion');
 };

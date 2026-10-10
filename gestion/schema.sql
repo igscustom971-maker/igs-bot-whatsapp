@@ -222,3 +222,6 @@ create table if not exists gestion_whatsapp_entrants (
   dernier_message timestamptz not null
 );
 alter table gestion_whatsapp_entrants enable row level security;
+
+-- Commandes : réponse du client au BAT (message, canal, date, verdict valide / modification / autre)
+alter table gestion_commandes add column if not exists bat_reponse jsonb;

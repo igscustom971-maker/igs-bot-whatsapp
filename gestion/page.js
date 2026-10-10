@@ -1332,7 +1332,7 @@ function accueil(){
 }
 
 function liste(){
-  if ($('bat-n')) $('bat-n').textContent = data.filter(c => statutKey(c.statut) === 'PAYÉE' && ['faire','envoyer'].includes(batEtape(c))).length || '';
+  if ($('bat-n')) $('bat-n').textContent = data.filter(c => statutKey(c.statut) === 'PAYÉE' && ['modif','faire','envoyer'].includes(batEtape(c))).length || '';
   const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
   if (filtre === 'TOUS') filtre = 'ACTIFS';
@@ -1425,7 +1425,8 @@ async function ouvrir(cle){
         + '</div></div>').join('') + '</div></div>';
     }
     // BAT
-    if (statutKey(c.statut) === 'PAYÉE' && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + (c.bat_envoye_le
+    if (c.bat_reponse && statutKey(c.statut) !== 'PAYÉE') h += '<div class="card"><h3>Réponse du client au BAT</h3>'+batReponseHtml(c)+'</div>';
+    if (statutKey(c.statut) === 'PAYÉE' && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + batReponseHtml(c) + (c.bat_envoye_le
       ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
       : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
@@ -1445,6 +1446,7 @@ async function ouvrir(cle){
 let modeBat = false;
 // formulaire -> faire -> envoyer -> client (envoyé, attend la validation) ; inconnu = dossier pas encore relu
 function batEtape(c){
+  if (c.bat_envoye_le && c.bat_reponse && c.bat_reponse.verdict === 'modification') return 'modif';
   if (c.bat_envoye_le) return 'client';
   const i = c.bat_info; if (!i) return 'inconnu';
   if (!i.dossier || !i.formulaire) return 'formulaire';
@@ -1456,21 +1458,23 @@ function batRender(){
   if (q) rows = rows.filter(c => norm([c.n_devis, c.client, c.affectation, c.infos].join(' ')).includes(q));
   rows.sort((a,b) => String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')));
   const G = [
+    ['modif', '✏️ Modification demandée par le client', 'Corrige le BAT dans le dossier puis renvoie-le'],
     ['faire', '🎨 BAT à faire', 'Formulaire reçu, pas encore de « BON A TIRER.pdf » dans le dossier'],
     ['envoyer', '📤 BAT à envoyer', 'Le BAT est dans le dossier : vérifie-le puis envoie-le au client'],
     ['client', '⏳ Envoyé, attend la validation du client', 'Quand le client valide, la commande passe en VALIDÉE'],
     ['formulaire', '📝 Attend le formulaire du client', 'Commande payée, formulaire pas encore reçu'],
     ['inconnu', '… Dossier pas encore relu', 'Clique « Relire les dossiers »'],
   ];
-  const n = rows.filter(c => ['faire','envoyer'].includes(batEtape(c))).length;
+  const n = rows.filter(c => ['modif','faire','envoyer'].includes(batEtape(c))).length;
   if ($('bat-n')) $('bat-n').textContent = n || '';
   const ligne = (c, e) => '<div class="cand"><div><a href="#" data-bat-open="'+esc(c.cle)+'"><b>'+esc(c.client)+'</b></a> <span class="sub">'+esc(c.n_devis||'')+'</span>'
     + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
-    + (e === 'client' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div></div>'
+    + (e === 'client' || e === 'modif' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div>'+batReponseHtml(c)+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
     + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
     + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
     + (e === 'faire' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
+    + (e === 'modif' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer le BAT corrigé</button><button class="btn" data-bat-ok="'+esc(c.cle)+'" title="Valider quand même">✅</button>' : '')
     + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';
   $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Les planches DTF ne sont pas concernées.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
@@ -1485,6 +1489,12 @@ async function ouvrirFormulaire(cle){
     if (!r.ok) throw new Error(j.error || 'Erreur');
     if (w) w.location.href = j.url; else location.href = j.url;
   } catch(e){ if (w) w.close(); alert('Lien indisponible : ' + e.message); }
+}
+function batReponseHtml(c){
+  const r = c && c.bat_reponse; if (!r) return '';
+  const coul = r.verdict === 'valide' ? '#dcfce7;color:#166534' : r.verdict === 'modification' ? '#fee2e2;color:#991b1b' : '#fef3c7;color:#92400e';
+  const lib = r.verdict === 'valide' ? '✅ Validé' : r.verdict === 'modification' ? '✏️ Modification demandée' : '💬 Réponse à lire';
+  return '<div style="margin-top:6px;padding:6px 10px;border-radius:8px;background:'+coul+';font-size:13px"><b>'+lib+'</b> par '+(r.canal === 'mail' ? 'mail' : 'WhatsApp')+' le '+new Date(r.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : « '+esc(r.message)+' »</div>';
 }
 async function batClic(e){
   const f = e.target.closest('[data-form]'); if (f) { e.preventDefault(); return ouvrirFormulaire(f.dataset.form); }

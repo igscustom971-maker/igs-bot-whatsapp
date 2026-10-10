@@ -160,7 +160,7 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par')
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par, bat_reponse')
     .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null,bat_envoye_le.not.is.null');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
@@ -178,6 +178,7 @@ function applyOverride(r, o) {
   out.bordereaux = o && Array.isArray(o.bordereaux) && o.bordereaux.length ? o.bordereaux : null;
   out.bat_envoye_le = (o && o.bat_envoye_le) || null;
   out.bat_envoye_par = (o && o.bat_envoye_par) || null;
+  out.bat_reponse = (o && o.bat_reponse) || null;
   if (out.a_payer_especes) {
     out.montant_especes = o.montant_especes;
     out.especes_note_par = o.especes_note_par;
@@ -338,7 +339,8 @@ async function trouverBat(ndevis) {
 async function setBatEnvoye(cle, envoye, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
-  const o = envoye ? { bat_envoye_le: new Date().toISOString(), bat_envoye_par: user } : { bat_envoye_le: null, bat_envoye_par: null };
+  // (Re)envoi : la réponse précédente du client est effacée
+  const o = envoye ? { bat_envoye_le: new Date().toISOString(), bat_envoye_par: user, bat_reponse: null } : { bat_envoye_le: null, bat_envoye_par: null, bat_reponse: null };
   if (supabase) {
     const { error } = await supabase.from('gestion_commandes').update(o).eq('cle', cle);
     if (error) throw new Error(`Supabase : ${error.message}`);
@@ -670,4 +672,6 @@ async function supprimerBordereau(cle, itemId, user) {
   return { bordereaux: d.bordereaux || [] };
 }
 
-module.exports = { trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
+
+module.exports = { statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
