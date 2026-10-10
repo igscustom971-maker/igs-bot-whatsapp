@@ -68,8 +68,8 @@ function textes(type, ctx, ton) {
   const especes = ctx.especes ? (ton.tu ? `\nPense à prévoir ${ctx.especes} en espèces 😉` : `\nMerci de prévoir ${ctx.especes} en espèces.`) : '';
   const W = {
     prete: ton.tu
-      ? `Salut${p} ! Ta commande est prête 🙌 Tu peux passer la récupérer ${HORAIRES} (${ADRESSE}). À tout bientôt !${especes}`
-      : `Bonjour${p} 👋 Bonne nouvelle : votre commande${ref} est prête ! Vous pouvez venir la récupérer ${HORAIRES}, au ${ADRESSE}. À très bientôt !${especes}`,
+      ? `Salut${p} ! Ta commande est prête 🙌 Tu peux passer la récupérer ${HORAIRES}. À tout bientôt !${especes}`
+      : `Bonjour${p} 👋 Bonne nouvelle : votre commande${ref} est prête ! Vous pouvez venir la récupérer ${HORAIRES}. À très bientôt !${especes}`,
     expedition: ton.tu
       ? `Salut${p} ! Ta commande vient de partir 📦 Numéro de suivi : ${ctx.suivi}\nTu peux la suivre ici : ${suiviLien(ctx.suivi)}`
       : `Bonjour${p} 👋 Votre commande${ref} a été expédiée 📦 Numéro de suivi : ${ctx.suivi}\nSuivi : ${suiviLien(ctx.suivi)}`,
@@ -77,8 +77,8 @@ function textes(type, ctx, ton) {
       ? `Merci encore pour ta confiance${p} 🙏 Si tu es content(e) du résultat, un petit avis Google nous aiderait vraiment : ${ctx.lienAvis}`
       : `Bonjour${p}, merci encore pour votre confiance 🙏 Si vous êtes satisfait(e) de votre commande, un petit avis Google nous aiderait beaucoup : ${ctx.lienAvis}`,
     planche_prete: ton.tu
-      ? `Salut${p} ! Ta planche DTF est prête 🙌 Tu peux passer la récupérer ${HORAIRES} (${ADRESSE}).${especes}`
-      : `Bonjour${p} 👋 Votre planche DTF est prête ! Vous pouvez venir la récupérer ${HORAIRES}, au ${ADRESSE}.${especes}`,
+      ? `Salut${p} ! Ta planche DTF est prête 🙌 Tu peux passer la récupérer ${HORAIRES}.${especes}`
+      : `Bonjour${p} 👋 Votre planche DTF est prête ! Vous pouvez venir la récupérer ${HORAIRES}.${especes}`,
     planche_expedition: ton.tu
       ? `Salut${p} ! Ta planche DTF est partie 📦 Numéro de suivi : ${ctx.suivi}\nSuivi : ${suiviLien(ctx.suivi)}`
       : `Bonjour${p} 👋 Votre planche DTF a été expédiée 📦 Numéro de suivi : ${ctx.suivi}\nSuivi : ${suiviLien(ctx.suivi)}`,
@@ -101,7 +101,7 @@ function textes(type, ctx, ton) {
   };
   const qui = ton.prenom || (ctx.nom ? String(ctx.nom).trim() : '');
   const bonjour = `<p>Bonjour${qui ? ' ' + esc(qui) : ''},</p>`;
-  const sig = '<p>Belle journée,<br>L\'équipe IGS CUSTOM BAR<br><span style="color:#6b7280;font-size:12px">' + ADRESSE + ' · 0690 69 18 63 · igscustom.fr</span></p>';
+  const sig = ''; // signature ajoutée automatiquement par CodeTwo
   const especesMail = ctx.especes ? `<p>Merci de prévoir <b>${esc(ctx.especes)}</b> en espèces lors du retrait.</p>` : '';
   // Colis livré : texte repris du flux Power Automate « Colissimo livré + avis »
   const livreMail = quoi => `${bonjour}<p>Bonne nouvelle : ${quoi}${ctx.suivi ? ` (n° de suivi ${esc(ctx.suivi)})` : ''} a bien été livré${quoi.includes('planche') ? 'e' : ''} !</p>`

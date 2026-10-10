@@ -398,12 +398,12 @@ ${view === 'accueil' ? `
 </aside>
 
 <script>
-const STATUTS = ['EN DEVIS','PAYÉE','VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'];
-const ORDRE_TRI = ['A EXPEDIER','EN FLOCAGE','EN PRODUCTION','EN COMMANDE','VALIDÉE','PAYÉE','TERMINÉE','EN DEVIS','LIVRÉE'];
+const STATUTS = ['EN DEVIS','PAYÉE','VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','EXPÉDIÉE','LIVRÉE'];
+const ORDRE_TRI = ['A EXPEDIER','EN FLOCAGE','EN PRODUCTION','EN COMMANDE','VALIDÉE','PAYÉE','TERMINÉE','EXPÉDIÉE','EN DEVIS','LIVRÉE'];
 const COULEURS = {
   'EN DEVIS':['#f3f4f6','#4b5563'], 'PAYÉE':['#dbeafe','#1d4ed8'], 'VALIDÉE':['#e0e7ff','#4338ca'],
   'EN COMMANDE':['#fef3c7','#92400e'], 'EN PRODUCTION':['#ffedd5','#c2410c'], 'EN FLOCAGE':['#fce7f3','#be185d'],
-  'TERMINÉE':['#dcfce7','#15803d'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'LIVRÉE':['#d1fae5','#065f46'],
+  'TERMINÉE':['#dcfce7','#15803d'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'EXPÉDIÉE':['#e0f2fe','#0369a1'], 'LIVRÉE':['#d1fae5','#065f46'],
 };
 const FINIS = ['LIVRÉE'];               // commande finie = livrée (récupérée ou reçue par le client)
 const PRETES = ['TERMINÉE','A EXPEDIER']; // prête, pas encore récupérée / expédiée
@@ -432,7 +432,7 @@ const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STA
 // BAT : PAYÉE, ou EN DEVIS / sans statut / statut inconnu dès que le formulaire est reçu (commandes sans contenu, saisies à la main)
 const AVANT_BAT = c => {
   const k = statutKey(c.statut);
-  if (['EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false;
+  if (['EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','EXPÉDIÉE','LIVRÉE'].includes(k)) return false;
   const e = batEtape(c);
   if (e === 'valide') return false;
   // VALIDÉE sans fichier BAT dans le dossier : le BAT reste à faire
@@ -605,7 +605,8 @@ function remettre(){
   const ligne = (kind, cle, client, sous, statutHtml, boutons) => '<div class="cand"><div><b>'+esc(client)+'</b> '+statutHtml+'<div class="sub">'+sous+'</div></div><div style="display:flex;gap:6px">'+boutons+'</div></div>';
   $('pbody').innerHTML = '<div class="card"><h3>Commandes · '+cmds.length+'</h3>'
     + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + especesHtml(c) + (c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':''), badge(c.statut),
-        '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
+        (statutKey(c.statut) === 'A EXPEDIER' ? '<button class="btn" data-liv="cmd-exp" data-k="'+esc(c.cle)+'">🚚 Expédiée</button>' : '')
+        + '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
     + '</div><div class="card"><h3>Planches DTF · '+pls.length+'</h3>'
     + (pls.length ? pls.map(p => ligne('pl', p.cle, p.client, esc([p.n_devis, metrage(p), p.paiement].filter(Boolean).join(' · ')), plBadge(p.statut),
         (plKey(p.statut) === 'A EXPEDIER' ? '<button class="btn" data-liv="pl-exp" data-k="'+esc(p.cle)+'">📦 Expédiée</button>' : '')
@@ -615,16 +616,18 @@ function remettre(){
   $('pbody').onclick = async e => {
     const b = e.target.closest('[data-liv]'); if (!b) return;
     const kind = b.dataset.liv, cle = b.dataset.k;
-    const statut = kind === 'pl-exp' ? 'EXPÉDIÉE' : 'LIVRÉE';
+    const statut = kind === 'pl-exp' || kind === 'cmd-exp' ? 'EXPÉDIÉE' : 'LIVRÉE';
     const cmd = kind === 'cmd' ? data.find(x => x.cle === cle) : null;
     if (cmd && cmd.a_payer_especes) {
       if (!confirm('💵 '+cmd.client+' doit payer en espèces'+(cmd.montant_especes!=null?' ('+montantFr(cmd.montant_especes)+')':'')+'.\\nAs-tu bien encaissé ? (OK = saisir le montant reçu)')) return;
       if (!(await encaisserEspeces('commande', cmd.n_devis || cmd.cle, cmd.client, cmd.montant_especes != null ? montantFr(cmd.montant_especes).replace(' €','') : ''))) return;
       try { await setEspecesCmd(cmd, false); } catch(e){}
     }
+    const corps = { statut };
+    if (kind === 'cmd-exp') { const su = prompt('N° de suivi La Poste (facultatif, le client reçoit le lien de suivi) :', ''); if (su === null) return; if (su.trim()) corps.numero_suivi = su.trim(); }
     b.disabled = true;
     try {
-      await post('/gestion/api/'+(kind === 'cmd' ? 'commandes' : 'planches')+'/'+encodeURIComponent(cle)+'/modifier', { statut });
+      await post('/gestion/api/'+(kind === 'cmd' || kind === 'cmd-exp' ? 'commandes' : 'planches')+'/'+encodeURIComponent(cle)+'/modifier', corps);
       await charger(false); remettre(); msg('✅ Passé en '+statut, 'ok');
     } catch(err){ msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   };
@@ -834,7 +837,7 @@ function csEvents(){
 const montantFr = m => m == null ? '' : String(m).replace('.', ',') + ' €';
 const especesHtml = c => c && c.a_payer_especes ? '<div><span class="esp" title="Le client paiera en espèces à la remise'+(c.especes_note_par?' (noté par '+esc(c.especes_note_par)+')':'')+'">💵 À payer en espèces'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+'</span></div>' : '';
 async function supprimerCmd(c){
-  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?\\nLa ligne sera vidée dans l\\'Excel (erreur ou test).')) return false;
+  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?'+(c.n_devis ? '\\n\\nLe devis '+c.n_devis+' sera aussi annulé et supprimé dans Odoo (sauf s\\'il est déjà facturé).' : ''))) return false;
   const dossier = !!c.n_devis && confirm('Supprimer aussi le dossier SharePoint « '+c.n_devis+' - … » (BAT, visuels, tailles) ?\\n\\nOK = supprimer le dossier (il part dans la corbeille SharePoint, récupérable 93 jours)\\nAnnuler = garder le dossier');
   try {
     const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer', { dossier });
@@ -843,7 +846,7 @@ async function supprimerCmd(c){
   } catch(e){ alert('Non supprimée : ' + e.message); return false; }
 }
 async function supprimerPl(p){
-  if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\nLa ligne sera vidée dans l\\'Excel (comme au nettoyage de minuit).')) return false;
+  if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?'+(p.n_devis ? '\\n\\nLe devis '+p.n_devis+' sera aussi annulé et supprimé dans Odoo (sauf s\\'il est déjà facturé).' : ''))) return false;
   let fichiers = [];
   try { const r = await fetch('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/fichiers'); const j = await r.json(); fichiers = j.fichiers || []; } catch(e){}
   let ids = [];
@@ -2151,7 +2154,8 @@ function cmdActionsHtml(c){
     + (st !== 'EN PRODUCTION' ? '<button class="btn" data-st="EN PRODUCTION">🏭 En production</button>' : '')
     + (st !== 'EN FLOCAGE' ? '<button class="btn" data-st="EN FLOCAGE">🔥 En flocage</button>' : '')
     + (st !== 'TERMINÉE' ? '<button class="btn" data-st="TERMINÉE">✅ Terminée</button>' : '')
-    + (st !== 'A EXPEDIER' ? '<button class="btn" data-st="A EXPEDIER">📦 À expédier</button>' : '')
+    + (st !== 'A EXPEDIER' && st !== 'EXPÉDIÉE' ? '<button class="btn" data-st="A EXPEDIER">📦 À expédier</button>' : '')
+    + (st === 'A EXPEDIER' ? '<button class="btn" data-st="EXPÉDIÉE">🚚 Expédiée</button>' : '')
     + (st !== 'LIVRÉE' ? '<button class="btn pink" data-st="LIVRÉE">🏁 Livrée</button>' : '')
     + '</div><div class="actions">'
     + '<div class="field"><label>Statut</label><select id="c-statut">'+STATUTS.map(x => '<option'+(x===st?' selected':'')+'>'+x+'</option>').join('')+'</select></div>'

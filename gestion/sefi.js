@@ -318,7 +318,7 @@ async function envoyer(par = 'Envoi automatique') {
 
     // 4_PasserEnCommande : EN COMMANDE, sans jamais faire reculer un statut
     const commandes = require('./commandes');
-    const ORDRE = ['ENDEVIS', 'PAYEE', 'VALIDEE', 'ENCOMMANDE', 'ENPRODUCTION', 'ENFLOCAGE', 'TERMINEE', 'AEXPEDIER', 'LIVREE'];
+    const ORDRE = ['ENDEVIS', 'PAYEE', 'VALIDEE', 'ENCOMMANDE', 'ENPRODUCTION', 'ENFLOCAGE', 'TERMINEE', 'AEXPEDIER', 'EXPEDIEE', 'LIVREE'];
     const k = s => txt(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
     const { rows } = await commandes.listCommandes({ force: true });
     const passes = [];

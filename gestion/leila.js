@@ -17,6 +17,7 @@ const fdate = d => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', mon
 function statutClair(c) {
   const st = norm(c.statut), bi = c.bat_info || {}, rep = c.bat_reponse;
   if (st === 'LIVREE') return 'commande livrée / récupérée';
+  if (st === 'EXPEDIEE') return 'commande expédiée';
   if (st === 'AEXPEDIER') return c.numero_suivi ? 'commande expédiée' : 'commande prête, en cours d\'expédition';
   if (st === 'TERMINEE') return 'commande PRÊTE à être récupérée (du lundi au vendredi de 14h30 à 17h30, 62 rue Louis Vatable, Pointe-à-Pitre)';
   if (st === 'ENPRODUCTION' || st === 'ENFLOCAGE') return 'commande en cours de production';

@@ -208,7 +208,7 @@ async function writeCells(cle, fields) {
 }
 
 // Suppression manuelle : la ligne est vidée (comme le nettoyage de minuit), les formules restent
-async function supprimer(cle, user, { fichiers = [] } = {}) {
+async function supprimer(cle, user, { fichiers = [], devis = false } = {}) {
   // Fichiers de la planche à supprimer (corbeille SharePoint) : uniquement ceux rattachés à ce client
   const ids = Array.isArray(fichiers) ? fichiers.map(String).slice(0, 30) : [];
   let autorises = [];
@@ -228,9 +228,11 @@ async function supprimer(cle, user, { fichiers = [] } = {}) {
     catch (err) { erreurs.push(`${f.nom} : ${err.message}`); }
   }
   if (autorises.length) dossiers.at = 0;
+  const devisOdoo = devis && row.n_devis ? await require('./commandes').supprimerDevisOdoo(row.n_devis) : null;
+  if (devisOdoo && devisOdoo !== 'supprimé') erreurs.push(`devis Odoo : ${devisOdoo}`);
   await syncNow();
-  await journal(user, 'planche_supprimee', cle, { client: row.client, metres: row.metres || row.format, n_devis: row.n_devis, statut: row.statut, fichiers_supprimes: supprimes });
-  return { ok: true, fichiersSupprimes: supprimes, ...(erreurs.length ? { avertissement: `Ligne supprimée, mais fichier(s) non supprimé(s) : ${erreurs.join(' ; ')}` } : {}) };
+  await journal(user, 'planche_supprimee', cle, { client: row.client, metres: row.metres || row.format, n_devis: row.n_devis, statut: row.statut, fichiers_supprimes: supprimes, devis_odoo: devisOdoo });
+  return { ok: true, fichiersSupprimes: supprimes, devisOdoo, ...(erreurs.length ? { avertissement: `Ligne supprimée, mais : ${erreurs.join(' ; ')}` } : {}) };
 }
 
 // Nom Excel déjà associé à ce client Odoo (pour retrouver sa ligne hebdo)

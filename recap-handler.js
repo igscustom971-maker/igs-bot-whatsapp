@@ -18,49 +18,66 @@ const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpp
 const jour = d => { const [y, m, j] = String(d).split('-'); return `${j}/${m}`; };
 const aujourdHui = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guadeloupe' }); // AAAA-MM-JJ
 
-// Blocs du récap, dans l'ordre de priorité de l'atelier
-const BLOCS = [
-  ['AEXPEDIER', '📦 À EXPÉDIER'],
-  ['ENFLOCAGE', '🔥 EN FLOCAGE'],
-  ['ENPRODUCTION', '🧵 EN PRODUCTION'],
-  ['ENCOMMANDE', '🛒 EN COMMANDE (textiles commandés)'],
-  ['VALIDEE', '✅ VALIDÉE (BAT validé)'],
-  ['PAYEE', '💳 PAYÉE (formulaire / BAT)'],
-];
-
-function ligneCommande(c, today) {
-  const morceaux = [`• ${c.n_devis || 'sans devis'} · ${c.client || '?'}`];
-  if (c.infos) morceaux.push(String(c.infos).replace(/\s+/g, ' ').slice(0, 70));
-  if (c.zone_flocage) morceaux.push(c.zone_flocage);
-  if (c.date_livraison) morceaux.push(`📅 ${jour(c.date_livraison)}${c.date_livraison < today ? ' ⚠️ en retard' : c.date_livraison === today ? ' ⏰ aujourd\'hui' : ''}`);
-  if (c.affectation) morceaux.push(`👤 ${c.affectation}`);
-  if (c.a_payer_especes) morceaux.push('💶 espèces');
-  return morceaux.join(' · ');
+// Produits lus dans « Informations complémentaire » : "5 x [ENTSHAVR] T-shirt personnalisé AV/AR" -> "5 t-shirts"
+function produits(infos) {
+  const out = [];
+  for (const l of String(infos || '').split(/\r?\n/)) {
+    const m = l.match(/^\s*(\d+(?:[.,]\d+)?)\s*x\s*\[[^\]]*\]\s*(.+)$/i);
+    if (!m) continue;
+    const n = Number(m[1].replace(',', '.'));
+    let lib = m[2].replace(/(^|\s)personnalis\S*/gi, ' ').replace(/\bAV\s*\/\s*AR\b/gi, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!lib) continue;
+    if (n > 1) {
+      const mots = lib.split(' ');
+      const i = /^tote$/.test(mots[0]) && mots[1] ? 1 : 0; // "tote bag" -> "tote bags"
+      if (!/[sx]$/.test(mots[i])) mots[i] += 's';
+      lib = mots.join(' ');
+    }
+    out.push(`${n} ${lib}`);
+  }
+  return out.join(' + ');
 }
 
-// Construit le récap à partir des données du dashboard
+// Récap léger, mêmes règles que l'ancien récap (flux Power Automate) : neutre, sans N° de devis ni affectation
 async function construireRecap() {
   const commandes = require('./gestion/commandes');
   const planches = require('./gestion/planches');
   const today = aujourdHui();
   const { rows, syncedAt } = await commandes.listCommandes();
   if (!syncedAt) throw new Error('commandes pas encore chargées');
-  const tri = (a, b) => String(a.date_livraison || '9999').localeCompare(String(b.date_livraison || '9999'));
+  const st = c => norm(c.statut);
   const parties = [];
-  for (const [k, titre] of BLOCS) {
-    const l = rows.filter(c => norm(c.statut) === k).sort(tri);
-    if (l.length) parties.push(`*${titre}* (${l.length})\n${l.map(c => ligneCommande(c, today)).join('\n')}`);
-  }
-  const pretes = rows.filter(c => norm(c.statut) === 'TERMINEE');
-  if (pretes.length) parties.push(`*🙌 PRÊTES, À RÉCUPÉRER* (${pretes.length})\n${pretes.map(c => `• ${c.n_devis || 'sans devis'} · ${c.client || '?'}${c.a_payer_especes ? ' · 💶 espèces' : ''}`).join('\n')}`);
+  const enCommande = rows.some(c => st(c) === 'ENCOMMANDE');
+
+  const aProduire = rows.filter(c => ['ENCOMMANDE', 'ENPRODUCTION', 'ENFLOCAGE'].includes(st(c)))
+    .sort((a, b) => String(a.date_livraison || '9999').localeCompare(String(b.date_livraison || '9999')));
+  if (aProduire.length) parties.push('*🔥 À produire*\n' + aProduire.map(c => {
+    let l = `• ${c.client || '?'}`;
+    const p = produits(c.infos);
+    if (p) l += ` – ${p}`;
+    if (c.date_livraison) l += ` – livraison ${jour(c.date_livraison)}`;
+    if (c.date_livraison && c.date_livraison < today) l += ' ⚠️ en retard';
+    if (c.remarque) l += ` (${String(c.remarque).replace(/\s+/g, ' ').slice(0, 60)})`;
+    if (['ENCOMMANDE', 'ENPRODUCTION'].includes(st(c)) && norm(c.planche) === 'AFAIRE') l += ' – 🎞 planche à faire';
+    return l;
+  }).join('\n'));
+
+  const aExpedier = rows.filter(c => st(c) === 'AEXPEDIER');
+  if (aExpedier.length) parties.push('*📦 À expédier*\n' + aExpedier.map(c => `• ${c.client || '?'}`).join('\n'));
+  const terminees = rows.filter(c => st(c) === 'TERMINEE');
+  if (terminees.length) parties.push('*✅ Terminées – en attente de retrait*\n' + terminees.map(c => `• ${c.client || '?'}`).join('\n'));
+
   try {
-    const pl = await planches.listPlanches();
-    const aImprimer = (pl.rows || []).filter(p => ['APREPARER', 'AVERIFIER', 'AIMPRIMER'].includes(norm(p.statut)));
-    if (aImprimer.length) parties.push(`*🖨️ PLANCHES À IMPRIMER* (${aImprimer.length})\n${aImprimer.map(p => `• ${p.client || '?'} · ${p.format || (p.metres != null && p.metres !== '' ? (/^A[34]$/i.test(String(p.metres)) ? String(p.metres).toUpperCase() : String(p.metres).replace('.', ',') + ' m') : '?')}${norm(p.statut) === 'AVERIFIER' ? ' · ⚠️ à vérifier' : ''}`).join('\n')}`);
+    const pl = (await planches.listPlanches()).rows || [];
+    const metres = p => (p.format ? ` – ${p.format}` : p.metres > 0 ? ` – ${String(p.metres).replace('.', ',')} m` : '');
+    const paiement = p => (['NONPAYEE', 'ESPECE', 'ESPECES'].includes(norm(p.paiement)) ? ' ⚠️ pas encore payée, vérifier avant remise' : '');
+    const groupes = [['AIMPRIMER', 'À imprimer'], ['APREPARER', 'À préparer'], ['ARECUPERER', 'À récupérer']]
+      .map(([k, t]) => [t, pl.filter(p => norm(p.statut) === k)]).filter(([, l]) => l.length);
+    if (groupes.length) parties.push('*🎞 Planches DTF*\n' + groupes.map(([t, l]) => `*_${t}_*\n` + l.map(p => `• ${p.client}${metres(p)}${paiement(p)}`).join('\n')).join('\n\n'));
   } catch (err) { console.error('Récap production (planches) :', err.message); }
-  const date = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'America/Guadeloupe' });
-  if (!parties.length) return `📋 Récap des commandes du ${date} :\n\nRien en cours 👌`;
-  return `📋 Récap des commandes du ${date} :\n\n${parties.join('\n\n')}`;
+
+  if (!parties.length) return 'Récap des commandes du jour :\n\nRien en cours 👌';
+  return `Récap des commandes du jour :\n\n${enCommande ? '*📍 PASSER À SEFI*\n\n' : ''}${parties.join('\n\n')}`;
 }
 
 // Ancien fonctionnement (flux Power Automate), gardé en secours

@@ -333,7 +333,24 @@ async function commandesPayeesRecentes(heures = 48) {
   return out;
 }
 
+// Suppression d'un devis (commande / planche supprimée dans le dashboard) : annulé puis supprimé dans Odoo.
+// Jamais si une facture existe déjà (comptabilité) : le devis est alors laissé tel quel.
+async function supprimerDevis(numero) {
+  const n = String(numero || '').trim().toUpperCase();
+  if (!/^[A-Z]{1,5}\d{3,}(-R\d+)?$/.test(n)) return { supprime: false, raison: 'pas un N° de devis' };
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', n]]], { fields: ['id', 'state', 'invoice_ids'], limit: 1 });
+  if (!r.length) return { supprime: false, raison: 'devis introuvable dans Odoo' };
+  const so = r[0];
+  if ((so.invoice_ids || []).length) {
+    const inv = await kw('account.move', 'search_read', [[['id', 'in', so.invoice_ids], ['state', '!=', 'cancel']]], { fields: ['name'] });
+    if (inv.length) return { supprime: false, raison: `déjà facturé (${inv.map(i => i.name).join(', ')}) : devis laissé dans Odoo` };
+  }
+  if (so.state !== 'cancel' && so.state !== 'draft') await kw('sale.order', 'action_cancel', [[so.id]], { context: { disable_cancel_warning: true } });
+  await kw('sale.order', 'unlink', [[so.id]]);
+  return { supprime: true };
+}
+
 module.exports = {
-  commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
+  supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel,
 };

@@ -717,7 +717,7 @@ function startSync() {
 const colLetter = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 const colIndex = l => l.split('').reduce((t, c) => t * 26 + c.charCodeAt(0) - 64, 0) - 1;
 
-const STATUTS = ['EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'LIVRÉE'];
+const STATUTS = ['EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'EXPÉDIÉE', 'LIVRÉE'];
 
 async function modifier(cle, champs, user) {
   const fields = {};
@@ -792,7 +792,7 @@ async function modifier(cle, champs, user) {
 
 // Suppression manuelle (erreur, test) : la ligne est vidée dans l'Excel en une seule écriture,
 // les cellules à formule (date de livraison, ID…) gardent leur formule. Le dossier SharePoint n'est pas touché.
-async function supprimer(cle, user, { dossier = false } = {}) {
+async function supprimer(cle, user, { dossier = false, devis = false } = {}) {
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
   const rows = rowsFromRange(range);
@@ -815,16 +815,23 @@ async function supprimer(cle, user, { dossier = false } = {}) {
       if (f) { await g.deleteItem(f.id); dossierSupprime = f.name; commandesFolder.at = 0; archivesFolder.at = 0; }
     } catch (err) { console.error('Gestion suppression dossier :', err.message); dossierSupprime = `ERREUR : ${err.message}`; }
   }
-  console.log(`Gestion action : commande_supprimee ${cle} par ${user}${dossierSupprime ? ` (dossier : ${dossierSupprime})` : ''}`);
+  const devisOdoo = devis && row.n_devis ? await supprimerDevisOdoo(row.n_devis) : null;
+  console.log(`Gestion action : commande_supprimee ${cle} par ${user}${dossierSupprime ? ` (dossier : ${dossierSupprime})` : ''}${devisOdoo ? ` (devis : ${devisOdoo})` : ''}`);
   if (supabase) {
-    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row, dossier_supprime: dossierSupprime } });
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row, dossier_supprime: dossierSupprime, devis_odoo: devisOdoo } });
     const { error } = await supabase.from('gestion_commandes').delete().eq('cle', cle);
     if (error) console.error('Gestion suppression Supabase :', error.message);
   }
   controles.delete(cle);
   await syncNow();
-  if (dossierSupprime && dossierSupprime.startsWith('ERREUR')) return { ok: true, avertissement: `Ligne supprimée, mais le dossier n'a pas pu l'être (${dossierSupprime.slice(10)})` };
-  return { ok: true, dossierSupprime };
+  const avert = [dossierSupprime && dossierSupprime.startsWith('ERREUR') ? `le dossier n'a pas pu être supprimé (${dossierSupprime.slice(10)})` : null, devisOdoo && devisOdoo !== 'supprimé' ? `devis Odoo : ${devisOdoo}` : null].filter(Boolean);
+  if (avert.length) return { ok: true, dossierSupprime, devisOdoo, avertissement: `Ligne supprimée, mais ${avert.join(' ; ')}` };
+  return { ok: true, dossierSupprime, devisOdoo };
+}
+// Devis Odoo supprimé avec la commande / la planche ; renvoie « supprimé » ou la raison
+async function supprimerDevisOdoo(numero) {
+  try { const r = await require('./odoo').supprimerDevis(numero); return r.supprime ? 'supprimé' : r.raison; }
+  catch (err) { console.error(`Gestion suppression devis ${numero} :`, err.message); return `non supprimé (${err.message})`; }
 }
 
 // ---------- Bordereau d'expédition (déposé dans le dossier de la commande, à imprimer par l'équipe) ----------
@@ -867,9 +874,9 @@ async function supprimerBordereau(cle, itemId, user) {
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 // Commandes concernées par le BAT : PAYÉE, EN COMMANDE (t-shirts commandés en avance, BAT validé ensuite),
 // et aussi EN DEVIS / sans statut / statut inconnu (contenu vide, commande saisie à la main)
-const APRES_BAT = ['validee', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
+const APRES_BAT = ['validee', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'expediee', 'livree'];
 const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 // VALIDÉE est aussi relue : une commande validée sans fichier BAT reste « BAT à faire »
 const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee';
 
-module.exports = { majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { supprimerDevisOdoo, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
