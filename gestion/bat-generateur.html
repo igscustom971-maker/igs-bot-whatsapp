@@ -47,7 +47,7 @@ textarea{min-height:52px}
 .ph .r{text-align:right;font-size:12px;line-height:1.75}
 .ph .r b{font-weight:800}
 .frame{margin-top:12px;border:2px solid #4c9a2a;border-radius:8px;height:420px;position:relative;overflow:hidden;background:#f6f6f6;display:flex;align-items:center;justify-content:center}
-.frame .fond{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%);width:62%;background:linear-gradient(135deg,#c7b8f0 0%,#f6c6df 55%,#f3a6c8 100%)}
+.frame .fond{position:absolute;inset:0;background:linear-gradient(135deg,#c7b8f0 0%,#f6c6df 55%,#f3a6c8 100%)}
 .frame canvas{position:relative;z-index:1;cursor:grab}
 .frame .legende{position:absolute;left:0;right:0;bottom:8px;z-index:2;text-align:center;font-weight:900;font-size:24px;line-height:1.15;white-space:pre-line;color:#111}
 .trio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}
@@ -170,18 +170,30 @@ async function gabarit(nom){
   }
   return mesures.get(nom);
 }
-// Logo : option "fond blanc transparent" (JPG avec fond blanc)
-const cacheLogo = new Map();
+// Logo : marges (transparentes ou blanches) rognées automatiquement -> la largeur en cm est celle du dessin visible ;
+// option "fond blanc transparent" pour les JPG à fond blanc. Logos importés depuis l'ordinateur : id "local-…"
+const cacheLogo = new Map(), logosLocaux = new Map();
 async function logo(id, sansBlanc){
   const k = id + (sansBlanc ? '|b' : '');
   if (!cacheLogo.has(k)) cacheLogo.set(k, (async () => {
-    const img = await charger('/gestion/api/fichier/' + encodeURIComponent(id));
-    if (!sansBlanc) return img;
-    const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const img = await charger(logosLocaux.get(id) || ('/gestion/api/fichier/' + encodeURIComponent(id)));
+    const W = img.naturalWidth, H = img.naturalHeight;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d'); x.drawImage(img, 0, 0);
-    const d = x.getImageData(0, 0, c.width, c.height);
-    for (let i = 0; i < d.data.length; i += 4) { const m = Math.min(d.data[i], d.data[i+1], d.data[i+2]); if (m > 235) d.data[i+3] = 0; else if (m > 215) d.data[i+3] = Math.min(d.data[i+3], (235 - m) * 12); }
-    x.putImageData(d, 0, 0); return c;
+    const d = x.getImageData(0, 0, W, H), p = d.data;
+    if (sansBlanc) for (let i = 0; i < p.length; i += 4) { const m = Math.min(p[i], p[i+1], p[i+2]); if (m > 235) p[i+3] = 0; else if (m > 215) p[i+3] = Math.min(p[i+3], (235 - m) * 12); }
+    // Image avec transparence : on rogne sur la transparence ; sinon sur le fond blanc
+    const coins = [0, (W - 1) * 4, (H - 1) * W * 4, ((H - 1) * W + W - 1) * 4];
+    const transparente = sansBlanc || coins.some(i => p[i + 3] < 16);
+    const plein = i => transparente ? p[i + 3] > 16 : (p[i + 3] > 16 && Math.min(p[i], p[i+1], p[i+2]) < 242);
+    let x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (let y = 0; y < H; y += 1) for (let xx = 0; xx < W; xx += 1) { if (plein((y * W + xx) * 4)) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+    if (sansBlanc) x.putImageData(d, 0, 0);
+    if (x1 < 0) return c;
+    const marge = 2, cw = Math.min(W, x1 - x0 + 1 + marge * 2), chh = Math.min(H, y1 - y0 + 1 + marge * 2);
+    const o = document.createElement('canvas'); o.width = cw; o.height = chh;
+    o.getContext('2d').drawImage(c, Math.max(0, x0 - marge), Math.max(0, y0 - marge), cw, chh, 0, 0, cw, chh);
+    return o;
   })());
   return cacheLogo.get(k);
 }
@@ -206,8 +218,19 @@ async function chargerPositions(){
     }
   } catch(e){}
 }
+const VIERGE = cle === 'vierge';
 async function init(){
   await chargerPositions();
+  if (VIERGE) {
+    // BAT vierge : aucune commande, tout se remplit à la main (logos importés depuis l'ordinateur), PDF téléchargé
+    C = { cle: 'vierge', n_devis: '', client: '', email: '', zone_flocage: '' };
+    D = { trouve: true, visuels: [], tailles: { groupes: [] } };
+    $('titre').textContent = 'BAT vierge';
+    $('save').style.display = 'none';
+    construirePages(); afficherTout(); $('dl').disabled = false;
+    msg('BAT vierge : clique sur Ref devis, Client et Email dans l\'en-tête pour les remplir, importe tes logos avec « ＋ Logo depuis l\'ordinateur », puis télécharge le PDF.', 'info');
+    return;
+  }
   try {
     const rc = await fetch('/gestion/api/commandes'); if (rc.status === 401) return location.href = '/gestion/auth/login';
     const jc = await rc.json();
@@ -219,8 +242,8 @@ async function init(){
     if (D.erreur) throw new Error(D.erreur);
     if (!D.trouve) throw new Error('Dossier de la commande introuvable dans SharePoint');
     construirePages();
-    if (!pages.length) throw new Error('Aucun visuel dans le dossier : impossible de faire le BAT');
     afficherTout();
+    if (!(D.visuels || []).length) msg('Aucun visuel dans le dossier : importe le logo avec « ＋ Logo depuis l\'ordinateur ».', 'info');
     $('dl').disabled = false; $('save').disabled = false;
     if (D.bat) msg('ℹ️ Un « BON A TIRER.pdf » existe déjà dans le dossier : l\'enregistrement le remplacera.', 'info');
   } catch(e){ $('previews').innerHTML = '<div class="card msg on err">' + esc(e.message) + '</div>'; }
@@ -232,8 +255,9 @@ function construirePages(){
   const groupes = (D.tailles && D.tailles.groupes) || [];
   const zonesCmd = parserZones(C.zone_flocage);
   const imagesDe = v => (v ? v.images : visuels.flatMap(x => x.images));
-  const sources = groupes.length ? groupes.map(g => ({ g, v: visuels.find(v => v.nom === g.dossierVisuel) || (groupes.length === 1 && visuels.length === 1 ? visuels[0] : null) }))
+  let sources = groupes.length ? groupes.map(g => ({ g, v: visuels.find(v => v.nom === g.dossierVisuel) || (groupes.length === 1 && visuels.length === 1 ? visuels[0] : null) }))
                                  : (visuels.length ? visuels.map(v => ({ g: null, v })) : []);
+  if (!sources.length) sources = [{ g: null, v: { nom: VIERGE ? 'BAT' : 'Visuel', images: [] } }];
   pages = sources.map(({ g, v }, i) => {
     const imgs = imagesDe(v);
     const avant = imgs.find(x => x.face === 'avant') || imgs.find(x => x.face === 'autre') || imgs[0];
@@ -302,16 +326,27 @@ function placementsDe(page, face, a){
   // Zone non prévue sur ce produit (ex. manche sur un débardeur) : placée comme une poitrine, ajustable à la main
   return page.placements.filter(pl => ZONES[pl.zone].face === face);
 }
+const cacheTeint = new Map();
+function teinte(m, nom, hex){
+  const k = nom + '|' + hex;
+  if (!cacheTeint.has(k)) {
+    const c = document.createElement('canvas'); c.width = m.img.width; c.height = m.img.height;
+    const x = c.getContext('2d');
+    // Recoloration : couleur pleine x gabarit blanc (ombres conservées), découpée à la forme du gabarit
+    x.fillStyle = hex; x.fillRect(0, 0, c.width, c.height);
+    x.globalCompositeOperation = 'multiply'; x.drawImage(m.img, 0, 0);
+    x.globalCompositeOperation = 'destination-in'; x.drawImage(m.img, 0, 0);
+    cacheTeint.set(k, c);
+  }
+  return cacheTeint.get(k);
+}
 async function vignette(page, a, face){
   const p = PRODUITS[a.produit];
-  const m = await gabarit(face === 'dos' ? p.dos : p.avant);
+  const nom = face === 'dos' ? p.dos : p.avant;
+  const m = await gabarit(nom);
   const c = document.createElement('canvas'); c.width = m.img.width; c.height = m.img.height;
   const x = c.getContext('2d');
-  // Recoloration : couleur pleine x gabarit blanc (ombres conservées), découpée à la forme du gabarit
-  x.fillStyle = a.hex; x.fillRect(0, 0, c.width, c.height);
-  x.globalCompositeOperation = 'multiply'; x.drawImage(m.img, 0, 0);
-  x.globalCompositeOperation = 'destination-in'; x.drawImage(m.img, 0, 0);
-  x.globalCompositeOperation = 'source-over';
+  x.drawImage(teinte(m, nom, a.hex), 0, 0);
   const zonesHit = [];
   for (const pl of placementsDe(page, face, a)) {
     const img = await logo(pl.image, pl.sansBlanc).catch(() => null); if (!img) continue;
@@ -322,7 +357,7 @@ async function vignette(page, a, face){
   return { canvas: c, hits: zonesHit, m };
 }
 // Toutes les vignettes de la page dans un seul canvas (devant puis dos pour chaque couleur)
-async function dessinerMockups(i){
+async function dessinerMockups(i, guides = null){
   const page = pages[i], el = document.querySelector('#page' + i + ' canvas'); if (!el) return;
   const items = [];
   for (const a of page.articles.filter(a => a.actif)) {
@@ -341,16 +376,31 @@ async function dessinerMockups(i){
     const w = im.width * s, h = im.height * s, px = x0 + col * cw + (cw - w) / 2, py = row * ch + (ch - h) / 2;
     x.drawImage(im, px * RESOLUTION, py * RESOLUTION, w * RESOLUTION, h * RESOLUTION);
     page._cells.push({ px, py, s, it });
+    // Repères (écran uniquement, pendant le déplacement) : axe central du vêtement, axes du logo
+    const hit = guides && it.v.hits.find(h => h.pl === guides);
+    if (hit) {
+      const R = RESOLUTION, X = v => (px + v * s) * R, Y = v => (py + v * s) * R, m = it.v.m;
+      const centre = Math.abs(hit.r.x + hit.r.w / 2 - m.cx) < 1;
+      x.save(); x.lineWidth = 1.5 * R; x.setLineDash([6 * R, 4 * R]);
+      x.strokeStyle = centre ? '#16a34a' : 'rgba(220,38,38,.9)';
+      x.beginPath(); x.moveTo(X(m.cx), Y(0)); x.lineTo(X(m.cx), Y(m.img.height)); x.stroke();
+      x.strokeStyle = 'rgba(220,38,38,.9)'; x.setLineDash([]);
+      x.beginPath(); x.moveTo(X(0), Y(hit.r.y)); x.lineTo(X(m.img.width), Y(hit.r.y)); x.stroke();
+      x.beginPath(); x.moveTo(X(hit.r.x + hit.r.w / 2), Y(hit.r.y - 40)); x.lineTo(X(hit.r.x + hit.r.w / 2), Y(hit.r.y + hit.r.h + 40)); x.stroke();
+      x.strokeRect(X(hit.r.x), Y(hit.r.y), hit.r.w * s * R, hit.r.h * s * R);
+      x.restore();
+    }
   });
 }
 
 // ---------- Page HTML (aperçu = rendu PDF) ----------
+const edG = k => '<span contenteditable="true" data-g="' + k + '" style="display:inline-block;min-width:' + (C[k] ? 0 : 70) + 'px;' + (C[k] ? '' : 'border-bottom:1px dashed #999') + '">' + esc(C[k] || '') + '</span>';
 function pageHtml(p, i){
   const d = new Date().toLocaleDateString('fr-FR');
   const ed = (k, v, ph) => '<span contenteditable="true" data-i="' + i + '" data-k="' + k + '"' + (ph ? ' data-ph="' + esc(ph) + '"' : '') + '>' + esc(v) + '</span>';
   return '<div class="scaler" id="sc' + i + '"><div class="page" id="page' + i + '">'
     + '<div class="ph"><div class="t"><img src="/gestion/gabarits/logo-igs.png" alt="">BON A TIRER</div>'
-    + '<div class="r"><b>Ref devis :</b> ' + esc(C.n_devis) + ' &nbsp;<b>Date du BAT :</b> ' + d + '<br><b>Client :</b> ' + esc(C.client) + ' &nbsp;<b>Email :</b> ' + esc(C.email || '') + '</div></div>'
+    + '<div class="r"><b>Ref devis :</b> ' + edG('n_devis') + ' &nbsp;<b>Date du BAT :</b> ' + d + '<br><b>Client :</b> ' + edG('client') + ' &nbsp;<b>Email :</b> ' + edG('email') + '</div></div>'
     + '<div class="frame"><div class="fond"></div><canvas></canvas>' + (p.legende.trim() ? '<div class="legende">' + esc(p.legende) + '</div>' : '') + '</div>'
     + '<div class="trio"><div><small>Modèle</small><b>' + ed('modele', p.modele) + '</b></div><div><small>Couleur</small><b>' + ed('couleur', p.couleur) + '</b></div><div><small>Quantité</small><b>' + ed('quantite', p.quantite) + '</b></div></div>'
     + '<table class="t"><tr><th style="width:22%">DESCRIPTION</th><th style="width:22%">TAILLES</th><th>FACE</th><th>DOS</th><th>AUTRES</th></tr>'
@@ -384,7 +434,7 @@ function reglages(){
       + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
       + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
-    + '<button class="btn" data-a="ajout">＋ Ajouter un logo</button>'
+    + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
     + '<label class="f">Couleurs et produits</label>'
     + p.articles.map((a, k) => '<div class="coul" data-c="' + k + '"><input type="checkbox" data-f="actif"' + (a.actif ? ' checked' : '') + '><input type="color" data-f="hex" value="' + a.hex + '"><span style="flex:1">' + esc(a.couleur) + ' <span class="note">· ' + esc(a.type) + (a.coupe ? ' ' + a.coupe : '') + (a.qte ? ' · ' + a.qte : '') + '</span></span>'
       + '<select data-f="produit" style="width:105px">' + Object.entries(PRODUITS).map(([k, x]) => '<option value="' + k + '"' + (k === a.produit ? ' selected' : '') + '>' + x.nom + '</option>').join('') + '</select></div>').join('')
@@ -435,9 +485,29 @@ $('reglages').addEventListener('click', e => {
   if (b.dataset.a === 'ajoutCouleur') { const nom = prompt('Couleur (ex. Noir profond, Marine, Blanc) :'); if (!nom) return; p.articles.push({ k: 'x' + Date.now(), produit: p.articles[0] ? p.articles[0].produit : 'tshirt', type: p.articles[0] ? p.articles[0].type : 'T-shirt', couleur: nom, hex: hexCouleur(nom), coupe: '', qte: 0, actif: true }); }
   reglages(); redessiner();
 });
+$('reglages').addEventListener('change', e => {
+  if (e.target.id !== 'logo-local' || !e.target.files[0]) return;
+  const f = e.target.files[0], p = pages[courante], id = 'local-' + Date.now();
+  logosLocaux.set(id, URL.createObjectURL(f));
+  p.images.push({ id, nom: f.name, face: 'autre' });
+  const z = p.placements.some(x => x.zone === 'poitrine' || x.zone === 'coeur') ? 'dos' : 'coeur';
+  p.placements.push({ zone: z, libelle: ZONES[z].lib + ' (' + ZONES[z].l + 'cm)', largeur: ZONES[z].l, image: id, dx: 0, dy: 0, rot: null, sansBlanc: false });
+  majTextes(p); reglages(); afficherTout();
+});
+// Colonnes Face / Dos / Autres et ligne de zone recalculées quand on ajoute un logo
+function majTextes(p){
+  p.face = p.placements.filter(z => ZONES[z.zone].face === 'avant' && z.zone !== 'manche').map(z => z.libelle).join(' + ');
+  p.dos = p.placements.filter(z => z.zone === 'dos').map(z => z.libelle).join(' + ');
+  p.autres = p.placements.filter(z => z.zone === 'manche').map(z => z.libelle).join(' + ');
+  p.zone = p.placements.map(z => z.libelle).join(' + ');
+}
 $('tabs').addEventListener('click', e => { const t = e.target.closest('[data-p]'); if (!t) return; courante = Number(t.dataset.p); document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t)); reglages(); $('page' + courante).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 // Champs modifiables directement sur l'aperçu
-$('previews').addEventListener('input', e => { const t = e.target.closest('[contenteditable]'); if (!t) return; pages[t.dataset.i][t.dataset.k] = t.innerText; });
+$('previews').addEventListener('input', e => {
+  const t = e.target.closest('[contenteditable]'); if (!t) return;
+  if (t.dataset.g) { C[t.dataset.g] = t.innerText.trim(); document.querySelectorAll('[data-g="' + t.dataset.g + '"]').forEach(x => { if (x !== t) x.innerText = t.innerText; }); return; }
+  pages[t.dataset.i][t.dataset.k] = t.innerText;
+});
 
 async function definirDefaut(p, pl){
   const prods = [...new Set(p.articles.filter(a => a.actif).map(a => a.produit))];
@@ -482,9 +552,13 @@ $('previews').addEventListener('pointermove', e => {
   const pt = pointCanvas(e, drag.cv);
   const ddx = (pt.x - drag.x0) / drag.cell.s / drag.r.pxW, ddy = (pt.y - drag.y0) / drag.cell.s / drag.r.pxH;
   drag.pl.dx = Math.round((drag.dx0 + ddx * drag.sens) * 2) / 2; drag.pl.dy = Math.round((drag.dy0 + ddy) * 2) / 2;
-  redessiner();
+  // Aimant : recentré automatiquement à moins de 1 cm de l'axe du vêtement
+  const P = PRODUITS[drag.cell.it.a.produit], zd = P.tote ? P.zones.centre : (P.zones[drag.pl.zone] || P.zones.poitrine);
+  if (zd.x != null && Math.abs(zd.x + (zd.ddx || 0) + drag.pl.dx) < 1) drag.pl.dx = -(zd.x + (zd.ddx || 0));
+  majPositions();
+  if (!drag.enCours) { drag.enCours = true; const d0 = drag; requestAnimationFrame(async () => { await dessinerMockups(d0.i, d0.pl); d0.enCours = false; }); }
 });
-$('previews').addEventListener('pointerup', () => { if (drag) { drag.cv.style.cursor = 'grab'; drag = null; } });
+$('previews').addEventListener('pointerup', () => { if (drag) { const d0 = drag; drag.cv.style.cursor = 'grab'; drag = null; setTimeout(() => dessinerMockups(d0.i), 30); } });
 window.addEventListener('resize', ajusterEchelle);
 
 // ---------- PDF ----------
