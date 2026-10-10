@@ -160,8 +160,8 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par')
-    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true');
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux')
+    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
 }
@@ -175,6 +175,7 @@ function applyOverride(r, o) {
     out.date_livraison_modifiee_le = o.date_livraison_modifiee_le;
   }
   out.a_payer_especes = !!(o && o.a_payer_especes);
+  out.bordereaux = o && Array.isArray(o.bordereaux) && o.bordereaux.length ? o.bordereaux : null;
   if (out.a_payer_especes) {
     out.montant_especes = o.montant_especes;
     out.especes_note_par = o.especes_note_par;
@@ -347,6 +348,9 @@ async function getDossier(ndevis) {
   const files = items.filter(i => i.file);
   const folders = items.filter(i => i.folder);
 
+  const bordereaux = files.filter(f => key(f.name).startsWith('bordereau'))
+    .map(f => ({ id: f.id, nom: f.name, modifie: f.lastModifiedDateTime }));
+  majBordereaux(ndevis, bordereaux).catch(() => {});
   const bat = files.find(f => key(f.name) === 'bonatirerpdf')
     || files.find(f => /\.pdf$/i.test(f.name) && /bonatirer|^bat/.test(key(f.name)));
 
@@ -410,6 +414,7 @@ async function getDossier(ndevis) {
     trouve: true,
     dossier: { id: folder.id, nom: folder.name, lien: folder.webUrl || null, archive: !!folder.archive },
     bat: bat ? { id: bat.id, nom: bat.name, modifie: bat.lastModifiedDateTime } : null,
+    bordereaux,
     tailles: { fichierTrouve: !!tailles, erreur: taillesErreur, groupes, total: groupes.reduce((s, x) => s + x.total, 0) },
     visuels,
   };
@@ -498,7 +503,7 @@ async function modifier(cle, champs, user) {
 
 // Suppression manuelle (erreur, test) : la ligne est vidée dans l'Excel en une seule écriture,
 // les cellules à formule (date de livraison, ID…) gardent leur formule. Le dossier SharePoint n'est pas touché.
-async function supprimer(cle, user) {
+async function supprimer(cle, user, { dossier = false } = {}) {
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
   const rows = rowsFromRange(range);
@@ -513,15 +518,61 @@ async function supprimer(cle, user) {
   const n = Number(startRow) + 1 + row._row;
   const address = `${startCol}${n}:${colLetter(colIndex(startCol) + nbCol - 1)}${n}`;
   await g.patchRange(excelItemId, sheet, address, [ligne], undefined, 'formulas');
-  console.log(`Gestion action : commande_supprimee ${cle} par ${user}`);
+  // Dossier SharePoint de la commande (corbeille SharePoint, récupérable 93 jours)
+  let dossierSupprime = null;
+  if (dossier && row.n_devis) {
+    try {
+      const f = await findCommandeFolder(row.n_devis);
+      if (f) { await g.deleteItem(f.id); dossierSupprime = f.name; commandesFolder.at = 0; archivesFolder.at = 0; }
+    } catch (err) { console.error('Gestion suppression dossier :', err.message); dossierSupprime = `ERREUR : ${err.message}`; }
+  }
+  console.log(`Gestion action : commande_supprimee ${cle} par ${user}${dossierSupprime ? ` (dossier : ${dossierSupprime})` : ''}`);
   if (supabase) {
-    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row } });
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row, dossier_supprime: dossierSupprime } });
     const { error } = await supabase.from('gestion_commandes').delete().eq('cle', cle);
     if (error) console.error('Gestion suppression Supabase :', error.message);
   }
   controles.delete(cle);
   await syncNow();
-  return { ok: true };
+  if (dossierSupprime && dossierSupprime.startsWith('ERREUR')) return { ok: true, avertissement: `Ligne supprimée, mais le dossier n'a pas pu l'être (${dossierSupprime.slice(10)})` };
+  return { ok: true, dossierSupprime };
 }
 
-module.exports = { supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+// ---------- Bordereau d'expédition (déposé dans le dossier de la commande, à imprimer par l'équipe) ----------
+async function majBordereaux(ndevis, liste) {
+  const row = cache.rows.find(r => r.n_devis === ndevis);
+  if (!row || !supabase) return;
+  const v = liste.length ? liste.map(b => ({ id: b.id, nom: b.nom })) : null;
+  await supabase.from('gestion_commandes').update({ bordereaux: v }).eq('cle', row.cle);
+}
+
+async function ajouterBordereau(cle, file, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  if (!row.n_devis) throw new Error('Pas de N° de devis : impossible de retrouver le dossier de la commande');
+  if (!file) throw new Error('Aucun fichier reçu');
+  if (!/\.(pdf|png|jpe?g)$/i.test(file.originalname || '')) throw new Error('Format accepté : PDF, PNG ou JPG');
+  const f = await findCommandeFolder(row.n_devis);
+  if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
+  const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0].toLowerCase();
+  const it = await g.uploadFile(f.id, `BORDEREAU${ext}`, file.buffer, file.mimetype);
+  const d = await getDossier(row.n_devis); // relit le dossier et met à jour la liste
+  await majBordereaux(row.n_devis, d.bordereaux || []);
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bordereau_ajoute', cle, details: { nom: it.name } });
+  console.log(`Gestion : bordereau ${it.name} déposé pour ${cle} (${user})`);
+  return { bordereaux: d.bordereaux || [] };
+}
+
+async function supprimerBordereau(cle, itemId, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row || !row.n_devis) throw new Error('Commande introuvable');
+  const it = await fichierAutorise(itemId);
+  if (!it || !key(it.name).startsWith('bordereau')) throw new Error('Fichier non autorisé');
+  await g.deleteItem(it.id);
+  const d = await getDossier(row.n_devis);
+  await majBordereaux(row.n_devis, d.bordereaux || []);
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bordereau_supprime', cle, details: { nom: it.name } });
+  return { bordereaux: d.bordereaux || [] };
+}
+
+module.exports = { ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

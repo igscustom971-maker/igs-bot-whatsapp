@@ -194,6 +194,7 @@ th{padding:10px 8px}
 .xdel{border:0;background:transparent;color:#9ca3af;font-size:18px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px}
 .xdel:hover{background:#fee2e2;color:#b91c1c}
 td.c-x{width:30px;text-align:right;padding-left:0}
+.esp.bd{background:#dbeafe;color:#1e40af;text-decoration:none;margin-right:4px}
 .esp{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:nowrap}
 .espbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 12px;padding:10px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a}
 .espbox input[type=text]{width:110px}
@@ -530,7 +531,7 @@ function remettre(){
   $('psub').textContent = (cmds.length + pls.length) + ' élément(s) prêts';
   const ligne = (kind, cle, client, sous, statutHtml, boutons) => '<div class="cand"><div><b>'+esc(client)+'</b> '+statutHtml+'<div class="sub">'+sous+'</div></div><div style="display:flex;gap:6px">'+boutons+'</div></div>';
   $('pbody').innerHTML = '<div class="card"><h3>Commandes · '+cmds.length+'</h3>'
-    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + especesHtml(c), badge(c.statut),
+    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + especesHtml(c) + (c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':''), badge(c.statut),
         '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
     + '</div><div class="card"><h3>Planches DTF · '+pls.length+'</h3>'
     + (pls.length ? pls.map(p => ligne('pl', p.cle, p.client, esc([p.n_devis, metrage(p), p.paiement].filter(Boolean).join(' · ')), plBadge(p.statut),
@@ -611,14 +612,65 @@ function csEvents(){
 const montantFr = m => m == null ? '' : String(m).replace('.', ',') + ' €';
 const especesHtml = c => c && c.a_payer_especes ? '<div><span class="esp" title="Le client paiera en espèces à la remise'+(c.especes_note_par?' (noté par '+esc(c.especes_note_par)+')':'')+'">💵 À payer en espèces'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+'</span></div>' : '';
 async function supprimerCmd(c){
-  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?\\nLa ligne sera vidée dans l\\'Excel (erreur ou test). Le dossier SharePoint n\\'est pas supprimé.')) return false;
-  try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer'); await charger(false); return true; }
-  catch(e){ alert('Non supprimée : ' + e.message); return false; }
+  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?\\nLa ligne sera vidée dans l\\'Excel (erreur ou test).')) return false;
+  const dossier = !!c.n_devis && confirm('Supprimer aussi le dossier SharePoint « '+c.n_devis+' - … » (BAT, visuels, tailles) ?\\n\\nOK = supprimer le dossier (il part dans la corbeille SharePoint, récupérable 93 jours)\\nAnnuler = garder le dossier');
+  try {
+    const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer', { dossier });
+    if (j.avertissement) alert(j.avertissement);
+    await charger(false); return true;
+  } catch(e){ alert('Non supprimée : ' + e.message); return false; }
 }
 async function supprimerPl(p){
   if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\nLa ligne sera vidée dans l\\'Excel (comme au nettoyage de minuit).')) return false;
-  try { await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer'); await charger(false); return true; }
-  catch(e){ alert('Non supprimée : ' + e.message); return false; }
+  let fichiers = [];
+  try { const r = await fetch('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/fichiers'); const j = await r.json(); fichiers = j.fichiers || []; } catch(e){}
+  let ids = [];
+  if (fichiers.length) {
+    const autres = planches.filter(x => x.cle !== p.cle && norm(x.client) === norm(p.client)).length;
+    if (confirm('Supprimer aussi le(s) fichier(s) de la planche ?\\n\\n'+fichiers.map(f => '• '+f.nom+(f.archive?' (archives)':'')).join('\\n')
+      + (autres ? '\\n\\n⚠ '+autres+' autre(s) ligne(s) pour ce client : ces fichiers les concernent peut-être.' : '')
+      + '\\n\\nOK = supprimer les fichiers (corbeille SharePoint, récupérables 93 jours)\\nAnnuler = garder les fichiers')) ids = fichiers.map(f => f.id);
+  }
+  try {
+    const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer', { fichiers: ids });
+    if (j.avertissement) alert(j.avertissement);
+    await charger(false); return true;
+  } catch(e){ alert('Non supprimée : ' + e.message); return false; }
+}
+// ---------- Bordereau d'expédition ----------
+const fichierUrl = (id, dl) => '/gestion/api/fichier/'+encodeURIComponent(id)+(dl?'?dl=1':'');
+function bordereauxLiens(c){
+  return c && c.bordereaux && c.bordereaux.length ? c.bordereaux.map(b => '<a class="esp bd" href="'+fichierUrl(b.id)+'" target="_blank" rel="noopener" title="Ouvrir '+esc(b.nom)+' pour l\\'imprimer">🖨 '+esc(b.nom.replace(/\\.[a-z0-9]+$/i,''))+'</a>').join(' ') : '';
+}
+function bordereauCard(c, liste){
+  return '<div class="card" id="bd-card"><h3>📦 Bordereau d\\'expédition</h3>'
+    + (liste.length ? liste.map(b => '<div class="cand"><div><b>'+esc(b.nom)+'</b>'+(b.modifie?'<div class="sub">déposé le '+new Date(b.modifie).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</div>':'')+'</div>'
+        + '<div style="display:flex;gap:6px"><a class="btn primary" href="'+fichierUrl(b.id)+'" target="_blank" rel="noopener">🖨 Imprimer</a><a class="btn" href="'+fichierUrl(b.id,1)+'">⬇</a><button class="btn" data-bd-del="'+esc(b.id)+'" title="Supprimer ce bordereau">×</button></div></div>').join('')
+      : '<div class="note">Aucun bordereau pour l\\'instant.</div>')
+    + '<div class="btnrow" style="margin-top:10px"><label class="btn" style="cursor:pointer">⬆ Déposer un bordereau (PDF, PNG, JPG)<input type="file" id="bd-file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*" style="display:none"></label></div>'
+    + '<div class="msg" id="bd-msg"></div></div>';
+}
+function brancherBordereau(c){
+  const card = $('bd-card'); if (!card) return;
+  const m = (t, k) => { $('bd-msg').className = 'msg on ' + k; $('bd-msg').innerHTML = t; };
+  const maj = liste => { c.bordereaux = liste.length ? liste.map(b => ({ id: b.id, nom: b.nom })) : null; card.outerHTML = bordereauCard(c, liste); brancherBordereau(c); afficher(); };
+  $('bd-file').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    m('Dépôt de '+esc(f.name)+' dans le dossier de la commande…', 'info');
+    const fd = new FormData(); fd.append('fichier', f);
+    try {
+      const r = await fetch('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bordereau', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+      maj(j.bordereaux || []); m('✅ Bordereau déposé : l\\'équipe peut l\\'imprimer', 'ok');
+    } catch(err){ m('❌ ' + esc(err.message), 'err'); }
+  };
+  card.onclick = async e => {
+    const b = e.target.closest('[data-bd-del]'); if (!b) return;
+    if (!confirm('Supprimer ce bordereau ?')) return;
+    try { const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bordereau/'+encodeURIComponent(b.dataset.bdDel)+'/supprimer'); maj(j.bordereaux || []); }
+    catch(err){ m('❌ ' + esc(err.message), 'err'); }
+  };
 }
 async function setEspecesCmd(c, actif, montant){
   const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/especes', { actif, montant });
@@ -881,12 +933,7 @@ function brancherActions(p){
       await apresAction(j.planche, '✅ ' + quoi + ' · ' + eur(d.montant_ht) + ' HT' + lien);
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
   };
-  $('a-suppr').onclick = async () => {
-    if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\nLa ligne sera vidée dans l\\'Excel (comme au nettoyage de minuit).')) return;
-    busy(true);
-    try { await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer'); fermer(); await charger(false); }
-    catch(e){ msg('❌ ' + esc(e.message), 'err'); busy(false); }
-  };
+  $('a-suppr').onclick = async () => { busy(true); if (await supprimerPl(p)) fermer(); else busy(false); };
   if ($('a-devis')) $('a-devis').onclick = () => { if (confirm(plKey(p.statut) === 'A VERIFIER' ? 'Préparer le devis dans Odoo pour '+p.client+' (sans l\\'envoyer) ?' : 'Créer le devis dans Odoo et l\\'envoyer par mail à '+p.client+' ?')) lancer('devis'); };
   if ($('a-facture')) $('a-facture').onclick = () => {
     const q = p.format || (p.metres ? String(p.metres).replace('.',',')+' m' : '');
@@ -1076,7 +1123,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+especesHtml(c)+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -1123,6 +1170,7 @@ async function ouvrir(cle){
     if (d.erreur) throw new Error(d.erreur);
     if (!d.trouve) { $('dossier').innerHTML = '<div class="card note">Aucun dossier « '+esc(c.n_devis)+' - … » trouvé dans Clients/Commandes.</div>'; return; }
     let h = '';
+    if (statutKey(c.statut) === 'A EXPEDIER' || (d.bordereaux && d.bordereaux.length)) h += bordereauCard(c, d.bordereaux || []);
     if (d.controle) h += d.controle.ecart
       ? '<div class="warnbox">⚠️ <b>Incohérence devis / tableau</b> : le devis indique <b>'+d.controle.devis+' pièce(s)</b>, le tableau des tailles du client en contient <b>'+d.controle.tableau+'</b> ('+(d.controle.ecart>0?'+':'')+d.controle.ecart+'). Vérifie avec le client avant de commander les t-shirts.</div>'
       : '<div class="note" style="color:var(--ok);font-weight:600">✅ Tableau des tailles cohérent avec le devis ('+d.controle.devis+' pièces)</div>';
@@ -1154,6 +1202,8 @@ async function ouvrir(cle){
       : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '</div>';
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
+    brancherBordereau(c);
+    if (d.bordereaux) { const avant = JSON.stringify(c.bordereaux||null); c.bordereaux = d.bordereaux.length ? d.bordereaux.map(b => ({ id: b.id, nom: b.nom })) : null; if (avant !== JSON.stringify(c.bordereaux)) afficher(); }
     dernierDossier = d;
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';

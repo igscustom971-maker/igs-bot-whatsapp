@@ -100,7 +100,7 @@ module.exports = function mountGestion(app) {
     try { res.json(await fn(req)); }
     catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   };
-  app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req))));
+  app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req), { fichiers: req.body?.fichiers })));
   app.post('/gestion/api/planches/ajouter', auth.requireUser, action(req => planches.ajouter(req.body || {}, qui(req))));
   app.get('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.clientPlanche(req.params.cle)));
   app.post('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.choisirClient(req.params.cle, req.body?.partnerId, qui(req))));
@@ -180,8 +180,22 @@ module.exports = function mountGestion(app) {
   });
 
   app.post('/gestion/api/commandes/:cle/supprimer', auth.requireUser, async (req, res) => {
-    try { res.json(await commandes.supprimer(req.params.cle, req.user.name || req.user.email)); }
+    try { res.json(await commandes.supprimer(req.params.cle, req.user.name || req.user.email, { dossier: !!req.body?.dossier })); }
     catch (err) { console.error('Gestion suppression commande :', err.message); res.status(400).json({ error: err.message }); }
+  });
+
+  // Bordereau d'expédition : dépôt (PDF/PNG/JPG, 15 Mo max) et suppression
+  const uploadBordereau = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1 } }).single('fichier');
+  app.post('/gestion/api/commandes/:cle/bordereau', auth.requireUser, (req, res, next) => uploadBordereau(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (15 Mo max)' : err.message });
+    next();
+  }), async (req, res) => {
+    try { res.json(await commandes.ajouterBordereau(req.params.cle, req.file, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion bordereau :', err.message); res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/bordereau/:id/supprimer', auth.requireUser, async (req, res) => {
+    try { res.json(await commandes.supprimerBordereau(req.params.cle, req.params.id, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   // "À payer en espèces" : { actif: true|false, montant?: "45,50" }

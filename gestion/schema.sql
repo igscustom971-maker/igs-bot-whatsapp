@@ -170,3 +170,6 @@ alter table gestion_collaborateurs enable row level security;
 alter table gestion_commandes add column if not exists a_payer_especes  boolean default false;
 alter table gestion_commandes add column if not exists montant_especes  numeric(10,2);
 alter table gestion_commandes add column if not exists especes_note_par text;
+
+-- Commandes : bordereaux d'expédition déposés depuis le dashboard
+alter table gestion_commandes add column if not exists bordereaux jsonb;

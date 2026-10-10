@@ -214,9 +214,43 @@ async function sendMail(mailbox, { to, subject, html, replyTo, attachments = [] 
   await gPost(`${box}/messages/${draft.id}/send`, undefined);
 }
 
+// Suppression d'un fichier ou dossier : il part dans la corbeille SharePoint (récupérable 93 jours)
+async function deleteItem(itemId, o) {
+  const res = await fetch(`${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${await appToken()}` },
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`Suppression SharePoint refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+}
+
+// Dépôt d'un fichier dans un dossier (conflit = renommage automatique "NOM 1.pdf")
+async function uploadFile(parentId, name, buffer, contentType, o) {
+  const base = `${GRAPH}${await D(o)}/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:`;
+  if (buffer.length < 4 * 1024 * 1024) {
+    const res = await fetch(`${base}/content?@microsoft.graph.conflictBehavior=rename`, {
+      method: 'PUT', headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': contentType || 'application/octet-stream' }, body: buffer,
+    });
+    if (!res.ok) throw new Error(`Dépôt du fichier refusé : ${res.status} ${(await res.text()).slice(0, 200)}`);
+    return res.json();
+  }
+  const s = await fetch(`${base}/createUploadSession`, {
+    method: 'POST', headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } }),
+  });
+  if (!s.ok) throw new Error(`Dépôt du fichier refusé : ${s.status} ${(await s.text()).slice(0, 200)}`);
+  const { uploadUrl } = await s.json();
+  const CHUNK = 5 * 320 * 1024;
+  let last;
+  for (let start = 0; start < buffer.length; start += CHUNK) {
+    const end = Math.min(start + CHUNK, buffer.length);
+    last = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Length': String(end - start), 'Content-Range': `bytes ${start}-${end - 1}/${buffer.length}` }, body: buffer.subarray(start, end) });
+    if (!last.ok) throw new Error(`Dépôt du fichier interrompu : ${last.status}`);
+  }
+  return last.json();
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

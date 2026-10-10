@@ -208,16 +208,29 @@ async function writeCells(cle, fields) {
 }
 
 // Suppression manuelle : la ligne est vidée (comme le nettoyage de minuit), les formules restent
-async function supprimer(cle, user) {
+async function supprimer(cle, user, { fichiers = [] } = {}) {
+  // Fichiers de la planche à supprimer (corbeille SharePoint) : uniquement ceux rattachés à ce client
+  const ids = Array.isArray(fichiers) ? fichiers.map(String).slice(0, 30) : [];
+  let autorises = [];
+  if (ids.length) {
+    const liste = (await getFichiers(cle)).fichiers || [];
+    autorises = liste.filter(f => ids.includes(f.id));
+  }
   const t = await lireTableau();
   const row = t.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Ligne introuvable dans l\'Excel : actualise et réessaie');
   const champs = ['date_commande', 'client', 'metres', 'frequence', 'paiement', 'remarques', 'statut', 'n_devis', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye']
     .filter(f => t.rows.idx[f] !== undefined);
   await ecrireLigne(t, row._row, Object.fromEntries(champs.map(f => [f, ''])));
+  const supprimes = [], erreurs = [];
+  for (const f of autorises) {
+    try { await g.deleteItem(f.id, { drive: planchesDrive }); supprimes.push(f.nom); }
+    catch (err) { erreurs.push(`${f.nom} : ${err.message}`); }
+  }
+  if (autorises.length) dossiers.at = 0;
   await syncNow();
-  await journal(user, 'planche_supprimee', cle, { client: row.client, metres: row.metres || row.format, n_devis: row.n_devis, statut: row.statut });
-  return { ok: true };
+  await journal(user, 'planche_supprimee', cle, { client: row.client, metres: row.metres || row.format, n_devis: row.n_devis, statut: row.statut, fichiers_supprimes: supprimes });
+  return { ok: true, fichiersSupprimes: supprimes, ...(erreurs.length ? { avertissement: `Ligne supprimée, mais fichier(s) non supprimé(s) : ${erreurs.join(' ; ')}` } : {}) };
 }
 
 // Nom Excel déjà associé à ce client Odoo (pour retrouver sa ligne hebdo)
