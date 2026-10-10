@@ -5,7 +5,8 @@
 // ============================================
 (function (racine) {
   'use strict';
-  const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  // œ / æ ne se décomposent pas en NFD : remplacés à la main ("Cœur" -> "coeur")
+  const norm = s => String(s || '').replace(/œ/g, 'oe').replace(/Œ/g, 'OE').replace(/æ/g, 'ae').replace(/Æ/g, 'AE').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
   // A = longueur, B = largeur à plat (taille M, fournisseur SOL'S) ; zones en cm :
   // x depuis le centre du corps (positif = côté cœur, à droite à l'écran), y depuis le haut du vêtement
@@ -33,6 +34,7 @@
       femme: { XS: [62, 39], S: [64, 41], M: [66, 43], L: [68, 45], XL: [69, 47], XXL: [70, 49] } },
     tote: { homme: { TU: [42, 38] } },
   };
+  const ORDRE_TAILLES = ['2A', '4A', '6A', '8A', '10A', '12A', '14A', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', '5XL', 'TU'];
   function normTaille(t) {
     const s = String(t || '').toUpperCase().replace(/\s+/g, '').replace(/ANS?$/, 'A');
     if (s === '2XL') return 'XXL';
@@ -148,7 +150,13 @@
         // Tailles par couleur : "Noir profond : 10 S / 20 M" (type précisé s'il y a plusieurs produits)
         const parCouleur = {};
         const plusieursTypes = new Set(lignes.map(l => norm(l.type))).size > 1;
-        for (const l of lignes) { const k = (plusieursTypes ? (l.type || '') + ' ' : '') + (l.couleur || '—') + (/femme/i.test(l.coupe || '') ? ' (femme)' : ''); (parCouleur[k] = parCouleur[k] || []).push(l.quantite + ' ' + l.taille); }
+        for (const l of lignes) {
+          const k = (plusieursTypes ? (l.type || '') + ' ' : '') + (l.couleur || '—') + (/femme/i.test(l.coupe || '') ? ' (femme)' : '');
+          const t = normTaille(l.taille) || '?';
+          (parCouleur[k] = parCouleur[k] || {})[t] = (parCouleur[k][t] || 0) + (Number(l.quantite) || 0);
+        }
+        const rang = t => { const i = ORDRE_TAILLES.indexOf(t); return i < 0 ? 99 : i; };
+        for (const k of Object.keys(parCouleur)) parCouleur[k] = Object.entries(parCouleur[k]).sort((a, b) => rang(a[0]) - rang(b[0])).map(([t, q]) => q + ' ' + t);
         const total = lignes.reduce((t, l) => t + (l.quantite || 0), 0);
         const page = {
           titre: (v && v.nom) || (g && g.visuel) || ('Visuel ' + (i + 1)), images: imgs, articles, placements,

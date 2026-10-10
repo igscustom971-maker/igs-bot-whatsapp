@@ -1497,6 +1497,7 @@ function batRender(){
     + batReponseHtml(c)+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
     + (e === 'envoyer' || e === 'modif' ? '<a class="btn" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener" title="Refaire le BAT avec le générateur">🎨</a>' : '')
+    + (e === 'envoyer' && c.bat_auto_le ? '<button class="btn" data-bat-auto="'+esc(c.cle)+'" title="Recréer le BAT automatique (remplace le brouillon)">🤖</button>' : '')
     + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
     + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
     + (e === 'faire' ? '<button class="btn" data-bat-auto="'+esc(c.cle)+'" title="Créer le BAT automatiquement (positions par défaut)">🤖 Auto</button><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 Générer le BAT</a><button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
