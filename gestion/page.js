@@ -370,6 +370,8 @@ ${view === 'accueil' ? `
   <div class="tools">
     <div class="chips" style="margin:0"><button class="chip on" id="tab-cours">📦 En cours</button><button class="chip" id="tab-histo">🗂 Historique</button><button class="chip" id="tab-bat">🖨 BAT <span class="n" id="bat-n"></span></button></div>
     <input id="q" class="search" type="search" placeholder="Rechercher un client, un devis, une zone…">
+    <button id="nv-cmd" class="btn pink">＋ Nouvelle commande</button>
+    <a class="btn" href="https://igscustom.fr/formulaire/" target="_blank" rel="noopener" title="Ouvrir le formulaire client vide">📝 Formulaire vierge</a>
     <button id="refresh" class="btn primary">↻ Actualiser</button>
     <span id="sync" class="sync"></span>
   </div>
@@ -1377,6 +1379,53 @@ function liste(){
 
 function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>' : ''; }
 
+// ---------- Nouvelle commande saisie à la main ----------
+function nouvelleCommande(){
+  panelCle = '__nouvelle__';
+  $('pbody').onclick = null;
+  $('ptitle').textContent = 'Nouvelle commande';
+  $('psub').textContent = 'Ajoutée dans l\\'Excel (tableau Commandes)';
+  const st = ['PAYÉE','EN DEVIS','VALIDÉE','EN COMMANDE'];
+  $('pbody').innerHTML = '<div class="card"><div class="actions">'
+    + '<div class="field"><label>N° de devis</label><input id="n-devis" placeholder="ex. DE2601234" autocomplete="off"></div>'
+    + '<div class="field"><label>Client *</label><input id="n-client"></div>'
+    + '<div class="field"><label>E-mail</label><input id="n-email" type="email"></div>'
+    + '<div class="field"><label>Téléphone</label><input id="n-tel" type="tel"></div>'
+    + '<div class="field"><label>Statut</label><select id="n-statut">'+st.map(x => '<option>'+x+'</option>').join('')+'</select></div>'
+    + '<div class="field"><label>Affectation</label><select id="n-aff"><option value="">— Non affectée —</option>'+EQUIPE.map(x => '<option>'+esc(x)+'</option>').join('')+'</select></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Zone de flocage</label><input id="n-zone" placeholder="ex. Cœur (9cm) + Dos (27cm)"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Contenu</label><input id="n-infos" placeholder="ex. 20 x T-shirt personnalisé avant/arrière"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="n-rem"></div>'
+    + '</div><label class="note" style="display:flex;gap:6px;align-items:center;margin-top:10px"><input type="checkbox" id="n-form" checked style="width:auto"> Ouvrir ensuite le formulaire prérempli pour saisir tailles et visuels</label>'
+    + '<div class="btnrow"><button class="btn primary" id="n-ok">Créer la commande</button></div><div class="msg" id="a-msg"></div></div>';
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  // Client, e-mail et téléphone repris du devis Odoo
+  $('n-devis').addEventListener('change', async () => {
+    const n = $('n-devis').value.trim(); if (!n) return;
+    try {
+      const j = await (await fetch('/gestion/api/odoo/devis/'+encodeURIComponent(n)+'/client')).json();
+      if (j.client) { if (!$('n-client').value) $('n-client').value = j.client.nom; if (!$('n-email').value) $('n-email').value = j.client.email; if (!$('n-tel').value) $('n-tel').value = j.client.telephone; msg('Client repris du devis Odoo : '+esc(j.client.nom), 'info'); }
+      else msg('Devis introuvable dans Odoo : saisis le client à la main', 'info');
+    } catch(e){}
+  });
+  $('n-ok').onclick = async () => {
+    const body = { n_devis: $('n-devis').value, client: $('n-client').value, email: $('n-email').value, telephone: $('n-tel').value, statut: $('n-statut').value,
+      affectation: $('n-aff').value, zone_flocage: $('n-zone').value, infos: $('n-infos').value, remarque: $('n-rem').value };
+    if (!body.client.trim()) return msg('Le client est obligatoire', 'err');
+    const ouvrirForm = $('n-form').checked, fen = ouvrirForm ? window.open('about:blank', '_blank') : null;
+    $('n-ok').disabled = true; msg('Ajout dans l\\'Excel…', 'info');
+    try {
+      const j = await post('/gestion/api/commandes/nouvelle', body);
+      await charger(false);
+      if (ouvrirForm && j.cle) {
+        const r = await fetch('/gestion/api/commandes/'+encodeURIComponent(j.cle)+'/lien-formulaire'); const l = await r.json();
+        if (fen && l.url) fen.location.href = l.url;
+      } else if (fen) fen.close();
+      if (j.cle) { panelCle = j.cle; ouvrir(j.cle); } else fermer();
+    } catch(e){ if (fen) fen.close(); msg('❌ '+esc(e.message), 'err'); $('n-ok').disabled = false; }
+  };
+}
+
 async function ouvrir(cle){
   const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
   $('pbody').onclick = null;
@@ -1748,6 +1797,7 @@ if (VIEW === 'commandes') {
     document.querySelector('#v-commandes .tablewrap').style.display = modeBat ? 'none' : ''; $('chips').style.display = modeBat ? 'none' : ''; $('batbox').style.display = modeBat ? '' : 'none';
     if (modeHisto) chargerHisto(); else afficher();
   };
+  $('nv-cmd').onclick = nouvelleCommande;
   $('tab-cours').onclick = () => onglet('cours'); $('tab-histo').onclick = () => onglet('histo'); $('tab-bat').onclick = () => onglet('bat');
   if (location.hash === '#bat') onglet('bat');
   $('batbox').addEventListener('click', batClic);

@@ -274,6 +274,17 @@ module.exports = function mountGestion(app) {
     try { res.json({ commande: await commandes.validerBat(req.params.cle, req.user.name || req.user.email) }); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // Nouvelle commande saisie à la main ; client d'un devis Odoo pour préremplir
+  app.post('/gestion/api/commandes/nouvelle', auth.requireUser, async (req, res) => {
+    try { res.json(await commandes.creerCommande(req.body || {}, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion nouvelle commande :', err.message); res.status(400).json({ error: err.message }); }
+  });
+  app.get('/gestion/api/odoo/devis/:numero/client', auth.requireUser, async (req, res) => {
+    try {
+      const p = await require('./odoo').clientDuDevis(String(req.params.numero).toUpperCase().trim());
+      res.json({ client: p ? { nom: p.name, email: p.email || '', telephone: p.phone || '' } : null });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/bat/actualiser', auth.requireUser, async (req, res) => {
     try { await commandes.scannerBat(); res.json({ ok: true }); } catch (err) { res.status(502).json({ error: err.message }); }
   });

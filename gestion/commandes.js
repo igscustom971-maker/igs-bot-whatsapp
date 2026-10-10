@@ -371,6 +371,39 @@ async function trouverBat(ndevis) {
   return files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name))) || null;
 }
 
+// Nouvelle commande saisie à la main (ligne ajoutée dans le tableau Commandes de l'Excel)
+async function creerCommande(data, user) {
+  const t = v => String(v ?? '').trim();
+  const n_devis = t(data.n_devis).toUpperCase().replace(/\s+/g, '');
+  const client = t(data.client).slice(0, 100);
+  if (!client) throw new Error('Le client est obligatoire');
+  if (n_devis && !/^[A-Z0-9-]{3,30}$/.test(n_devis)) throw new Error('N° de devis invalide');
+  if (n_devis && cache.rows.some(r => key(r.n_devis || '') === key(n_devis))) throw new Error(`La commande ${n_devis} existe déjà`);
+  const email = t(data.email).toLowerCase(), tel = t(data.telephone);
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail invalide');
+  const statut = STATUTS.find(s => key(s) === key(data.statut || 'PAYÉE')) || 'PAYÉE';
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const xl = require('./excel');
+  const tab = await xl.readTable(cfg.TABLE_COMMANDES);
+  await xl.addRow(tab, {
+    'N° Devis': n_devis,
+    'Client': client,
+    'Contenu mail': [email, tel].filter(Boolean).join('\n'),
+    'Informations complémentaire': t(data.infos).slice(0, 500),
+    'Zone de flocage': t(data.zone_flocage).slice(0, 200),
+    'Statut': statut,
+    'Date commande': today,
+    'Remarque': t(data.remarque).slice(0, 500),
+    ...(t(data.affectation) ? { 'Affectation': t(data.affectation) } : {}),
+  }, 'Client');
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_creee', cle: n_devis || client, details: { client, statut } });
+  console.log(`Gestion : commande ${n_devis || '(sans devis)'} ${client} créée à la main (${user})`);
+  await syncNow();
+  const r = cache.rows.find(x => (n_devis && x.n_devis === n_devis) || (!n_devis && x.client === client));
+  return { cle: r ? r.cle : null };
+}
+
 // Visuel déposé depuis le générateur de BAT : nouveau fichier dans le dossier du visuel (NOM_Avant / NOM_Arriere),
 // ou remplacement d'un fichier existant du dossier de la commande (même nom, extension du nouveau fichier)
 async function deposerVisuel(cle, { visuel, face, remplace, file }, user) {
@@ -776,4 +809,4 @@ const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 const APRES_BAT = ['validee', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
 const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 
-module.exports = { validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
