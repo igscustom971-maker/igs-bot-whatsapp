@@ -15,14 +15,14 @@
     --border: rgba(255,255,255,0.12); --radius: 12px; --radius-sm: 8px;
   }
   body { background: var(--bleu-fond); color: var(--blanc); font-family: 'Nunito', sans-serif; font-size: 15px; line-height: 1.6; padding: 40px 20px 80px; }
-  .hero { max-width: 860px; margin: 0 auto 32px; text-align: center; }
+  .hero { max-width: 1000px; margin: 0 auto 32px; text-align: center; }
   .hero-badge { display: inline-block; background: var(--rose); color: var(--blanc); font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; padding: 6px 20px; border-radius: 999px; margin-bottom: 18px; }
   .hero h1 { color: #fff; font-family: 'League Spartan', sans-serif; font-weight: 900; font-size: clamp(30px, 5.5vw, 52px); letter-spacing: -0.01em; line-height: 1.05; margin-bottom: 12px; text-transform: uppercase; }
   .hero-desc { color: var(--blanc-muted); font-size: 15px; max-width: 520px; margin: 0 auto; font-weight: 300; }
-  .commande-card { max-width: 860px; margin: 0 auto 28px; background: var(--bleu-card); border: 1px solid var(--border); border-left: 4px solid var(--rose); border-radius: var(--radius); padding: 18px 28px; display: flex; gap: 48px; align-items: center; }
+  .commande-card { max-width: 1000px; margin: 0 auto 28px; background: var(--bleu-card); border: 1px solid var(--border); border-left: 4px solid var(--rose); border-radius: var(--radius); padding: 18px 28px; display: flex; gap: 48px; align-items: center; }
   .commande-field label { font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--blanc-muted); display: block; margin-bottom: 4px; }
   .commande-field .value { font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 22px; }
-  .form-wrap { max-width: 860px; margin: 0 auto; }
+  .form-wrap { max-width: 1000px; margin: 0 auto; }
   .form-section { background: var(--bleu-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px; margin-bottom: 18px; }
   .section-title { font-family: 'League Spartan', sans-serif; font-weight: 700; font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rose); margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
   .section-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: var(--rose); color: var(--blanc); font-size: 12px; border-radius: 50%; font-family: 'Nunito', sans-serif; font-weight: 700; flex-shrink: 0; }
@@ -121,6 +121,27 @@
   .size input { padding: 10px 6px; text-align: center; font-weight: 700; }
   .size input.has { border-color: var(--vert); background: rgba(74,156,47,0.12); }
   .article-total { font-size: 12px; color: var(--blanc-muted); margin-top: 10px; }
+  .grid-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+  table.grid { width: 100%; border-collapse: collapse; }
+  .grid th { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; color: var(--blanc-muted); text-align: left; padding: 8px 6px; background: rgba(255,255,255,0.05); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .grid td { padding: 3px; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: middle; }
+  .grid tr.filled td { background: rgba(74,156,47,0.06); }
+  .grid td.num { color: rgba(255,255,255,0.35); font-size: 12px; text-align: center; width: 28px; }
+  .grid select, .grid input { padding: 8px 8px; font-size: 14px; border-radius: 6px; background: transparent; border-color: transparent; }
+  .grid select:focus, .grid input:focus, .grid select:hover, .grid input:hover { border-color: var(--rose); background: var(--bleu-input); }
+  .grid .g-qte { width: 70px; text-align: center; font-weight: 700; }
+  .grid .g-produit { min-width: 150px; } .grid .g-couleur { min-width: 140px; } .grid .g-coupe { min-width: 105px; } .grid .g-visuel { min-width: 150px; } .grid .g-rem { min-width: 130px; }
+  table.grid { min-width: 900px; }
+  .grid .g-taille { width: 82px; }
+  .grid .g-del { background: none; border: none; color: rgba(255,255,255,0.35); cursor: pointer; font-size: 14px; padding: 6px; }
+  .grid .g-del:hover { color: var(--rouge); }
+  .recap table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .recap td, .recap th { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); text-align: left; }
+  .recap th { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--blanc-muted); }
+  .recap .tot { font-family: 'League Spartan', sans-serif; font-size: 22px; font-weight: 900; color: var(--blanc); }
+  .chips-t { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chips-t span { background: rgba(255,255,255,0.08); border-radius: 6px; padding: 3px 9px; font-weight: 700; color: var(--blanc); }
+  .chips-t small { color: var(--blanc-muted); font-weight: 600; margin-right: 4px; }
   .recap { margin-top: 14px; padding: 14px 16px; background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); font-size: 13px; color: var(--blanc-muted); }
   .recap b { color: var(--blanc); }
   .check { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 16px; font-size: 14px; }
@@ -145,6 +166,19 @@
     .btn-submit { font-size: 18px; padding: 16px; }
     .check { padding: 12px; }
     .section-title { font-size: 14px; }
+    .grid-wrap { border: none; overflow: visible; }
+    table.grid { min-width: 0 !important; }
+    .grid .g-produit, .grid .g-couleur, .grid .g-coupe, .grid .g-visuel, .grid .g-rem { min-width: 0; }
+    .grid thead { display: none; }
+    .grid, .grid tbody, .grid tr, .grid td { display: block; width: 100%; }
+    .grid tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: rgba(255,255,255,0.03); position: relative; }
+    .grid td { border: none; padding: 0; }
+    .grid td.num { position: absolute; top: 4px; right: 34px; width: auto; }
+    .grid td.c-del { position: absolute; top: 0; right: 4px; width: auto; }
+    .grid td.c-prod, .grid td.c-vis, .grid td.c-rem { grid-column: 1 / -1; }
+    .grid td[data-l]::before { content: attr(data-l); display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--blanc-muted); margin: 0 0 2px 2px; font-weight: 700; }
+    .grid select, .grid input { background: var(--bleu-input); border-color: var(--border); font-size: 16px; padding: 10px; }
+    .grid .g-qte, .grid .g-taille { width: 100%; }
     .modal-overlay { padding: 0; }
     .modal-box { max-height: 100vh; height: 100vh; border-radius: 0; }
   }
@@ -260,11 +294,16 @@
   <!-- 3. ARTICLES ET TAILLES -->
   <div class="form-section">
     <div class="section-title"><span class="section-num">3</span> Vos articles et tailles</div>
-    <div class="info-notice">Ajoutez un bloc par <strong>produit + couleur + visuel</strong>, puis indiquez la quantité pour chaque taille. ⚠️ La coupe <strong>Femme</strong> habille plus serré : prenez une taille au-dessus. Toutes les couleurs ne sont pas disponibles en 3XL : nous vous contacterons si besoin.</div>
+    <div class="info-notice">Remplissez <strong>une ligne par taille</strong>, comme dans un tableau Excel. Une nouvelle ligne apparaît automatiquement et reprend le produit, la couleur et le visuel de la précédente. Vous pouvez aussi <strong>coller</strong> des lignes copiées depuis Excel. ⚠️ La coupe <strong>Femme</strong> habille plus serré : prenez une taille au-dessus. Enfants : tailles 2A à 12A.</div>
 
-    <div id="articles"></div>
-    <div class="field-error" id="err-articles" style="margin-bottom:10px;">Ajoutez au moins un article avec une quantité</div>
-    <button type="button" class="btn-add" onclick="addArticle()">➕ Ajouter un article</button>
+    <div class="grid-wrap">
+      <table class="grid" id="grid">
+        <thead><tr><th>#</th><th>Produit</th><th>Couleur</th><th>Taille</th><th>Qté</th><th>Coupe</th><th>Visuel / texte</th><th>Remarque</th><th></th></tr></thead>
+        <tbody id="grid-body"></tbody>
+      </table>
+    </div>
+    <div class="field-error" id="err-articles" style="margin:10px 0;">Remplissez au moins une ligne (taille + quantité)</div>
+    <button type="button" class="btn-add" id="add-lignes">➕ Ajouter 5 lignes</button>
     <div class="recap" id="recap"></div>
 
     <div id="bloc-excel-alt" class="hidden" style="margin-top:16px;">
@@ -470,87 +509,111 @@
   });
   $('zone-extra-nom').addEventListener('input', function(){ $('bloc-dim-extra').style.display = this.value.trim() ? 'block' : 'none'; });
 
-  // ---------------- Articles (remplace le fichier Excel) ----------------
-  let nextArticle = 0;
-  function nomsVisuels(){
-    return visuelIds().map((id, i) => ($('nom-visuel-' + id).value.trim() || 'Visuel ' + (i + 1)));
+  // ---------------- Tableau des articles (comme le fichier Excel) ----------------
+  const TOUTES_TAILLES = T_ADULTE.concat(T_ENFANT, ['TU']);
+  function nomsVisuels(){ return visuelIds().map((id, i) => ($('nom-visuel-' + id).value.trim() || 'Visuel ' + (i + 1))); }
+  const opts = (list, v, vide) => (vide ? '<option value="">' + vide + '</option>' : '') + [...new Set((v && !list.includes(v) ? [v] : []).concat(list))].map(o => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
+
+  function ligneHtml(d){
+    d = d || {};
+    return '<td class="num"></td>'
+      + '<td class="c-prod" data-l="Produit"><select class="g-produit">' + opts(PRODUITS, d.type || 'T-Shirt') + '</select></td>'
+      + '<td data-l="Couleur"><select class="g-couleur">' + opts(COULEURS, d.couleur || '', '— Couleur —') + '</select></td>'
+      + '<td data-l="Taille"><select class="g-taille">' + opts(TOUTES_TAILLES, d.taille || '', '—') + '</select></td>'
+      + '<td data-l="Qté"><input class="g-qte" type="number" min="0" inputmode="numeric" placeholder="0" value="' + (d.qte || '') + '"></td>'
+      + '<td data-l="Coupe"><select class="g-coupe">' + opts(['Unisexe','Femme'], d.coupe || 'Unisexe') + '</select></td>'
+      + '<td class="c-vis" data-l="Visuel / texte"><input type="text" class="g-visuel" list="dl-visuels" placeholder="Nom du visuel ou texte" value="' + esc(d.visuel || '') + '"></td>'
+      + '<td class="c-rem" data-l="Remarque"><input type="text" class="g-rem" placeholder="Optionnel" value="' + esc(d.remarques || '') + '"></td>'
+      + '<td class="c-del"><button type="button" class="g-del" title="Supprimer la ligne">✕</button></td>';
   }
-  function optionsVisuels(sel){
-    const noms = nomsVisuels();
-    return noms.map(n => '<option' + (n === sel ? ' selected' : '') + '>' + esc(n) + '</option>').join('')
-      + '<option value="__texte__"' + (sel && !noms.includes(sel) ? ' selected' : '') + '>Autre / texte…</option>';
+  function ajouterLigne(d){
+    const tr = document.createElement('tr'); tr.innerHTML = ligneHtml(d);
+    $('grid-body').appendChild(tr); renumeroter(); return tr;
+  }
+  function renumeroter(){ [...$('grid-body').rows].forEach((tr, i) => { tr.cells[0].textContent = i + 1; }); }
+  function lireLigne(tr){
+    return {
+      type: tr.querySelector('.g-produit').value, couleur: tr.querySelector('.g-couleur').value, taille: tr.querySelector('.g-taille').value,
+      qte: Math.max(0, Math.round(Number(tr.querySelector('.g-qte').value) || 0)), coupe: tr.querySelector('.g-coupe').value,
+      visuel: tr.querySelector('.g-visuel').value.trim(), remarques: tr.querySelector('.g-rem').value.trim(),
+    };
+  }
+  const ligneRemplie = l => l.qte > 0 && l.taille;
+  function lignesCommande(){
+    return [...$('grid-body').rows].map(lireLigne).filter(ligneRemplie)
+      .map(l => ({ ...l, coupe: ['Tote Bag','Casquette','T-Shirt Enfant'].includes(l.type) ? '' : l.coupe }));
   }
   function majVisuelsArticles(){
-    document.querySelectorAll('.article').forEach(a => {
-      const s = a.querySelector('.a-visuel'), cur = s.value === '__texte__' ? a.querySelector('.a-visuel-txt').value : s.value;
-      s.innerHTML = optionsVisuels(cur);
-      if (s.value === '__texte__') a.querySelector('.a-visuel-txt').classList.remove('hidden');
-    });
+    let dl = $('dl-visuels');
+    if (!dl) { dl = document.createElement('datalist'); dl.id = 'dl-visuels'; document.body.appendChild(dl); }
+    dl.innerHTML = nomsVisuels().map(n => '<option value="' + esc(n) + '">').join('');
+    // lignes encore vides : visuel par défaut = premier visuel
     majRecap();
   }
+  // Une ligne remplie en dernier -> nouvelle ligne qui reprend produit / couleur / coupe / visuel
+  function autoLigne(tr){
+    const rows = [...$('grid-body').rows];
+    if (tr === rows[rows.length - 1] && ligneRemplie(lireLigne(tr)) && rows.length < MAX_LIGNES) {
+      const l = lireLigne(tr); ajouterLigne({ type: l.type, couleur: l.couleur, coupe: l.coupe, visuel: l.visuel });
+    }
+  }
+  // Ligne vide qu'on commence à remplir : reprend produit / couleur / coupe / visuel de la ligne du dessus
+  function heriter(tr, e){
+    if (!e.target.matches('.g-taille, .g-qte')) return;
+    const prev = tr.previousElementSibling; if (!prev) return;
+    const l = lireLigne(tr), p = lireLigne(prev);
+    if (!l.couleur && p.couleur) {
+      tr.querySelector('.g-produit').value = p.type; tr.querySelector('.g-couleur').value = p.couleur;
+      tr.querySelector('.g-coupe').value = p.coupe; if (!l.visuel) tr.querySelector('.g-visuel').value = p.visuel;
+    }
+  }
+  const majLigne = (tr, e) => { heriter(tr, e); const l = lireLigne(tr); tr.classList.toggle('filled', ligneRemplie(l)); tr.querySelector('.g-couleur').classList.toggle('error', ligneRemplie(l) && !l.couleur && tr.dataset.verif === '1'); };
+  $('grid-body').addEventListener('input', e => { const tr = e.target.closest('tr'); if (tr) majLigne(tr, e); majRecap(); });
+  $('grid-body').addEventListener('change', e => { const tr = e.target.closest('tr'); if (tr) { majLigne(tr, e); autoLigne(tr); } majRecap(); });
+  $('grid-body').addEventListener('click', e => {
+    if (!e.target.closest('.g-del')) return;
+    e.target.closest('tr').remove();
+    if (!$('grid-body').rows.length) ajouterLigne();
+    renumeroter(); majRecap();
+  });
+  $('add-lignes').onclick = () => { const rows = [...$('grid-body').rows]; const l = rows.length ? lireLigne(rows[rows.length - 1]) : {}; for (let i = 0; i < 5 && $('grid-body').rows.length < MAX_LIGNES; i++) ajouterLigne({ type: l.type, couleur: l.couleur, coupe: l.coupe, visuel: l.visuel }); };
 
-  function addArticle(copie){
-    const id = ++nextArticle;
-    const a = document.createElement('div');
-    a.className = 'article'; a.dataset.id = id;
-    const prod = copie ? copie.produit : 'T-Shirt';
-    a.innerHTML = '<div class="article-header"><div class="article-title">👕 Article</div><div style="display:flex;gap:6px"><button type="button" class="btn-ghost a-dup">⧉ Dupliquer</button><button type="button" class="btn-remove-visuel a-del">✕</button></div></div>'
-      + '<div class="grid-3">'
-      + '<div class="form-group"><label>Produit</label><select class="a-produit">' + PRODUITS.map(p => '<option' + (p === prod ? ' selected' : '') + '>' + esc(p) + '</option>').join('') + '</select><input type="text" class="a-produit-txt hidden" placeholder="Précisez le produit" style="margin-top:8px"></div>'
-      + '<div class="form-group"><label>Couleur</label><select class="a-couleur">' + COULEURS.map(c => '<option' + (copie && c === copie.couleur ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>'
-      + '<div class="form-group"><label>Coupe</label><select class="a-coupe"><option>Unisexe</option><option' + (copie && copie.coupe === 'Femme' ? ' selected' : '') + '>Femme</option></select></div>'
-      + '</div>'
-      + '<div class="grid-2">'
-      + '<div class="form-group"><label>Visuel / texte</label><select class="a-visuel">' + optionsVisuels(copie && copie.visuel) + '</select><input type="text" class="a-visuel-txt hidden" placeholder="Ex: prénom, numéro, texte…" style="margin-top:8px"></div>'
-      + '<div class="form-group"><label>Remarque <span class="optional">(optionnel)</span></label><input type="text" class="a-rem" placeholder="Ex: flocage manche, prénom…"></div>'
-      + '</div>'
-      + '<span class="lbl">Quantité par taille</span><div class="sizes"></div><div class="article-total"></div>';
-    $('articles').appendChild(a);
-    const sProd = a.querySelector('.a-produit');
-    const renderTailles = (vals) => {
-      const p = sProd.value;
-      a.querySelector('.a-produit-txt').classList.toggle('hidden', p !== 'Autre : (saisie manuelle)');
-      a.querySelector('.a-coupe').closest('.form-group').classList.toggle('hidden', p === 'Tote Bag' || p === 'Casquette' || p === 'T-Shirt Enfant');
-      a.querySelector('.sizes').innerHTML = taillesPour(p).map(t => '<label class="size"><span>' + t + '</span><input type="number" min="0" inputmode="numeric" data-t="' + t + '" value="' + ((vals && vals[t]) || '') + '" placeholder="0"></label>').join('');
-      majRecap();
-    };
-    sProd.addEventListener('change', () => renderTailles());
-    a.querySelector('.a-visuel').addEventListener('change', e => { a.querySelector('.a-visuel-txt').classList.toggle('hidden', e.target.value !== '__texte__'); majRecap(); });
-    a.addEventListener('input', majRecap);
-    a.querySelector('.a-del').onclick = () => { a.remove(); renumeroterArticles(); majRecap(); };
-    a.querySelector('.a-dup').onclick = () => { const d = lireArticle(a); addArticle({ produit: d.produitSel, couleur: d.couleur, coupe: d.coupe, visuel: d.visuel, tailles: {} }); };
-    renderTailles(copie && copie.tailles);
-    renumeroterArticles();
-  }
-  function renumeroterArticles(){
-    document.querySelectorAll('.article').forEach((a, i) => { a.querySelector('.article-title').textContent = '👕 Article ' + (i + 1); a.querySelector('.a-del').classList.toggle('hidden', document.querySelectorAll('.article').length === 1); });
-  }
-  function lireArticle(a){
-    const produitSel = a.querySelector('.a-produit').value;
-    const produit = produitSel === 'Autre : (saisie manuelle)' ? (a.querySelector('.a-produit-txt').value.trim() || produitSel) : produitSel;
-    const sv = a.querySelector('.a-visuel').value;
-    const visuel = sv === '__texte__' ? a.querySelector('.a-visuel-txt').value.trim() : sv;
-    const coupeVisible = !a.querySelector('.a-coupe').closest('.form-group').classList.contains('hidden');
-    const tailles = {};
-    a.querySelectorAll('.sizes input').forEach(i => { const n = Math.max(0, Math.round(Number(i.value) || 0)); i.classList.toggle('has', n > 0); if (n) tailles[i.dataset.t] = n; });
-    return { produitSel, produit, couleur: a.querySelector('.a-couleur').value, coupe: coupeVisible ? a.querySelector('.a-coupe').value : '', visuel, remarque: a.querySelector('.a-rem').value.trim(), tailles };
-  }
-  function lignesCommande(){
-    const out = [];
-    document.querySelectorAll('.article').forEach(a => {
-      const d = lireArticle(a);
-      Object.entries(d.tailles).forEach(([t, q]) => out.push({ type: d.produit, couleur: d.couleur, qte: q, taille: t, coupe: d.coupe, visuel: d.visuel, remarques: d.remarque }));
+  // Coller depuis Excel : colonnes Produit | Couleur | Qté | Taille | Coupe | Visuel | Remarques (ordre du modèle)
+  $('grid-body').addEventListener('paste', e => {
+    const t = (e.clipboardData || window.clipboardData).getData('text');
+    if (!t || (t.indexOf('\t') < 0 && t.indexOf('\n') < 0)) return;
+    e.preventDefault();
+    const rowsTxt = t.replace(/\r/g, '').split('\n').filter(r => r.trim());
+    let tr = e.target.closest('tr');
+    const norm = s => String(s || '').trim().toUpperCase().replace(/^XXL$/, '2XL').replace(/^XXXL$/, '3XL');
+    const trouve = (list, v) => list.find(x => x.toLowerCase() === String(v || '').trim().toLowerCase()) || String(v || '').trim();
+    rowsTxt.forEach(r => {
+      let c = r.split('\t');
+      if (/^\d+$/.test((c[0] || '').trim()) && c.length >= 8) c = c.slice(1); // colonne N° copiée
+      if (!tr) tr = ajouterLigne();
+      tr.innerHTML = ligneHtml({ type: trouve(PRODUITS, c[0]) || 'T-Shirt', couleur: trouve(COULEURS, c[1]), qte: Number(c[2]) || '', taille: norm(c[3]), coupe: trouve(['Unisexe','Femme'], c[4]) || 'Unisexe', visuel: c[5], remarques: c[6] });
+      tr.classList.toggle('filled', ligneRemplie(lireLigne(tr)));
+      tr = tr.nextElementSibling;
     });
-    return out;
-  }
+    if (!tr) ajouterLigne(); renumeroter(); majRecap();
+  });
+
   function majRecap(){
-    let total = 0;
-    document.querySelectorAll('.article').forEach(a => {
-      const d = lireArticle(a); const n = Object.values(d.tailles).reduce((s, x) => s + x, 0); total += n;
-      a.querySelector('.article-total').textContent = n ? n + ' pièce(s) · ' + d.produit + ' ' + d.couleur + (d.visuel ? ' · ' + d.visuel : '') : 'Indiquez au moins une quantité';
+    const lignes = lignesCommande();
+    const total = lignes.reduce((t, l) => t + l.qte, 0);
+    const parTaille = {}, parArticle = {};
+    lignes.forEach(l => {
+      parTaille[l.taille] = (parTaille[l.taille] || 0) + l.qte;
+      const k = [l.type, l.couleur, l.coupe, l.visuel].filter(Boolean).join(' · ');
+      parArticle[k] = (parArticle[k] || 0) + l.qte;
     });
-    const n = lignesCommande().length;
-    $('recap').innerHTML = '<b>' + total + ' pièce(s)</b> au total · ' + n + ' ligne(s)' + (n > MAX_LIGNES ? ' — <span style="color:var(--rouge)">trop de lignes (' + MAX_LIGNES + ' max), contactez-nous</span>' : '');
+    const tailles = TOUTES_TAILLES.filter(t => parTaille[t]);
+    $('recap').innerHTML = total
+      ? '<div><span class="tot">' + total + '</span> pièce(s) · ' + lignes.length + ' ligne(s)' + (lignes.length > MAX_LIGNES ? ' — <span style="color:var(--rouge)">' + MAX_LIGNES + ' lignes max, contactez-nous</span>' : '') + '</div>'
+        + '<div class="chips-t">' + tailles.map(t => '<span><small>' + t + '</small>' + parTaille[t] + '</span>').join('') + '</div>'
+        + '<table><thead><tr><th>Article</th><th style="text-align:right">Qté</th></tr></thead><tbody>'
+        + Object.entries(parArticle).map(([k, n]) => '<tr><td>' + esc(k) + '</td><td style="text-align:right"><b>' + n + '</b></td></tr>').join('') + '</tbody></table>'
+      : 'Récapitulatif : aucune ligne remplie pour l\'instant.';
     if (total) $('err-articles').classList.remove('show');
   }
 
@@ -651,8 +714,14 @@
 
     // Articles
     const lignes = lignesCommande();
-    if (!excelManuel() && !lignes.length) { valid = false; $('err-articles').classList.add('show'); if (!firstErr) firstErr = $('articles'); }
+    if (!excelManuel() && !lignes.length) { valid = false; $('err-articles').classList.add('show'); if (!firstErr) firstErr = $('grid'); }
     if (!excelManuel() && lignes.length > MAX_LIGNES) { valid = false; if (!firstErr) firstErr = $('recap'); }
+    if (!excelManuel()) {
+      const sansCouleur = [...$('grid-body').rows].filter(tr => { const l = lireLigne(tr); return ligneRemplie(l) && !l.couleur; });
+      sansCouleur.forEach(tr => { tr.dataset.verif = '1'; tr.querySelector('.g-couleur').classList.add('error'); });
+      if (sansCouleur.length) { valid = false; $('err-articles').textContent = 'Indiquez la couleur sur chaque ligne remplie'; $('err-articles').classList.add('show'); if (!firstErr) firstErr = sansCouleur[0]; }
+      else $('err-articles').textContent = 'Remplissez au moins une ligne (taille + quantité)';
+    }
 
     if (updateTotalBar() > MAX_TOTAL) { valid = false; if (!firstErr) firstErr = $('total-wrap'); }
 
@@ -733,7 +802,8 @@
 
   // ---------------- Démarrage ----------------
   addVisuel();
-  addArticle();
+  for (let i = 0; i < 6; i++) ajouterLigne();
+  majVisuelsArticles();
 </script>
 </body>
 </html>

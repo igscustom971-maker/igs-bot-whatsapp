@@ -568,6 +568,8 @@ function csEvents(){
     charger(false);
   });
 }
+// Écart entre la quantité du devis (colonne Contenu) et le tableau des tailles du client
+const ecartHtml = ct => ct && ct.ecart ? '<div><span class="why r" title="Quantité du devis : '+ct.devis+' · tableau des tailles : '+ct.tableau+'">⚠ Devis '+ct.devis+' / tableau '+ct.tableau+' ('+(ct.ecart>0?'+':'')+ct.ecart+')</span></div>' : '';
 let autoEtat = null;
 // ---------- Stock ----------
 let stockData = null, stClient = null, stZeros = false;
@@ -912,6 +914,7 @@ function accueil(){
   actifs.filter(c => c.date_livraison === today).forEach(c => add(c, 'Livraison aujourd\\'hui', 'o'));
   actifs.filter(c => c.date_livraison === addDays(1)).forEach(c => add(c, 'Livraison demain', 'o'));
   data.filter(c => statutKey(c.statut) === 'PAYÉE').forEach(c => add(c, 'Attend le formulaire', 'b'));
+  actifs.filter(c => c.controle && c.controle.ecart).forEach(c => add(c, 'Écart devis '+c.controle.devis+' / tableau '+c.controle.tableau, 'r'));
   actifs.filter(c => c.date_dynamique && !c.date_livraison_manuelle).forEach(c => add(c, 'Date auto (=TODAY)', 'y'));
   $('prios').innerHTML = prios.length ? prios.slice(0,10).map(p =>
     '<div class="prio" data-k="'+esc(p.c.cle)+'"><div><div class="client">'+esc(p.c.client)+'</div><div class="sub">'+esc(p.c.n_devis||'')+(p.c.affectation?' · '+esc(p.c.affectation):'')+'</div></div>'
@@ -948,7 +951,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -994,6 +997,9 @@ async function ouvrir(cle){
     if (d.erreur) throw new Error(d.erreur);
     if (!d.trouve) { $('dossier').innerHTML = '<div class="card note">Aucun dossier « '+esc(c.n_devis)+' - … » trouvé dans Clients/Commandes.</div>'; return; }
     let h = '';
+    if (d.controle) h += d.controle.ecart
+      ? '<div class="warnbox">⚠️ <b>Incohérence devis / tableau</b> : le devis indique <b>'+d.controle.devis+' pièce(s)</b>, le tableau des tailles du client en contient <b>'+d.controle.tableau+'</b> ('+(d.controle.ecart>0?'+':'')+d.controle.ecart+'). Vérifie avec le client avant de commander les t-shirts.</div>'
+      : '<div class="note" style="color:var(--ok);font-weight:600">✅ Tableau des tailles cohérent avec le devis ('+d.controle.devis+' pièces)</div>';
     // Tailles
     h += '<div class="card"><h3>Tailles'+(d.tailles.total?' · '+d.tailles.total+' pièces':'')+'</h3>';
     if (d.tailles.erreur) h += '<div class="warnbox">Tailles.xlsx illisible : '+esc(d.tailles.erreur)+'</div>';

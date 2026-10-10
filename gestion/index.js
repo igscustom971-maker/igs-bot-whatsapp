@@ -161,7 +161,7 @@ module.exports = function mountGestion(app) {
 
   app.get('/gestion/api/commandes/:devis/dossier', auth.requireUser, async (req, res) => {
     try {
-      res.json(await commandes.getDossier(req.params.devis));
+      res.json(await commandes.getDossierControle(req.params.devis));
     } catch (err) {
       console.error('Gestion dossier :', err.message);
       res.status(502).json({ erreur: err.message });

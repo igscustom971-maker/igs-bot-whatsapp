@@ -180,7 +180,40 @@ function applyOverride(r, o) {
 async function listCommandes({ force = false } = {}) {
   if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
   const ov = await loadOverrides();
-  return { ...cache, rows: cache.rows.map(r => applyOverride(r, ov.get(r.cle))) };
+  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), controle: controles.get(r.cle) || null })) };
+}
+
+// ---------- Contrôle devis / tableau des tailles ----------
+// Quantité du devis lue dans "Contenu" (ex. "100 x [ENTSHAVR] T-shirt personnalisé / 6 x [ENTABLIER] Tablier")
+function qteDevis(infos) {
+  const re = /(\d+(?:[.,]\d+)?)\s*x\s*\[/gi;
+  let m, total = 0, n = 0;
+  while ((m = re.exec(String(infos || '')))) { total += Number(m[1].replace(',', '.')); n++; }
+  return n ? Math.round(total) : null;
+}
+function controleDe(row, totalTableau) {
+  const devis = qteDevis(row.infos);
+  if (devis === null || !totalTableau) return null;
+  return { devis, tableau: totalTableau, ecart: totalTableau - devis };
+}
+const controles = new Map(); // cle -> { devis, tableau, ecart, le }
+const STATUTS_A_CONTROLER = /^(PAYEE|VALIDEE|EN COMMANDE|EN PRODUCTION|EN FLOCAGE)$/;
+let controleEnCours = false;
+async function controlerQuantites() {
+  if (controleEnCours) return;
+  controleEnCours = true;
+  try {
+    for (const r of cache.rows) {
+      if (!r.n_devis || !STATUTS_A_CONTROLER.test(g.norm(r.statut || '').toUpperCase()) || qteDevis(r.infos) === null) continue;
+      const d = await getDossier(r.n_devis).catch(() => null);
+      const c = d && d.trouve && d.tailles ? controleDe(r, d.tailles.total) : null;
+      if (c) controles.set(r.cle, { ...c, le: new Date().toISOString() }); else controles.delete(r.cle);
+    }
+  } catch (err) {
+    console.error('Gestion contrôle quantités :', err.message);
+  } finally {
+    controleEnCours = false;
+  }
 }
 
 async function setLivraison(cle, date, user) {
@@ -353,6 +386,17 @@ async function getDossier(ndevis) {
   };
 }
 
+// Dossier + contrôle devis / tableau (et mise à jour du cache de contrôle)
+async function getDossierControle(ndevis) {
+  const d = await getDossier(ndevis);
+  const row = cache.rows.find(r => r.n_devis === ndevis);
+  if (d.trouve && row) {
+    d.controle = controleDe(row, d.tailles.total);
+    if (d.controle) controles.set(row.cle, { ...d.controle, le: new Date().toISOString() });
+  }
+  return d;
+}
+
 // Sécurité du proxy de fichiers : uniquement des fichiers situés sous le dossier Clients/Commandes
 async function fichierAutorise(itemId) {
   const it = await g.item(itemId);
@@ -367,6 +411,9 @@ function startSync() {
   }
   setTimeout(syncNow, 5000);
   setInterval(syncNow, cfg.SYNC_INTERVAL_MS);
+  // Contrôle des quantités devis / tableau : au démarrage puis toutes les 20 min
+  setTimeout(controlerQuantites, 60e3);
+  setInterval(controlerQuantites, 20 * 60e3);
 }
 
 // ============================================
@@ -420,4 +467,4 @@ async function modifier(cle, champs, user) {
   return r ? applyOverride(r, ov.get(cle)) : null;
 }
 
-module.exports = { listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
