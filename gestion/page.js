@@ -1353,7 +1353,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -1453,6 +1453,14 @@ function batEtape(c){
   const i = c.bat_info; if (!i) return 'inconnu';
   if (!i.dossier || !i.formulaire) return 'formulaire';
   return i.bat ? 'envoyer' : 'faire';
+}
+// État du BAT sur la ligne de la commande (liste), visible au premier coup d'œil
+function batBadge(c){
+  if (!AVANT_BAT(c)) return '';
+  const e = batEtape(c);
+  const t = { modif: ['✏️ BAT : modification demandée', '#fee2e2', '#991b1b'], faire: ['🎨 BAT à faire', '#fef3c7', '#92400e'],
+              envoyer: [(c.bat_auto_le ? '🤖 BAT auto à vérifier et envoyer' : '📤 BAT à envoyer'), '#ede9fe', '#5b21b6'], client: ['⏳ BAT envoyé, attend le client', '#e0f2fe', '#075985'] }[e];
+  return t ? '<div><a href="/gestion/commandes#bat" class="esp" style="background:'+t[1]+';color:'+t[2]+';text-decoration:none" onclick="event.stopPropagation();event.preventDefault();var b=document.getElementById(\\'tab-bat\\');if(b)b.click();else location.href=\\'/gestion/commandes#bat\\'">'+t[0]+'</a></div>' : '';
 }
 function batRender(){
   const q = norm(recherche);
