@@ -133,7 +133,7 @@ function mount(app) {
     res.set('Cache-Control', 'no-store').send(pageAuth('Connexion', `<h1>IGS DASHBOARD</h1><p class="sub">Connexion à l'espace de gestion</p>
 <a class="ms" href="/gestion/auth/microsoft"><svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true"><rect width="10" height="10" fill="#f25022"/><rect x="11" width="10" height="10" fill="#7fba00"/><rect y="11" width="10" height="10" fill="#00a4ef"/><rect x="11" y="11" width="10" height="10" fill="#ffb900"/></svg>Se connecter avec Microsoft 365</a>
 <div class="sep">ou avec ton identifiant</div>
-<form id="f"><label for="i">Identifiant</label><input id="i" autocomplete="username" autocapitalize="none" placeholder="ton prénom (ex. maureen)" required>
+<form id="f"><label for="i">Identifiant</label><input id="i" autocomplete="username" autocapitalize="none" required>
 <label for="p">Mot de passe</label><input id="p" type="password" autocomplete="current-password" required>
 <button class="go" type="submit">Se connecter</button></form>
 <a class="lien" href="/gestion/auth/oubli">Mot de passe oublié ?</a><div class="msg" id="msg"></div>`,

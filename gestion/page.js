@@ -196,6 +196,7 @@ th{padding:10px 8px}
 td.c-x{width:30px;text-align:right;padding-left:0}
 .hrform{display:grid;gap:10px}
 .hrform .field input,.hrform .field select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.hrhome{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px}.hrhome span b{margin-left:4px}
 .hrl{display:grid;grid-template-columns:1.2fr .8fr 1.4fr auto;gap:6px;align-items:end;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
 .hrl label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
 .hrl input{width:100%;font:inherit;padding:9px;border:1px solid var(--line);border-radius:8px;background:#fff}
@@ -276,6 +277,7 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Planches DTF</h3><div id="plhome"><div class="skel"></div></div></div>
         <div class="card"><h3>Commandes par statut</h3><div class="flow" id="flow"></div></div>
         <div class="card"><h3>Charge par personne</h3><div class="flow" id="charge"></div></div>
+        ${user.role === 'admin' || user.collab ? `<a class="card" href="/gestion/heures" style="text-decoration:none;color:inherit;display:block"><h3>⏱ ${user.role === 'admin' ? 'Heures de la semaine' : 'Mes heures de la semaine'}</h3><div id="hrhome" class="hrhome"><div class="skel"></div></div></a>` : ''}
       </div>
     </div>
   </section>` : view === 'admin' ? `
@@ -469,7 +471,23 @@ async function charger(force){
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
 }
 
-function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
+// Accueil : petit récap des heures de la semaine (admin : par personne ; compte individuel : les siennes)
+let hrHomeAt = 0;
+async function hrHome(){
+  const box = $('hrhome'); if (!box || Date.now() - hrHomeAt < 60000) return;
+  hrHomeAt = Date.now();
+  try {
+    if (MOI) {
+      const d = await (await fetch('/gestion/api/heures/mes?collaborateur='+encodeURIComponent(MOI))).json(); if (d.error) throw new Error(d.error);
+      box.innerHTML = '<span>Semaine '+d.numero+'<b>'+d.total+'</b></span><span class="sub">'+d.lignes.length+' jour(s) saisi(s)</span>';
+    } else {
+      const d = await (await fetch('/gestion/api/heures/semaine')).json(); if (d.error) throw new Error(d.error);
+      const l = d.collaborateurs.filter(c => c.minutes > 0);
+      box.innerHTML = l.length ? l.map(c => '<span>'+esc(c.collaborateur)+'<b>'+c.duree+'</b></span>').join('') + '<span class="sub">Total <b>'+fhm(d.total.minutes)+'</b></span>' : '<span class="sub">Aucune heure saisie cette semaine</span>';
+    }
+  } catch(e){ box.innerHTML = '<span class="sub">Heures indisponibles</span>'; }
+}
+function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
