@@ -41,9 +41,10 @@ async function getUid() {
 let companyId = process.env.ODOO_COMPANY_ID ? Number(process.env.ODOO_COMPANY_ID) : null;
 async function ctx() {
   if (!companyId) {
-    const r = await rawKw('res.company', 'search_read', [[['name', 'ilike', 'IGS']]], { fields: ['id', 'name'], limit: 1 });
-    if (!r.length) throw new Error('Société IGS introuvable dans Odoo (renseigne ODOO_COMPANY_ID)');
+    const r = await rawKw('res.company', 'search_read', [[['name', 'ilike', 'IGS']]], { fields: ['id', 'name'], limit: 5 });
+    if (r.length !== 1) throw new Error(`Société IGS ${r.length ? 'ambiguë (' + r.map(c => c.id + ' ' + c.name).join(', ') + ')' : 'introuvable'} : renseigne ODOO_COMPANY_ID sur Render`);
     companyId = r[0].id;
+    console.log(`Gestion Odoo : société ${r[0].name} (id ${companyId})`);
   }
   return { lang: 'fr_FR', tz: 'America/Guadeloupe', allowed_company_ids: [companyId] };
 }
@@ -54,6 +55,10 @@ async function rawKw(model, method, args, kwargs = {}) {
 async function kw(model, method, args, kwargs = {}) {
   return rawKw(model, method, args, { ...kwargs, context: { ...(await ctx()), ...(kwargs.context || {}) } });
 }
+
+// Filtres société : uniquement IGS (ou fiches partagées entre sociétés, company_id vide)
+const igsOuPartage = async () => { await ctx(); return ['|', ['company_id', '=', false], ['company_id', '=', companyId]]; };
+const igsSeulement = async () => { await ctx(); return [['company_id', '=', companyId]]; };
 
 // ---------- Clients (avec correspondances : ZePUB = Manuel KOMLHA, etc.) ----------
 const k = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -81,10 +86,10 @@ async function findPartner(nom) {
     const [p] = await kw('res.partner', 'read', [[alias.partner_id]], { fields: PARTNER_FIELDS });
     if (p) return { partner: p };
   }
-  const exact = await kw('res.partner', 'search_read', [[['name', '=ilike', nom]]], { fields: PARTNER_FIELDS, limit: 5 });
+  const exact = await kw('res.partner', 'search_read', [[...(await igsOuPartage()), ['name', '=ilike', nom]]], { fields: PARTNER_FIELDS, limit: 5 });
   if (exact.length === 1) return { partner: exact[0] };
   const proches = exact.length ? exact
-    : await kw('res.partner', 'search_read', [[['name', 'ilike', nom]]], { fields: PARTNER_FIELDS, limit: 10 });
+    : await kw('res.partner', 'search_read', [[...(await igsOuPartage()), ['name', 'ilike', nom]]], { fields: PARTNER_FIELDS, limit: 10 });
   return { candidats: proches.map(p => ({ id: p.id, name: p.name, email: p.email })) };
 }
 
@@ -94,7 +99,7 @@ async function readPartner(id) {
 }
 
 async function searchPartners(q) {
-  const r = await kw('res.partner', 'search_read', [['|', ['name', 'ilike', q], ['email', 'ilike', q]]], { fields: ['id', 'name', 'email'], limit: 15 });
+  const r = await kw('res.partner', 'search_read', [[...(await igsOuPartage()), '|', ['name', 'ilike', q], ['email', 'ilike', q]]], { fields: ['id', 'name', 'email'], limit: 15 });
   return r.map(p => ({ id: p.id, name: p.name, email: p.email }));
 }
 
@@ -107,7 +112,7 @@ function isMartinique(p) {
 const productCache = {};
 async function product(code) {
   if (productCache[code]) return productCache[code];
-  const r = await kw('product.product', 'search_read', [[['default_code', '=', code]]], { fields: ['id', 'name'], limit: 1 });
+  const r = await kw('product.product', 'search_read', [[...(await igsOuPartage()), ['default_code', '=', code]]], { fields: ['id', 'name'], limit: 1 });
   if (!r.length) throw new Error(`Produit ${code} introuvable dans Odoo`);
   return (productCache[code] = r[0]);
 }
@@ -170,14 +175,14 @@ async function creerEtEnvoyerDevis({ partner, metres, format, titre, envoyer = t
 // Anti-doublon : devis du même client créé il y a moins de 2 h
 async function devisRecent(partnerId) {
   const since = new Date(Date.now() - 2 * 3600e3).toISOString().replace('T', ' ').slice(0, 19);
-  const r = await kw('sale.order', 'search_read', [[['partner_id', '=', partnerId], ['create_date', '>=', since]]], { fields: ['name'], limit: 1 });
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['partner_id', '=', partnerId], ['create_date', '>=', since]]], { fields: ['name'], limit: 1 });
   return r[0]?.name || null;
 }
 
 // Lien direct vers une fiche Odoo (devis, facture)
 const lienOdoo = (model, id) => `${URL_}/web#id=${id}&model=${model}&view_type=form`;
 async function lienDevis(numero) {
-  const r = await kw('sale.order', 'search_read', [[['name', '=', numero]]], { fields: ['id'], limit: 1 });
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id'], limit: 1 });
   return r.length ? lienOdoo('sale.order', r[0].id) : null;
 }
 
