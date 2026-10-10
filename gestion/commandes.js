@@ -422,8 +422,9 @@ async function creerCommande(data, user) {
 }
 
 // Formulaire client reçu (reprend le script Office du flux « Dépôt fichiers commande ») :
-// ligne trouvée par N° de devis -> Contenu mail, Zone, PLANCHE (si vide) mis à jour, PAYÉE -> VALIDÉE ;
-// pas de ligne -> ligne créée (VALIDÉE, PLANCHE « À FAIRE »)
+// ligne trouvée par N° de devis -> Contenu mail, Zone, PLANCHE (si vide) mis à jour ; le statut ne bouge pas
+// (PAYÉE + formulaire reçu = BAT à faire ; VALIDÉE = BAT validé par le client) ;
+// pas de ligne -> ligne créée (PAYÉE, PLANCHE « À FAIRE »)
 async function majFormulaire({ devis, client, email, tel, instructions, zone }) {
   const t = v => String(v ?? '').replace(/\u00a0/g, ' ').trim();
   const vide = l => l === '' || l === '—' || l === '-';
@@ -435,12 +436,12 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
   const cDevis = xl.col(tab, 'N° Devis', 'N Devis', 'Devis');
   const ligne = tab.rows.find(r => t(r.values[cDevis]).toUpperCase() === cible);
   const opt = (...n) => { try { return xl.col(tab, ...n); } catch { return null; } };
-  const [cContenu, cZone, cPlanche, cStatut] = [opt('Contenu mail'), opt('Zone de flocage'), opt('PLANCHE', 'Planche'), xl.col(tab, 'Statut')];
+  const [cContenu, cZone, cPlanche] = [opt('Contenu mail'), opt('Zone de flocage'), opt('PLANCHE', 'Planche')];
   if (!ligne) {
     await xl.addRow(tab, {
       'N° Devis|N Devis|Devis': cible, 'Client': t(client).slice(0, 100),
       ...(contenu ? { '?Contenu mail': contenu } : {}), ...(zoneF ? { '?Zone de flocage': zoneF } : {}),
-      '?PLANCHE|Planche': 'À FAIRE', 'Statut': 'VALIDÉE',
+      '?PLANCHE|Planche': 'À FAIRE', 'Statut': 'PAYÉE',
     }, 'N° Devis|N Devis|Devis');
     await syncNow();
     return `ligne créée pour ${cible}`;
@@ -448,7 +449,6 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
   if (contenu && cContenu !== null) await xl.setCell(tab, ligne._row, cContenu, contenu);
   if (zoneF && cZone !== null) await xl.setCell(tab, ligne._row, cZone, zoneF);
   if (cPlanche !== null && !t(ligne.values[cPlanche])) await xl.setCell(tab, ligne._row, cPlanche, 'À FAIRE');
-  if (key(t(ligne.values[cStatut])) === 'payee') await xl.setCell(tab, ligne._row, cStatut, 'VALIDÉE');
   await syncNow();
   return `ligne ${cible} mise à jour`;
 }

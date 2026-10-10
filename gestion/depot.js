@@ -4,7 +4,7 @@
 // Appelé par formulaire.js juste après l'envoi du mail « Nouvelle commande - … », quand la tâche est activée :
 //  1. dossier « N° devis - Client » dans Clients/Commandes (repris s'il existe) ;
 //  2. un sous-dossier par pièce jointe, comme avant : « Logo_Avant.png » -> Logo/, « Tailles.xlsx » -> Tailles/, zip -> son nom ;
-//  3. ligne de la commande mise à jour (contact, zone, PLANCHE « À FAIRE », PAYÉE -> VALIDÉE) ;
+//  3. ligne de la commande mise à jour (contact, zone, PLANCHE « À FAIRE ») ; elle reste PAYÉE (BAT à faire) ;
 //  4. Tailles.xlsx reçu -> bon de commande SEFI rempli.
 // Le mail « Nouvelle commande » continue d'arriver dans contact@ (trace).
 // ============================================
