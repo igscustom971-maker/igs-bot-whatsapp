@@ -96,19 +96,57 @@ const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 function pageAuth(titre, corps, script = '') {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escH(titre)} · IGS DASHBOARD</title><meta name="robots" content="noindex">
+<link rel="icon" href="/gestion/logo-igs.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1e1b4b;background:linear-gradient(135deg,#fde2f0,#ede9fe)}
-.box{width:100%;max-width:400px;background:#fff;border-radius:16px;padding:28px 24px;box-shadow:0 10px 40px rgba(30,27,75,.12)}
-h1{margin:0 0 4px;font-size:22px;letter-spacing:.3px}.sub{color:#6b7280;font-size:14px;margin:0 0 20px}
-.ms{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px;border:1px solid #d1d5db;border-radius:10px;background:#fff;color:#1e1b4b;font:inherit;font-weight:600;text-decoration:none}
-.ms:hover{background:#f9fafb}.sep{display:flex;align-items:center;gap:10px;color:#9ca3af;font-size:12px;margin:20px 0}.sep:before,.sep:after{content:"";flex:1;height:1px;background:#e5e7eb}
-label{display:block;font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.3px;margin:12px 0 4px}
-input{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:10px;font:inherit;font-size:16px}
-button.go{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;background:#e91e8c;color:#fff;font:inherit;font-weight:700;font-size:16px;cursor:pointer}
-button.go:disabled{opacity:.6}.lien{display:block;text-align:center;margin-top:14px;color:#6b7280;font-size:14px}
-.msg{display:none;margin-top:14px;padding:10px 12px;border-radius:10px;font-size:14px}.msg.err{display:block;background:#fee2e2;color:#991b1b}.msg.ok{display:block;background:#dcfce7;color:#166534}
-.info{background:#fef3c7;color:#92400e;padding:10px 12px;border-radius:10px;font-size:14px;margin-bottom:6px}
-</style></head><body><main class="box">${corps}</main>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif;color:#1E1E4B;background:#F4F3F8}
+.side{flex:1 1 52%;position:relative;overflow:hidden;background:#1E1E4B;color:#fff;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between}
+.side::before{content:"";position:absolute;width:620px;height:620px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#E91E8C 0,#B0156B 45%,transparent 70%);opacity:.55;right:-220px;bottom:-240px}
+.side::after{content:"";position:absolute;width:300px;height:300px;border-radius:50%;border:2px solid rgba(255,255,255,.08);right:120px;top:-90px}
+.side>*{position:relative;z-index:1}
+.marque{display:flex;align-items:center;gap:14px}
+.marque .lg{width:112px;height:98px;display:flex;align-items:center;justify-content:center;color:#E91E8C;font-weight:800;filter:drop-shadow(0 10px 30px rgba(233,30,140,.35))}
+.marque .lg img{width:100%;height:100%;object-fit:contain;display:block}
+.marque b{font-size:20px;letter-spacing:.4px;display:block}.marque small{color:#B9B8DB;font-size:13px;font-weight:600}
+.accroche h2{margin:0;font-size:44px;line-height:1.08;font-weight:800;letter-spacing:-1.2px;max-width:520px}
+.accroche h2 em{font-style:normal;color:#F472B6}
+.accroche p{margin:18px 0 0;color:#C9C8E3;font-size:16px;line-height:1.6;max-width:460px}
+.puces{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.puces span{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;color:#E4E3F5}
+.pied{color:#8D8BB8;font-size:12.5px}
+.cote{flex:1 1 48%;display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.box{width:100%;max-width:420px}
+.box .lg-m{display:none}
+h1{margin:0 0 6px;font-size:30px;font-weight:800;letter-spacing:-.6px}.sub{color:#7A7899;font-size:15px;margin:0 0 28px}
+.ms{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:52px;padding:12px;border:1px solid #E3E1EE;border-radius:14px;background:#fff;color:#1E1E4B;font:inherit;font-weight:700;font-size:15px;text-decoration:none;box-shadow:0 1px 2px rgba(30,30,75,.04);transition:.15s}
+.ms:hover{border-color:#C9C6DC;box-shadow:0 6px 18px rgba(30,30,75,.08)}
+.sep{display:flex;align-items:center;gap:12px;color:#A3A1BC;font-size:12.5px;font-weight:600;margin:24px 0 8px}.sep:before,.sep:after{content:"";flex:1;height:1px;background:#E6E4EF}
+label{display:block;font-size:13px;font-weight:700;color:#5B5A7E;margin:16px 0 6px}
+input{width:100%;min-height:50px;padding:12px 14px;border:1px solid #E3E1EE;border-radius:14px;font:inherit;font-size:16px;background:#fff;color:#1E1E4B;transition:.15s}
+input:focus{outline:none;border-color:#E91E8C;box-shadow:0 0 0 4px rgba(233,30,140,.12)}
+button.go{width:100%;margin-top:24px;min-height:52px;padding:13px;border:0;border-radius:14px;background:#E91E8C;color:#fff;font:inherit;font-weight:800;font-size:16px;cursor:pointer;box-shadow:0 10px 24px rgba(233,30,140,.28);transition:.15s}
+button.go:hover{background:#D0177C}button.go:disabled{opacity:.6}
+.lien{display:block;text-align:center;margin-top:18px;color:#7A7899;font-size:14px;font-weight:600;text-decoration:none}.lien:hover{color:#E91E8C}
+.msg{display:none;margin-top:16px;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600}.msg.err{display:block;background:#FFE4E6;color:#9F1239}.msg.ok{display:block;background:#DCFCE7;color:#166534}
+.info{background:#FEF3C7;color:#92400E;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:8px}
+@media (max-width:900px){
+  body{flex-direction:column;background:#fff}
+  .side{flex:none;padding:24px 22px 28px;min-height:auto}
+  .marque .lg{width:72px;height:63px}
+  .side::before{width:360px;height:360px;right:-160px;bottom:-200px}
+  .accroche h2{font-size:28px;margin-top:22px}.accroche p,.puces,.pied{display:none}
+  .cote{padding:28px 20px 40px;align-items:flex-start}
+}
+</style></head><body>
+<aside class="side" aria-hidden="false">
+  <div class="marque"><div class="lg"><img src="/gestion/logo-igs.png" alt="IGS CUSTOM BAR" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><b>IGS DASHBOARD</b><small>IGS CUSTOM BAR</small></div></div>
+  <div class="accroche"><h2>Tout l'atelier,<br><em>au même endroit.</em></h2><p>Commandes, BAT, planches DTF, stock, espèces et heures : tout se suit ici, et les messages aux clients partent tout seuls.</p>
+  <div class="puces"><span>Commandes</span><span>BAT</span><span>Planches DTF</span><span>Stock</span><span>Heures</span></div></div>
+  <div class="pied">62 rue Louis Vatable · Pointe-à-Pitre</div>
+</aside>
+<div class="cote"><main class="box">${corps}</main></div>
 <script>
 const $ = id => document.getElementById(id);
 function msg(t, k){ const m = $('msg'); m.className = 'msg ' + k; m.textContent = t; }
@@ -130,9 +168,11 @@ function requireAdmin(req, res, next) {
 }
 
 function mount(app) {
+  // Logo IGS (public : page de connexion, icône d'onglet)
+  app.get('/gestion/logo-igs.png', (req, res) => res.set('Cache-Control', 'public, max-age=86400').sendFile(require('path').join(__dirname, 'static', 'logo-igs.png')));
   app.get('/gestion/auth/login', (req, res) => {
     if (getUser(req)) return res.redirect('/gestion');
-    res.set('Cache-Control', 'no-store').send(pageAuth('Connexion', `<h1>IGS DASHBOARD</h1><p class="sub">Connexion à l'espace de gestion</p>
+    res.set('Cache-Control', 'no-store').send(pageAuth('Connexion', `<h1>Bon retour 👋</h1><p class="sub">Connecte-toi à ton espace IGS DASHBOARD.</p>
 <a class="ms" href="/gestion/auth/microsoft"><svg width="18" height="18" viewBox="0 0 21 21" aria-hidden="true"><rect width="10" height="10" fill="#f25022"/><rect x="11" width="10" height="10" fill="#7fba00"/><rect y="11" width="10" height="10" fill="#00a4ef"/><rect x="11" y="11" width="10" height="10" fill="#ffb900"/></svg>Se connecter avec Microsoft 365</a>
 <div class="sep">ou avec ton identifiant</div>
 <form id="f"><label for="i">Identifiant</label><input id="i" autocomplete="username" autocapitalize="none" required>

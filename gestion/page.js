@@ -15,7 +15,7 @@ function render(user, view = 'accueil') {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', admin: 'Admin' })[view] || 'Accueil'}</title>
-<link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
+<link rel="icon" href="/gestion/logo-igs.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -245,7 +245,7 @@ header{position:fixed;top:0;left:0;bottom:0;width:var(--side);background:#1E1E4B
 .bar{max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:4px;padding:22px 14px 16px}
 .bar .brand{display:flex;align-items:center;gap:10px;padding:2px 8px 20px}
 .bar .brand .logo img{display:block;width:100%;height:100%;object-fit:contain}
-.bar .brand .logo{overflow:hidden;width:42px;height:42px;border-radius:12px;background:#fff;padding:3px;box-sizing:border-box;color:#E91E8C;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none}
+.bar .brand .logo{overflow:visible;width:52px;height:46px;border-radius:0;background:none;padding:0;box-sizing:border-box;color:#E91E8C;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none}
 .bar h1{color:#fff;font-size:15px;letter-spacing:.3px}
 .bar .brand small{display:block;color:#8D8BB8;font-size:12px;font-weight:600}
 
@@ -314,7 +314,7 @@ tr.row:hover td{background:#FBFAFE}
 </head>
 <body>
 <header><div class="bar">
-  <div class="brand"><div class="logo"><img src="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png" alt="IGS" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><h1>IGS DASHBOARD</h1><small>Custom Bar</small></div></div>
+  <div class="brand"><div class="logo"><img src="/gestion/logo-igs.png" alt="IGS" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><h1>IGS DASHBOARD</h1><small>Custom Bar</small></div></div>
   <nav>
     <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>Aujourd'hui</a>
     <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg>Commandes<span class="nn" id="nav-n-cmd"></span></a>
