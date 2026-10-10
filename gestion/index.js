@@ -234,6 +234,21 @@ module.exports = function mountGestion(app) {
     try { res.json(await require('./bat-envoi').envoyer(req.params.cle, { mail: req.body?.mail !== false, whatsapp: req.body?.whatsapp !== false }, req.user.name || req.user.email, auth.baseUrl(req))); }
     catch (err) { console.error('Gestion envoi BAT :', err.message); res.status(400).json({ error: err.message }); }
   });
+  // Lien vers le formulaire client prérempli (devis, client, e-mail, téléphone ; complétés depuis Odoo si besoin)
+  app.get('/gestion/api/commandes/:cle/lien-formulaire', auth.requireUser, async (req, res) => {
+    try {
+      const { rows } = await commandes.listCommandes();
+      const c = rows.find(r => r.cle === req.params.cle);
+      if (!c) throw new Error('Commande introuvable');
+      let email = c.email || '', tel = c.telephone ? String(c.telephone).replace(/^(590|596|594)(\d{9})$/, '0$2') : '';
+      if ((!email || !tel) && c.n_devis) {
+        try { const p = await require('./odoo').clientDuDevis(c.n_devis); if (p) { email = email || p.email || ''; tel = tel || p.phone || ''; } }
+        catch (err) { console.error('Gestion lien formulaire (Odoo) :', err.message); }
+      }
+      const q = new URLSearchParams({ devis: c.n_devis || '', client: c.client || '', email, tel });
+      res.json({ url: `${process.env.FORM_PAGE_URL || 'https://igscustom.fr/formulaire/'}?${q}` });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/bat/actualiser', auth.requireUser, async (req, res) => {
     try { await commandes.scannerBat(); res.json({ ok: true }); } catch (err) { res.status(502).json({ error: err.message }); }
   });
@@ -272,5 +287,6 @@ module.exports = function mountGestion(app) {
   commandes.startSync();
   planches.startSync();
   heures.startRecap();
+  require('./telephones').start();
   console.log('Module Gestion IGS monté sur /gestion');
 };

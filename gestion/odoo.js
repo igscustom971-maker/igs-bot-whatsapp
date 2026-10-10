@@ -255,6 +255,36 @@ async function copierDevis(numero) {
   return { id, numero: so.name, montant_ht: so.amount_untaxed, lien: lienOdoo('sale.order', id) };
 }
 
+// ---------- Client d'un devis (pour préremplir le formulaire, compléter le téléphone) ----------
+async function clientDuDevis(numero) {
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id', 'partner_id'], limit: 1 });
+  if (!r.length || !r[0].partner_id) return null;
+  const [p] = await kw('res.partner', 'read', [[r[0].partner_id[0]]], { fields: ['id', 'name', 'email', 'phone'] });
+  return p || null;
+}
+
+// "590690112233" -> "+590 690 11 22 33" ; "33612345678" -> "+33 6 12 34 56 78"
+function formatTel(intl) {
+  const d = String(intl || '').replace(/\D/g, '');
+  const m = d.match(/^(590|596|594|262|33)(\d+)$/);
+  if (!m) return d ? `+${d}` : '';
+  const [, cc, reste] = m;
+  const tete = reste.length === 9 ? reste.slice(0, cc === '33' ? 1 : 3) : '';
+  const suite = (tete ? reste.slice(tete.length) : reste).match(/.{1,2}/g) || [];
+  return `+${cc} ${tete ? tete + ' ' : ''}${suite.join(' ')}`.trim();
+}
+
+// Ajoute le téléphone sur la fiche Odoo du client du devis, uniquement si elle n'en a pas
+async function completerTelephone(numero, telIntl) {
+  const p = await clientDuDevis(numero);
+  if (!p) return { statut: 'devis_introuvable' };
+  if (p.phone && String(p.phone).trim()) return { statut: 'deja_renseigne', partner: p.name };
+  const phone = formatTel(telIntl);
+  if (!phone) return { statut: 'pas_de_numero' };
+  await kw('res.partner', 'write', [[p.id], { phone }]);
+  return { statut: 'ajoute', partner: p.name, partnerId: p.id, phone };
+}
+
 // ---------- Facture hebdo ----------
 async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
   const ls = await lignes({ metres, format }, partner);
@@ -276,5 +306,5 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
 
 module.exports = {
   configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel,
 };

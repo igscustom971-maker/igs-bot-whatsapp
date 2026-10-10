@@ -1471,12 +1471,23 @@ function batRender(){
     + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
     + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
     + (e === 'faire' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
+    + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';
   $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Les planches DTF ne sont pas concernées.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
     + G.map(([k, t, d]) => { const l = rows.filter(c => batEtape(c) === k); if (!l.length && (k === 'inconnu' || k === 'formulaire')) return '';
       return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
 }
+// Formulaire client prérempli, ouvert dans un nouvel onglet (fenêtre ouverte tout de suite : pas de blocage de pop-up)
+async function ouvrirFormulaire(cle){
+  const w = window.open('about:blank', '_blank');
+  try {
+    const r = await fetch('/gestion/api/commandes/'+encodeURIComponent(cle)+'/lien-formulaire'); const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Erreur');
+    if (w) w.location.href = j.url; else location.href = j.url;
+  } catch(e){ if (w) w.close(); alert('Lien indisponible : ' + e.message); }
+}
 async function batClic(e){
+  const f = e.target.closest('[data-form]'); if (f) { e.preventDefault(); return ouvrirFormulaire(f.dataset.form); }
   const t = e.target.closest('[data-bat-open],[data-bat-env],[data-bat-ok],[data-bat-send],#bat-scan'); if (!t) return;
   e.preventDefault();
   const k = t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk || t.dataset.batSend;
@@ -1611,7 +1622,7 @@ function cmdActionsHtml(c){
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(statutKey(c.statut) === 'PAYÉE' ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -1628,6 +1639,7 @@ function brancherCmd(c){
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
   $('dup-btn').onclick = () => dupliquerUI(c);
+  document.querySelectorAll('#pbody [data-form]').forEach(b => b.onclick = () => ouvrirFormulaire(c.cle));
   $('c-suppr').onclick = async () => { if (await supprimerCmd(c)) fermer(); };
   const espMaj = async (actif, montant) => {
     try { await setEspecesCmd(c, actif, montant); afficher(); await ouvrir(c.cle); msg(actif ? '✅ Noté : paiement en espèces à la remise' : '✅ Mention espèces retirée', 'ok'); }
