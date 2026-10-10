@@ -202,6 +202,9 @@ async function setLivraison(cle, date, user) {
 // ---------- Dossier client : BAT, tailles, visuels ----------
 let commandesFolder = { id: null, list: [], at: 0 };
 
+let archivesFolder = { list: [], at: 0 };
+const devisDuDossier = name => key(String(name).split(/\s+-\s+/)[0]); // "DE2600446 - Erick JUDOR" -> de2600446
+
 async function findCommandeFolder(ndevis) {
   if (!commandesFolder.id) commandesFolder.id = (await g.itemByPath(cfg.COMMANDES_PATH)).id;
   if (Date.now() - commandesFolder.at > 60e3) {
@@ -209,7 +212,16 @@ async function findCommandeFolder(ndevis) {
     commandesFolder.at = Date.now();
   }
   const k = key(ndevis);
-  return commandesFolder.list.find(f => key(f.name).startsWith(k)) || null;
+  const actif = commandesFolder.list.find(f => devisDuDossier(f.name) === k);
+  if (actif) return actif;
+  // Commande traitée : dossier déplacé dans Clients/Commandes/ARCHIVES
+  const arch = commandesFolder.list.find(f => /^archives?$/i.test(f.name.trim()));
+  if (!arch) return null;
+  if (Date.now() - archivesFolder.at > 120e3) {
+    archivesFolder = { list: (await g.children(arch.id)).filter(i => i.folder), at: Date.now() };
+  }
+  const f = archivesFolder.list.find(x => devisDuDossier(x.name) === k);
+  return f ? { ...f, archive: true } : null;
 }
 
 const isImage = n => /\.(png|jpe?g|webp|gif|svg)$/i.test(n);
@@ -316,7 +328,7 @@ async function getDossier(ndevis) {
 
   return {
     trouve: true,
-    dossier: { nom: folder.name, lien: folder.webUrl || null },
+    dossier: { id: folder.id, nom: folder.name, lien: folder.webUrl || null, archive: !!folder.archive },
     bat: bat ? { id: bat.id, nom: bat.name, modifie: bat.lastModifiedDateTime } : null,
     tailles: { fichierTrouve: !!tailles, erreur: taillesErreur, groupes, total: groupes.reduce((s, x) => s + x.total, 0) },
     visuels,

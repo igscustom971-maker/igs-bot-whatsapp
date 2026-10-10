@@ -9,6 +9,7 @@ const auth = require('./auth');
 const commandes = require('./commandes');
 const planches = require('./planches');
 const stock = require('./stock');
+const duplication = require('./duplication');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -114,6 +115,14 @@ module.exports = function mountGestion(app) {
     res.json({ commandes: data.rows, syncedAt: data.syncedAt, erreur: data.error });
   });
 
+  app.get('/gestion/api/commandes-historique', auth.requireUser, async (req, res) => {
+    try { res.json({ commandes: await duplication.historique(req.query.q) }); }
+    catch (err) { res.status(502).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/dupliquer', auth.requireUser, async (req, res) => {
+    try { res.json(await duplication.dupliquer(req.params.cle, req.body || {}, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion duplication :', err.message); res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/commandes/:cle/modifier', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.modifier(req.params.cle, req.body || {}, req.user.name || req.user.email) }); }
     catch (err) { console.error('Gestion commande :', err.message); res.status(400).json({ error: err.message }); }

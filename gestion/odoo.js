@@ -246,6 +246,15 @@ async function lienDevis(numero) {
   return r.length ? lienOdoo('sale.order', r[0].id) : null;
 }
 
+// Copie d'un devis existant (nouvelle commande à partir d'une ancienne) : brouillon, non envoyé
+async function copierDevis(numero) {
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id'], limit: 1 });
+  if (!r.length) throw new Error(`Devis ${numero} introuvable dans Odoo (société IGS)`);
+  const id = await kw('sale.order', 'copy', [r[0].id]);
+  const [so] = await kw('sale.order', 'read', [[id]], { fields: ['name', 'amount_untaxed'] });
+  return { id, numero: so.name, montant_ht: so.amount_untaxed, lien: lienOdoo('sale.order', id) };
+}
+
 // ---------- Facture hebdo ----------
 async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
   const ls = await lignes({ metres, format }, partner);
@@ -267,5 +276,5 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
 
 module.exports = {
   configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis,
 };

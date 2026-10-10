@@ -278,6 +278,7 @@ ${view === 'accueil' ? `
   </section>` : `
   <section id="v-commandes">
   <div class="tools">
+    <div class="chips" style="margin:0"><button class="chip on" id="tab-cours">📦 En cours</button><button class="chip" id="tab-histo">🗂 Historique</button></div>
     <input id="q" class="search" type="search" placeholder="Rechercher un client, un devis, une zone…">
     <button id="refresh" class="btn primary">↻ Actualiser</button>
     <span id="sync" class="sync"></span>
@@ -369,7 +370,7 @@ async function charger(force){
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
 }
 
-function afficher(){ if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else liste(); }
+function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -801,7 +802,8 @@ function liste(){
 function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>' : ''; }
 
 async function ouvrir(cle){
-  const c = data.find(x => x.cle === cle); if(!c) return;
+  const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
+  dernierDossier = null;
   $('ptitle').innerHTML = esc(c.client) + ' ' + badge(c.statut);
   $('psub').textContent = (c.n_devis || 'Sans devis') + (c.affectation ? ' · ' + c.affectation : '');
   const contact = [
@@ -858,10 +860,87 @@ async function ouvrir(cle){
       : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '</div>';
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
+    dernierDossier = d;
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';
   }
 }
+// ---------- Historique et duplication ----------
+let histo = [], modeHisto = false, dernierDossier = null;
+const T_TYPES = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
+const T_COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
+const T_TAILLES = ['XS','S','M','L','XL','2XL','3XL','2A','4A','6A','8A','10A','12A'];
+const T_COUPES = ['Unisexe','Femme'];
+async function chargerHisto(){
+  $('rows').innerHTML = '<tr><td colspan="9"><div class="skel"></div><div class="skel"></div></td></tr>';
+  try { const r = await fetch('/gestion/api/commandes-historique?q='+encodeURIComponent(recherche)); const j = await r.json(); if (j.error) throw new Error(j.error); histo = j.commandes || []; }
+  catch(e){ $('rows').innerHTML = '<tr><td colspan="9" class="empty">Historique indisponible : '+esc(e.message)+'</td></tr>'; return; }
+  $('chips').innerHTML = '<span class="note">'+histo.length+' commande(s)'+(recherche?' pour « '+esc(recherche)+' »':' (les 300 plus récentes)')+' · clique pour voir le dossier et dupliquer</span>';
+  $('rows').innerHTML = histo.length ? histo.map(c => '<tr class="row" data-k="'+esc(c.cle)+'">'
+    + '<td class="devis">'+esc(c.n_devis||'—')+'</td>'
+    + '<td><div class="client">'+esc(c.client)+'</div>'+(c.present===false?'<div class="sub">archivée</div>':'')+'</td>'
+    + '<td class="c-statut">'+badge(c.statut)+'</td>'
+    + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
+    + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
+    + '<td class="c-hide">'+esc(c.affectation||'')+'</td>'
+    + '<td class="c-hide">'+fdate(c.date_commande)+'</td><td class="c-hide">'+fdate(c.date_livraison)+'</td><td class="c-hide">'+esc(c.planche||'')+'</td></tr>').join('')
+    : '<tr><td colspan="9" class="empty">Aucune commande trouvée</td></tr>';
+}
+function ligneDupHtml(l){
+  const sel = (list, v, cls) => '<select class="'+cls+'">'+[...new Set((v?[v]:[]).concat(list))].map(x => '<option'+(x===v?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>';
+  return '<tr>'
+    + '<td>'+sel(T_TYPES, l.type || 'T-Shirt', 'd-type')+'</td>'
+    + '<td>'+sel(T_COULEURS, l.couleur || '', 'd-couleur')+'</td>'
+    + '<td>'+sel(T_TAILLES, l.taille || 'M', 'd-taille')+'</td>'
+    + '<td>'+sel(T_COUPES, l.coupe || 'Unisexe', 'd-coupe')+'</td>'
+    + '<td><input class="d-qte" type="number" min="0" value="'+(l.quantite||1)+'" style="width:64px"></td>'
+    + '<td><input class="d-visuel" list="d-visuels" value="'+esc(l.visuel||'')+'"></td>'
+    + '<td><input class="d-rem" value="'+esc(l.remarques||'')+'"></td>'
+    + '<td><button class="btn d-del" style="padding:3px 8px" title="Supprimer la ligne">✕</button></td></tr>';
+}
+function dupliquerUI(c){
+  const lignes = dernierDossier && dernierDossier.tailles ? dernierDossier.tailles.groupes.flatMap(g => g.lignes) : [];
+  const visuels = dernierDossier ? dernierDossier.visuels.map(v => v.nom.replace(/_/g,' ')) : [];
+  $('ptitle').textContent = 'Dupliquer ' + (c.n_devis || c.client);
+  $('psub').textContent = c.client;
+  $('pbody').innerHTML = '<div class="card"><h3>1. Quel type de duplication ?</h3>'
+    + '<div class="actions" style="grid-template-columns:1fr 1fr">'
+    + '<label class="mod" style="cursor:pointer"><input type="radio" name="d-mode" value="refaire"> <b>🔁 Refaire la commande</b><div class="d">Erreur à corriger : même devis suffixé « -R1 », pas de nouveau devis, BAT recopié. Statut VALIDÉE.</div></label>'
+    + '<label class="mod" style="cursor:pointer"><input type="radio" name="d-mode" value="nouveau"> <b>🆕 Nouvelle commande</b><div class="d">Le client recommande : copie du devis Odoo d\\'origine (brouillon, à ajuster et envoyer), nouveau BAT à faire. Statut EN DEVIS.</div></label>'
+    + '</div></div>'
+    + '<div class="card"><h3>2. Articles (repris de Tailles.xlsx'+(lignes.length?'':' : introuvable, saisis-les')+')</h3>'
+    + '<div style="overflow-x:auto"><table class="stk" id="d-table"><thead><tr><th>Produit</th><th>Couleur</th><th>Taille</th><th>Coupe</th><th>Qté</th><th>Visuel</th><th>Remarque</th><th></th></tr></thead><tbody>'
+    + (lignes.length ? lignes : [{}]).map(ligneDupHtml).join('') + '</tbody></table></div>'
+    + '<datalist id="d-visuels">'+visuels.map(v => '<option>'+esc(v)+'</option>').join('')+'</datalist>'
+    + '<div class="btnrow"><button class="btn" id="d-add">＋ Ligne</button><span class="note" id="d-total"></span></div></div>'
+    + '<div class="card"><h3>3. Détails</h3><div class="actions">'
+    + '<div class="field"><label>Zone de flocage</label><input id="d-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
+    + '<div class="field" style="grid-column:span 2"><label>Remarque</label><input id="d-rem-g" placeholder="ex. refaire 3 t-shirts mal floqués"></div>'
+    + '</div><div class="btnrow"><button class="btn primary" id="d-go">⧉ Créer la commande</button><button class="btn" id="d-cancel">Annuler</button></div><div class="msg" id="a-msg"></div></div>';
+  const tb = $('d-table').querySelector('tbody');
+  const total = () => { const n = [...tb.querySelectorAll('.d-qte')].reduce((t,i) => t + (Number(i.value)||0), 0); $('d-total').textContent = n + ' pièce(s)'; };
+  total();
+  tb.addEventListener('input', total);
+  tb.addEventListener('click', e => { if (e.target.closest('.d-del')) { e.target.closest('tr').remove(); total(); } });
+  $('d-add').onclick = () => { const last = tb.querySelector('tr:last-child'); tb.insertAdjacentHTML('beforeend', ligneDupHtml(last ? { type: last.querySelector('.d-type').value, couleur: last.querySelector('.d-couleur').value, coupe: last.querySelector('.d-coupe').value, visuel: last.querySelector('.d-visuel').value } : {})); total(); };
+  $('d-cancel').onclick = () => ouvrir(c.cle);
+  $('d-go').onclick = async () => {
+    const mode = (document.querySelector('input[name="d-mode"]:checked') || {}).value;
+    if (!mode) return msg('Choisis d\\'abord : refaire ou nouvelle commande', 'err');
+    const lignesOut = [...tb.querySelectorAll('tr')].map(tr => ({ type: tr.querySelector('.d-type').value, couleur: tr.querySelector('.d-couleur').value, taille: tr.querySelector('.d-taille').value, coupe: tr.querySelector('.d-coupe').value, quantite: tr.querySelector('.d-qte').value, visuel: tr.querySelector('.d-visuel').value, remarques: tr.querySelector('.d-rem').value }));
+    const modif = JSON.stringify(lignesOut.map(l => [l.type,l.couleur,l.taille,l.coupe,Number(l.quantite)])) !== JSON.stringify(lignes.map(l => [l.type,l.couleur,l.taille,l.coupe,l.quantite]));
+    if (!confirm(mode === 'refaire' ? 'Créer la reprise de '+c.n_devis+' (sans nouveau devis) ?' : 'Créer une nouvelle commande pour '+c.client+' avec une copie du devis '+c.n_devis+' dans Odoo ?')) return;
+    $('d-go').disabled = true; msg('Création en cours (dossier, visuels, tailles, Excel)… cela peut prendre 30 secondes', 'info');
+    try {
+      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/dupliquer', { mode, lignes: lignesOut, lignesModifiees: modif, zone_flocage: $('d-zone').value, remarque: $('d-rem-g').value });
+      msg('✅ Commande <b>'+esc(j.numero)+'</b> créée<br>'+j.etapes.map(esc).join('<br>')
+        + (j.devis ? '<br><a href="'+esc(j.devis.lien)+'" target="_blank" rel="noopener">↗ Ouvrir le devis '+esc(j.devis.numero)+' dans Odoo</a> (brouillon : ajuste les quantités puis envoie-le)' : '')
+        + (j.dossier ? '<br><a href="'+esc(j.dossier)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier SharePoint</a>' : ''), 'ok');
+      await charger(false);
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('d-go').disabled = false; }
+  };
+}
+
 // ---------- Actions commande (écrites dans l'Excel) ----------
 const EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
 const PLANCHE_ETATS = ['A FAIRE', 'A IMPRIMER', 'OK'];
@@ -882,7 +961,7 @@ function cmdActionsHtml(c){
     + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -898,6 +977,7 @@ function brancherCmd(c){
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); document.querySelectorAll('#pbody .btn').forEach(b => b.disabled = false); }
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
+  $('dup-btn').onclick = () => dupliquerUI(c);
   $('c-save').onclick = () => {
     const body = {};
     const v = (id, f, cur) => { const x = $(id).value.trim(); if (x !== (cur || '')) body[f] = x; };
@@ -933,7 +1013,10 @@ function fermer(){ panelCle=null; $('overlay').classList.remove('on'); $('panel'
 if (VIEW === 'commandes') {
   $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrir(panelCle); } });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
-  $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
+  let th; $('q').addEventListener('input', e => { recherche = e.target.value; if (modeHisto) { clearTimeout(th); th = setTimeout(chargerHisto, 350); } else afficher(); });
+  const onglet = h => { modeHisto = h; $('tab-cours').classList.toggle('on', !h); $('tab-histo').classList.toggle('on', h); if (h) chargerHisto(); else afficher(); };
+  $('tab-cours').onclick = () => onglet(false); $('tab-histo').onclick = () => onglet(true);
+  if (location.hash === '#historique') onglet(true);
 } else if (VIEW === 'stock') {
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
   stEvents();

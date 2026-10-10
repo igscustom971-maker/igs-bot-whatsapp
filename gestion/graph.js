@@ -112,9 +112,40 @@ async function addTableRow(itemId, table, values, o) {
   return res.json();
 }
 
+// Création d'un dossier (échoue s'il existe déjà)
+async function createFolder(parentId, name, o) {
+  const res = await fetch(`${GRAPH}${await D(o)}/items/${encodeURIComponent(parentId)}/children`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }),
+  });
+  if (!res.ok) throw new Error(`Création du dossier « ${name} » refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
+// Copie d'un fichier/dossier (asynchrone côté SharePoint). attendre=true : attend la fin et renvoie l'id de la copie
+async function copyItem(itemId, parentId, name, { attendre = false, o } = {}) {
+  const d = await getDriveId(o?.drive);
+  const res = await fetch(`${GRAPH}/drives/${d}/items/${encodeURIComponent(itemId)}/copy`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentReference: { driveId: d, id: parentId }, ...(name ? { name } : {}) }),
+  });
+  if (res.status !== 202) throw new Error(`Copie refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const monitor = res.headers.get('location');
+  if (!attendre || !monitor) return null;
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const m = await (await fetch(monitor)).json().catch(() => ({}));
+    if (m.status === 'completed') return m.resourceId;
+    if (m.status === 'failed') throw new Error('Copie SharePoint échouée');
+  }
+  throw new Error('Copie SharePoint trop longue');
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { graph, patchRange, addTableRow, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
