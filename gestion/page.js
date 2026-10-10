@@ -284,6 +284,7 @@ ${view === 'accueil' ? `
   </section>` : view === 'admin' ? `
   <section id="v-admin">
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="card" style="margin-bottom:12px" id="ad-source"><h3>🗄️ Données</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-taches"><h3>⚙️ Tâches automatiques</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
@@ -939,7 +940,7 @@ async function adCharger(){
     $('ad-coupes').value = (l.coupes || []).join(', ');
     document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
     $('sync').className = 'sync'; $('sync').textContent = '';
-    adNotif(); adTaches();
+    adNotif(); adTaches(); adSource();
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
 }
 // Messages automatiques (prête / expédiée / avis, commandes et planches) : remplacent Power Automate
@@ -972,6 +973,28 @@ async function adNotif(){
   $('nt-lien-ok').onclick = async () => {
     try { await post('/gestion/api/notifications/lien-avis', { lien: $('nt-lien').value }); await adNotif(); nm('✅ Lien enregistré', 'ok'); }
     catch(err){ nm('❌ ' + esc(err.message), 'err'); }
+  };
+}
+// Source des données : l'Excel ou la base du dashboard (bascule définitive)
+async function adSource(){
+  const box = $('ad-source'); if (!box) return;
+  let e; try { const r = await fetch('/gestion/api/admin/source'); e = await r.json(); } catch(err){ box.innerHTML = '<h3>🗄️ Données</h3><div class="note">Indisponible</div>'; return; }
+  const base = e.source === 'base';
+  box.innerHTML = '<h3 style="display:flex;justify-content:space-between;align-items:center">🗄️ Données <span class="esp" style="background:'+(base?'#dcfce7;color:#065f46':'#fef3c7;color:#92400e')+'">'+(base?'Base du dashboard':'Excel « IGS - Gestion - Commandes »')+'</span></h3>'
+    + (base
+      ? '<div class="note">Commandes, planches et stock sont lus et enregistrés dans la base du dashboard. L’Excel n’est plus utilisé (il reste en archive, il n’est plus mis à jour). Le bon de commande SEFI reste un classeur Excel.</div><div class="btnrow" style="margin-top:8px"><button class="btn" id="src-excel">↩ Revenir à l’Excel (urgence)</button></div>'
+      : '<div class="note">Le dashboard lit encore l’Excel. La bascule fait une dernière lecture complète (commandes, planches, stock), puis tout se passe dans le dashboard : <b>plus personne ne doit modifier l’Excel ensuite</b>.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" id="src-base">Basculer sur la base du dashboard</button></div>')
+    + '<div class="msg" id="src-msg"></div>';
+  const sm = (t, k) => { $('src-msg').className = 'msg on ' + k; $('src-msg').innerHTML = t; };
+  if ($('src-base')) $('src-base').onclick = async () => {
+    if (!confirm('Basculer définitivement sur la base du dashboard ? L’Excel ne sera plus lu ni mis à jour.')) return;
+    $('src-base').disabled = true; $('src-base').textContent = 'Bascule en cours…';
+    try { const r = await post('/gestion/api/admin/source/basculer'); sm('✅ Bascule faite : ' + r.commandes + ' commande(s), ' + r.planches + ' planche(s), stock ' + esc(JSON.stringify(r.stock)), 'ok'); setTimeout(adSource, 1500); }
+    catch(err){ sm('❌ ' + esc(err.message), 'err'); $('src-base').disabled = false; $('src-base').textContent = 'Basculer sur la base du dashboard'; }
+  };
+  if ($('src-excel')) $('src-excel').onclick = async () => {
+    if (!confirm('Revenir à l’Excel ? Tout ce qui a été saisi dans le dashboard depuis la bascule n’est PAS dans l’Excel.')) return;
+    try { await post('/gestion/api/admin/source/excel'); adSource(); } catch(err){ sm('❌ ' + esc(err.message), 'err'); }
   };
 }
 // Tâches automatiques : chacune remplace un flux Power Automate (couper le flux, puis activer)

@@ -7,6 +7,7 @@
 
 const cfg = require('./config');
 const g = require('./graph');
+const source = require('./source');
 const { supabase } = require('./db');
 
 // ---------- Utilitaires ----------
@@ -114,10 +115,41 @@ let cache = { rows: [], syncedAt: null, error: null };
 let excelItemId = null;
 let running = null;
 
+// Champs d'une commande (communs à l'Excel et à la base)
+const CHAMPS_LIGNE = ['cle', 'n_devis', 'client', 'contenu_mail', 'email', 'telephone', 'instructions', 'infos', 'zone_flocage', 'affectation', 'planche', 'statut', 'date_commande', 'date_livraison', 'remarque', 'excel_id', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye', 'mail_avis_envoye'];
+const plus7 = d => { if (!d) return null; const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 7); return x.toISOString().slice(0, 10); };
+const aujourdhui = () => { const n = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' })); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
+// Base du dashboard : lignes présentes (date de livraison = date de commande + 7 jours, comme la formule Excel)
+async function lireBase() {
+  const { data, error } = await supabase.from('gestion_commandes').select(CHAMPS_LIGNE.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return data.map(o => ({ ...o, date_livraison: o.date_livraison || plus7(o.date_commande), date_dynamique: false }));
+}
+// Écriture dans la base ; « Contenu mail » modifié -> e-mail / téléphone / instructions recalculés
+async function ecrireBase(cle, fields) {
+  const f = { ...fields };
+  if ('contenu_mail' in f) Object.assign(f, parseContenuMail(f.contenu_mail));
+  const { data, error } = await supabase.from('gestion_commandes').update(f).eq('cle', cle).select('cle');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  if (!data.length) throw new Error('Commande introuvable : actualise et réessaie');
+}
+async function insererBase(row) {
+  const { data: mx } = await supabase.from('gestion_commandes').select('excel_id').order('excel_id', { ascending: false, nullsFirst: false }).limit(1);
+  const o = { ...row, ...parseContenuMail(row.contenu_mail), excel_id: ((mx && mx[0] && mx[0].excel_id) || 0) + 1, present: true, synced_at: new Date().toISOString() };
+  if (!o.date_livraison) o.date_livraison = plus7(o.date_commande);
+  const { error } = await supabase.from('gestion_commandes').upsert(o, { onConflict: 'cle' });
+  if (error) throw new Error(`Supabase : ${error.message}`);
+}
+
 async function syncNow() {
   if (running) return running; // une seule synchro à la fois
   running = (async () => {
     try {
+      if (!source.etat().charge) await source.charger(); // jamais de synchro Excel avant de connaître la source
+      if (source.estBase() && supabase) {
+        cache = { rows: await lireBase(), syncedAt: new Date().toISOString(), error: null };
+        return cache;
+      }
       if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
       const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
       const rows = rowsFromRange(range);
@@ -375,6 +407,7 @@ async function trouverBat(ndevis) {
 // Colonne « Mail Envoyé » / « Mail Expédition Envoyé » / « Mail Avis Envoyé » (messages automatiques)
 async function ecrireDrapeau(cle, champ, valeur) {
   if (!['mail_envoye', 'mail_expedition_envoye', 'mail_avis_envoye'].includes(champ)) throw new Error('Champ non autorisé');
+  if (source.estBase()) { await ecrireBase(cle, { [champ]: valeur }).catch(() => {}); const c = cache.rows.find(r => r.cle === cle); if (c) c[champ] = valeur; return true; }
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
   const rows = rowsFromRange(range);
@@ -401,6 +434,14 @@ async function creerCommande(data, user) {
   const statut = STATUTS.find(s => key(s) === key(data.statut || 'PAYÉE')) || 'PAYÉE';
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (source.estBase()) {
+    await insererBase({
+      cle: n_devis || `SANS-DEVIS-${key(client)}`, n_devis: n_devis || null, client,
+      contenu_mail: t(data.contenu_mail) || [email, tel].filter(Boolean).join('\n') || null, infos: t(data.infos).slice(0, 500) || null,
+      zone_flocage: t(data.zone_flocage).slice(0, 200) || null, statut, date_commande: today, remarque: t(data.remarque).slice(0, 500) || null,
+      affectation: t(data.affectation) || null,
+    });
+  } else {
   const xl = require('./excel');
   const tab = await xl.readTable(cfg.TABLE_COMMANDES);
   await xl.addRow(tab, {
@@ -414,6 +455,7 @@ async function creerCommande(data, user) {
     '?Remarque|Remarques': t(data.remarque).slice(0, 500),
     ...(t(data.affectation) ? { '?Affectation': t(data.affectation) } : {}),
   }, 'Client');
+  }
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_creee', cle: n_devis || client, details: { client, statut } });
   console.log(`Gestion : commande ${n_devis || '(sans devis)'} ${client} créée à la main (${user})`);
   await syncNow();
@@ -431,6 +473,22 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
   const cible = t(devis).toUpperCase();
   const contenu = [email, tel, ...t(instructions).split(/\r?\n|\s\|\s/)].map(l => t(l)).filter(l => !vide(l)).join('\n');
   const zoneF = vide(t(zone)) ? '' : t(zone);
+  if (source.estBase()) {
+    await syncNow();
+    const r0 = cache.rows.find(r => t(r.n_devis).toUpperCase() === cible);
+    if (!r0) {
+      await insererBase({ cle: cible, n_devis: cible, client: t(client).slice(0, 100), contenu_mail: contenu || null, zone_flocage: zoneF || null, planche: 'À FAIRE', statut: 'PAYÉE', date_commande: aujourdhui() });
+      await syncNow();
+      return `ligne créée pour ${cible}`;
+    }
+    const f = {};
+    if (contenu) f.contenu_mail = contenu;
+    if (zoneF) f.zone_flocage = zoneF;
+    if (!t(r0.planche)) f.planche = 'À FAIRE';
+    if (Object.keys(f).length) await ecrireBase(r0.cle, f);
+    await syncNow();
+    return `ligne ${cible} mise à jour`;
+  }
   const xl = require('./excel');
   const tab = await xl.readTable(cfg.TABLE_COMMANDES);
   const cDevis = xl.col(tab, 'N° Devis', 'N Devis', 'Devis');
@@ -758,10 +816,18 @@ async function modifier(cle, champs, user) {
   }
   if (!Object.keys(fields).length) throw new Error('Rien à modifier');
 
+  let row;
+  if (source.estBase()) {
+    row = cache.rows.find(r => r.cle === cle);
+    if (!row) { await syncNow(); row = cache.rows.find(r => r.cle === cle); }
+    if (!row) throw new Error('Commande introuvable (supprimée entre-temps ?) : actualise et réessaie');
+    row = { ...row };
+    await ecrireBase(cle, fields);
+  } else {
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
   const rows = rowsFromRange(range);
-  const row = rows.find(r => r.cle === cle);
+  row = rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable dans l\'Excel (supprimée ou modifiée entre-temps) : actualise et réessaie');
   const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
   if (!m) throw new Error(`Adresse du tableau illisible : ${range.address}`);
@@ -770,6 +836,7 @@ async function modifier(cle, champs, user) {
     if (rows.idx[field] === undefined) throw new Error(`Colonne « ${field} » absente du tableau Commandes`);
     const address = colLetter(colIndex(startCol) + rows.idx[field]) + (Number(startRow) + 1 + row._row);
     await g.patchRange(excelItemId, sheet, address, [[value]]);
+  }
   }
   console.log(`Gestion action : commande_modifiee ${cle} par ${user}`, fields);
   if (supabase) {
@@ -793,6 +860,7 @@ async function modifier(cle, champs, user) {
 // Suppression manuelle (erreur, test) : la ligne est vidée dans l'Excel en une seule écriture,
 // les cellules à formule (date de livraison, ID…) gardent leur formule. Le dossier SharePoint n'est pas touché.
 async function supprimer(cle, user, { dossier = false, devis = false } = {}) {
+  if (source.estBase()) return supprimerBase(cle, user, { dossier, devis });
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
   const rows = rowsFromRange(range);
@@ -832,6 +900,35 @@ async function supprimer(cle, user, { dossier = false, devis = false } = {}) {
 async function supprimerDevisOdoo(numero) {
   try { const r = await require('./odoo').supprimerDevis(numero); return r.supprime ? 'supprimé' : r.raison; }
   catch (err) { console.error(`Gestion suppression devis ${numero} :`, err.message); return `non supprimé (${err.message})`; }
+}
+
+async function supprimerBase(cle, user, { dossier, devis }) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable (déjà supprimée ?) : actualise et réessaie');
+  let dossierSupprime = null;
+  if (dossier && row.n_devis) {
+    try {
+      const f = await findCommandeFolder(row.n_devis);
+      if (f) { await g.deleteItem(f.id); dossierSupprime = f.name; commandesFolder.at = 0; archivesFolder.at = 0; }
+    } catch (err) { dossierSupprime = `ERREUR : ${err.message}`; }
+  }
+  const devisOdoo = devis && row.n_devis ? await supprimerDevisOdoo(row.n_devis) : null;
+  await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row, dossier_supprime: dossierSupprime, devis_odoo: devisOdoo } });
+  const { error } = await supabase.from('gestion_commandes').delete().eq('cle', cle);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  controles.delete(cle);
+  await syncNow();
+  const avert = [dossierSupprime && dossierSupprime.startsWith('ERREUR') ? `le dossier n'a pas pu être supprimé (${dossierSupprime.slice(10)})` : null, devisOdoo && devisOdoo !== 'supprimé' ? `devis Odoo : ${devisOdoo}` : null].filter(Boolean);
+  if (avert.length) return { ok: true, dossierSupprime, devisOdoo, avertissement: `Ligne supprimée, mais ${avert.join(' ; ')}` };
+  return { ok: true, dossierSupprime, devisOdoo };
+}
+
+// Nettoyage de minuit (base) : commandes LIVRÉE retirées de la liste en cours (gardées dans l'historique)
+async function retirerLivrees() {
+  const { data, error } = await supabase.from('gestion_commandes').update({ present: false, synced_at: new Date().toISOString() }).eq('present', true).in('statut', ['LIVRÉE', 'LIVREE']).select('cle');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  await syncNow();
+  return data.length;
 }
 
 // ---------- Bordereau d'expédition (déposé dans le dossier de la commande, à imprimer par l'équipe) ----------
@@ -879,4 +976,4 @@ const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 // VALIDÉE est aussi relue : une commande validée sans fichier BAT reste « BAT à faire »
 const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee';
 
-module.exports = { supprimerDevisOdoo, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

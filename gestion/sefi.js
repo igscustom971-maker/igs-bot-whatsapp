@@ -92,20 +92,17 @@ async function remplir(nDevis, nomClient, lignes) {
     const devisEnCours = await lignesFeuille(id, 'DEVIS_EN_COURS');
     if (nDevis !== 'INCONNU' && devisEnCours.slice(1).some(r => txt(r[0]) === nDevis)) return { ok: true, deja: true, mouvements: [] };
 
-    // Stock de t-shirts vierges (Excel des commandes, tableau TableauStock)
-    const xl = require('./excel');
-    let stock = null, cs = {};
-    try {
-      stock = await xl.readTable(process.env.SP_TABLE_STOCK || 'TableauStock');
-      cs = { ref: xl.col(stock, 'Référence'), couleur: xl.col(stock, 'Couleur'), taille: xl.col(stock, 'Taille'), qte: xl.col(stock, 'Quantité') };
-    } catch (err) { console.error('SEFI : stock illisible (tout part chez SEFI)', err.message); }
+    // Stock de t-shirts vierges (module stock : Excel ou base du dashboard)
+    const stockMod = require('./stock');
+    let stock = null;
+    try { stock = await stockMod.vierges(); } catch (err) { console.error('SEFI : stock illisible (tout part chez SEFI)', err.message); }
     const restant = new Map(); // ligne de stock -> quantité restante
     const ligneStock = (refBase, couleur, taille) => {
       if (!stock) return null;
       let exact = null, inclus = null;
-      for (const r of stock.rows) {
-        if (maj(r.values[cs.couleur]) !== maj(couleur) || maj(r.values[cs.taille]).replace(/^2XL$/, 'XXL') !== maj(taille)) continue;
-        const s = maj(r.values[cs.ref]);
+      for (const r of stock) {
+        if (maj(r.couleur) !== maj(couleur) || maj(r.taille).replace(/^2XL$/, 'XXL') !== maj(taille)) continue;
+        const s = maj(r.reference);
         if (s === maj(refBase)) { exact = r; break; }
         if (!inclus && s && s.includes(maj(refBase))) inclus = r;
       }
@@ -136,7 +133,7 @@ async function remplir(nDevis, nomClient, lignes) {
 
       // Stock d'abord
       const ls = ligneStock(refBase, couleur, taille);
-      const dispo = ls ? (restant.has(ls) ? restant.get(ls) : num(ls.values[cs.qte])) : 0;
+      const dispo = ls ? (restant.has(ls) ? restant.get(ls) : num(ls.quantite)) : 0;
       const pris = Math.min(dispo, qte);
       const sefi = qte - pris;
       if (pris > 0) { restant.set(ls, dispo - pris); mouvements.push({ reference: refBase, couleur, taille, qte_prise: pris, _ligne: ls }); }
@@ -166,9 +163,9 @@ async function remplir(nDevis, nomClient, lignes) {
       await g.patchRange(id, 'DEVIS_EN_COURS', `A${n + 1}:D${n + 1}`, [[nDevis, nomClient, `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`, 'EN ATTENTE']]);
     }
     // Stock décompté (7_DecrementerStock)
-    for (const m of mouvements) {
-      try { await xl.setCell(stock, m._ligne._row, 'Quantité', Math.max(0, restant.get(m._ligne))); }
-      catch (err) { console.error(`SEFI : stock ${m.reference} ${m.couleur} ${m.taille} non décompté`, err.message); }
+    for (const ls of new Set(mouvements.map(m => m._ligne))) {
+      try { await stockMod.mouvementExcel('vierges', { row: ls.row, sig: ls.sig, set: Math.max(0, restant.get(ls)) }, 'BDC SEFI', `Commande ${nDevis} (${nomClient})`); }
+      catch (err) { console.error(`SEFI : stock ${ls.reference} ${ls.couleur} ${ls.taille} non décompté`, err.message); }
     }
     console.log(`SEFI : BDC rempli pour ${nDevis} (${detail.length} ligne(s), ${mouvements.length} prise(s) en stock)`);
     return { ok: true, lignes: detail.length, mouvements: mouvements.map(({ _ligne, ...m }) => m) };

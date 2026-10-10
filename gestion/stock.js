@@ -9,6 +9,7 @@
 
 const xl = require('./excel');
 const { supabase } = require('./db');
+const source = require('./source');
 
 const T_VIERGES = process.env.SP_TABLE_STOCK || 'TableauStock';
 const T_CONSO = process.env.SP_TABLE_CONSO || 'Tableau2';
@@ -50,7 +51,46 @@ async function clients() {
   return data;
 }
 
+// ---------- Base du dashboard (après la sortie de l'Excel) : gestion_stock_vierges / gestion_stock_conso ----------
+async function viergesBase() {
+  const { data, error } = await supabase.from('gestion_stock_vierges').select('*').order('id');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return data.map(o => ({ row: o.id, sig: sig([o.reference, o.coupe, o.couleur, o.taille]), reference: txt(o.reference), coupe: txt(o.coupe), couleur: txt(o.couleur), taille: txt(o.taille).toUpperCase().replace(/^XXL$/, '2XL'), quantite: num(o.quantite) ?? 0 }));
+}
+async function consoBase() {
+  const { data, error } = await supabase.from('gestion_stock_conso').select('*').order('id');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return data.map(o => { const stock = num(o.stock) ?? 0, seuil = num(o.seuil); return { row: o.id, sig: sig([o.nom]), nom: txt(o.nom), stock, seuil, alerte: seuil !== null && stock <= seuil }; });
+}
+// Bascule : copie unique des deux tableaux de l'Excel (si la base est encore vide)
+async function importerDepuisExcel() {
+  if (!supabase) throw new Error('Supabase non configuré');
+  const out = { vierges: 0, consommables: 0 };
+  const { count: cv } = await supabase.from('gestion_stock_vierges').select('id', { count: 'exact', head: true });
+  if (!cv) {
+    const v = lireVierges(await xl.readTable(T_VIERGES)).map(l => ({ reference: l.reference || null, coupe: l.coupe || null, couleur: l.couleur || null, taille: l.taille || null, quantite: l.quantite }));
+    if (v.length) { const { error } = await supabase.from('gestion_stock_vierges').insert(v); if (error) throw new Error(`Stock vierges : ${error.message}`); }
+    out.vierges = v.length;
+  } else out.vierges = `déjà ${cv}`;
+  const { count: cc } = await supabase.from('gestion_stock_conso').select('id', { count: 'exact', head: true });
+  if (!cc) {
+    const c = lireConso(await xl.readTable(T_CONSO)).map(l => ({ nom: l.nom, stock: l.stock, seuil: l.seuil }));
+    if (c.length) { const { error } = await supabase.from('gestion_stock_conso').insert(c); if (error) throw new Error(`Consommables : ${error.message}`); }
+    out.consommables = c.length;
+  } else out.consommables = `déjà ${cc}`;
+  return out;
+}
+// T-shirts vierges pour le bon de commande SEFI (Excel ou base selon la source)
+async function vierges() { return source.estBase() ? viergesBase() : lireVierges(await xl.readTable(T_VIERGES)); }
+
 async function etat() {
+  if (source.estBase()) {
+    const [v, c] = await Promise.all([viergesBase(), consoBase()]);
+    let mouvements = [];
+    const { data } = await supabase.from('gestion_stock_mouvements').select('*').order('cree_le', { ascending: false }).limit(60);
+    mouvements = data || [];
+    return { vierges: v, consommables: c, clients: await clients(), mouvements };
+  }
   const [tv, tc] = await Promise.all([xl.readTable(T_VIERGES), xl.readTable(T_CONSO)]);
   let mouvements = [];
   if (supabase) {
@@ -62,14 +102,20 @@ async function etat() {
 
 // Mouvement sur une ligne Excel : { row, sig, delta } ou { row, sig, set }
 async function mouvementExcel(type, { row, sig: s, delta, set, champ }, user, motif) {
-  const t = await xl.readTable(type === 'vierges' ? T_VIERGES : T_CONSO);
-  const lignes = type === 'vierges' ? lireVierges(t) : lireConso(t);
+  const base = source.estBase();
+  const t = base ? null : await xl.readTable(type === 'vierges' ? T_VIERGES : T_CONSO);
+  const lignes = base ? (type === 'vierges' ? await viergesBase() : await consoBase()) : (type === 'vierges' ? lireVierges(t) : lireConso(t));
+  const ecrire = async (colExcel, colBase, v) => {
+    if (!base) return xl.setCell(t, l.row, colExcel, v);
+    const { error } = await supabase.from(type === 'vierges' ? 'gestion_stock_vierges' : 'gestion_stock_conso').update({ [colBase]: v }).eq('id', l.row);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+  };
   const l = lignes.find(x => x.row === Number(row));
   if (!l || l.sig !== s) throw new Error('La ligne a changé dans l\'Excel entre-temps : actualise et réessaie');
   if (champ === 'seuil' && type === 'consommables') {
     const v = num(set);
     if (v === null || v < 0) throw new Error('Seuil invalide');
-    await xl.setCell(t, l.row, 'Seuil alerte', v);
+    await ecrire('Seuil alerte', 'seuil', v);
     await journal(user, type, l.nom, l.seuil, v, 'Seuil d\'alerte modifié');
     return;
   }
@@ -77,12 +123,26 @@ async function mouvementExcel(type, { row, sig: s, delta, set, champ }, user, mo
   const apres = set !== undefined && set !== null && set !== '' ? num(set) : avant + Number(delta || 0);
   if (apres === null || !isFinite(apres)) throw new Error('Quantité invalide');
   if (apres < 0) throw new Error('Le stock ne peut pas être négatif');
-  await xl.setCell(t, l.row, type === 'vierges' ? 'Quantité' : 'Stock actuel', apres);
+  await ecrire(type === 'vierges' ? 'Quantité' : 'Stock actuel', type === 'vierges' ? 'quantite' : 'stock', apres);
   const article = type === 'vierges' ? [l.reference, l.coupe, l.couleur, l.taille].filter(Boolean).join(' · ') : l.nom;
   await journal(user, type, article, avant, apres, motif);
 }
 
 async function ajouterExcel(type, data, user) {
+  if (source.estBase()) {
+    if (type === 'vierges') {
+      const o = { reference: txt(data.reference).toUpperCase() || null, coupe: txt(data.coupe).toUpperCase() || null, couleur: txt(data.couleur).toUpperCase(), taille: txt(data.taille).toUpperCase(), quantite: num(data.quantite) ?? 0 };
+      if (!o.couleur || !o.taille) throw new Error('Couleur et taille obligatoires');
+      const { error } = await supabase.from('gestion_stock_vierges').insert(o); if (error) throw new Error(`Supabase : ${error.message}`);
+      await journal(user, type, [o.reference, o.coupe, o.couleur, o.taille].filter(Boolean).join(' · '), null, o.quantite, 'Nouvel article');
+    } else {
+      const o = { nom: txt(data.nom), stock: num(data.stock) ?? 0, seuil: num(data.seuil) ?? 0 };
+      if (!o.nom) throw new Error('Nom du consommable obligatoire');
+      const { error } = await supabase.from('gestion_stock_conso').insert(o); if (error) throw new Error(`Supabase : ${error.message}`);
+      await journal(user, type, o.nom, null, o.stock, 'Nouveau consommable');
+    }
+    return;
+  }
   const t = await xl.readTable(type === 'vierges' ? T_VIERGES : T_CONSO);
   if (type === 'vierges') {
     const f = {
@@ -162,4 +222,4 @@ async function importerSandae(user) {
   return { importees: n, notes: notes.length };
 }
 
-module.exports = { etat, mouvementExcel, ajouterExcel, ajouterClient, mouvementClient, supprimerClientLigne, importerSandae };
+module.exports = { vierges, importerDepuisExcel, etat, mouvementExcel, ajouterExcel, ajouterClient, mouvementClient, supprimerClientLigne, importerSandae };

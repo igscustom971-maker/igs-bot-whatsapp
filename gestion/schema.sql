@@ -253,3 +253,23 @@ create index if not exists gestion_notifications_cree_le_idx on gestion_notifica
 
 -- Commandes : date à laquelle le dashboard a vu la commande en LIVRÉE (avis Google le lendemain à 10 h)
 alter table gestion_commandes add column if not exists livree_vu_le timestamptz;
+
+-- Sortie de l'Excel : stock de t-shirts vierges et consommables dans la base du dashboard
+create table if not exists gestion_stock_vierges (
+  id        bigserial primary key,
+  reference text,
+  coupe     text,
+  couleur   text,
+  taille    text,
+  quantite  numeric default 0
+);
+alter table gestion_stock_vierges enable row level security;
+create table if not exists gestion_stock_conso (
+  id    bigserial primary key,
+  nom   text,
+  stock numeric default 0,
+  seuil numeric
+);
+alter table gestion_stock_conso enable row level security;
+create index if not exists gestion_commandes_present_idx on gestion_commandes (present);
+create index if not exists gestion_planches_present_idx on gestion_planches (present);

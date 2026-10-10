@@ -116,6 +116,11 @@ async function commandesPayees() {
 // « Nettoyage commande livrées » (minuit) : lignes LIVRÉE retirées de l'Excel (gardées dans l'historique du dashboard) ;
 // planches ponctuelles LIVRÉE + PAYÉE retirées, planches hebdo LIVRÉE remises à zéro (statut vidé)
 async function nettoyerLivrees() {
+  if (require('./source').estBase()) {
+    const nbC = await require('./commandes').retirerLivrees();
+    const p = await planches.nettoyerBase();
+    return `Planches : ${p.retirees} retirée(s), ${p.hebdo} hebdo remise(s) à zéro | Commandes : ${nbC} retirée(s) (gardées dans l'historique)`;
+  }
   const xl = require('./excel');
   const cfg = require('./config');
   const n = v => String(v ?? '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -144,7 +149,7 @@ const TACHES = [
     fn: async () => 'se déclenche tout seul à chaque formulaire reçu', quand: () => false },
   { id: 'sefi_envoi', nom: 'Envoi du bon de commande à SEFI', flux: 'IGS - Envoi SEFI Auto + IGS - Envoi BDC SEFI', rythme: '9 h, 11 h et 17 h', fn: async () => { const r = await require('./sefi').envoyer('Envoi automatique'); return r.raison || `lot ${r.lot} envoyé (${r.devis.join(', ')})${r.bdcVide ? '' : ' — BDC NON vidé, à vérifier'}`; },
     quand: (h, d) => [9, 11, 17].includes(h.getHours()) && (!d || Date.now() - d > 70 * 60e3) },
-  { id: 'nettoyage_livrees', nom: 'Nettoyage des lignes LIVRÉE de l\'Excel', flux: 'IGS - Nettoyage commande livrees', rythme: 'chaque nuit (minuit)', fn: nettoyerLivrees,
+  { id: 'nettoyage_livrees', nom: 'Nettoyage des commandes et planches LIVRÉE', flux: 'IGS - Nettoyage commande livrees', rythme: 'chaque nuit (minuit)', fn: nettoyerLivrees,
     quand: (h, d) => h.getHours() === 0 && (!d || Date.now() - d > 20 * 3600e3) },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },

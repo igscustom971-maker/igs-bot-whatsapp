@@ -75,6 +75,17 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/listes', auth.requireUser, auth.requireAdmin, actA(req => admin.setListes(req.body || {})));
   app.get('/gestion/api/collaborateurs', auth.requireUser, actA(req => admin.collaborateurs({ admin: req.user.role === 'admin', tous: req.query.tous === '1' && req.user.role === 'admin' }).then(c => ({ collaborateurs: c }))));
   app.post('/gestion/api/admin/collaborateurs', auth.requireUser, auth.requireAdmin, actA(req => admin.enregistrerCollaborateur(req.body || {})));
+  // Source des données : Excel (historique) ou base du dashboard ; bascule définitive depuis Admin
+  const source = require('./source');
+  app.get('/gestion/api/admin/source', auth.requireUser, auth.requireAdmin, (req, res) => res.json(source.etat()));
+  app.post('/gestion/api/admin/source/basculer', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try { res.json(await source.basculer(req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion bascule :', err.message); res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/admin/source/excel', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try { res.json(await source.revenirExcel(req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   // Diagnostic (admin) : en-têtes et formules des tableaux de l'Excel, pour les reprendre dans le dashboard
   app.get('/gestion/api/admin/formules', auth.requireUser, auth.requireAdmin, async (req, res) => {
     const g = require('./graph'), cfg = require('./config');
@@ -387,6 +398,7 @@ module.exports = function mountGestion(app) {
   // Générateur de BAT
   require('./bat-generateur').mount(app);
 
+  require('./source').charger().catch(() => {});
   commandes.startSync();
   planches.startSync();
   heures.startRecap();

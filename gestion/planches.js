@@ -7,6 +7,7 @@
 
 const cfg = require('./config');
 const g = require('./graph');
+const source = require('./source');
 const { supabase } = require('./db');
 const odoo = require('./odoo');
 
@@ -74,6 +75,68 @@ function rowsFromRange(range) {
   return out;
 }
 
+// ---------- Base du dashboard (après la sortie de l'Excel) ----------
+// Formules reprises de l'Excel : Réduction -15 % dès 10 m, -20 % dès 20 m ; Montant HT = A3 13 €, A4 10 €, sinon m × 25 € × (1 + réduction)
+const reductionDe = (metres, format) => (format || !(metres > 0) ? 0 : metres >= 20 ? -0.2 : metres >= 10 ? -0.15 : 0);
+const montantDe = (metres, format) => (format === 'A3' ? 13 : format === 'A4' ? 10 : metres > 0 ? Math.round(metres * 25 * (1 + reductionDe(metres)) * 100) / 100 : null);
+const CHAMPS_PL = ['cle', 'n_devis', 'client', 'date_commande', 'metres', 'format', 'frequence', 'hebdo', 'paiement', 'remarques', 'statut', 'excel_id', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye'];
+const cleDe = (o, id) => o.n_devis || `SANS-DEVIS-${key(o.client || '')}-${id || ''}`;
+async function lireBase() {
+  const { data, error } = await supabase.from('gestion_planches').select(CHAMPS_PL.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return data.map(o => {
+    const metres = o.metres === null ? null : Number(o.metres);
+    const row = { ...o, metres, reduction: reductionDe(metres, o.format), montant_ht: montantDe(metres, o.format), hebdo: !!o.hebdo || /hebdo/i.test(o.frequence || '') };
+    Object.defineProperty(row, '_row', { value: o.excel_id, enumerable: false }); // identifiant stable de la ligne
+    return row;
+  });
+}
+// Champs « Excel » (metres peut valoir A3 / A4 / '') -> colonnes de la base
+function versBase(fields, actuel) {
+  const o = {};
+  for (const [f, v] of Object.entries(fields)) {
+    if (f === 'metres') {
+      const t = String(v ?? '').trim().toUpperCase();
+      if (t === 'A3' || t === 'A4') { o.format = t; o.metres = null; }
+      else if (t === '') { o.format = null; o.metres = null; }
+      else { o.format = null; o.metres = Number(String(v).replace(',', '.')); }
+    } else if (f === 'frequence') { o.frequence = v || null; o.hebdo = /hebdo/i.test(v || ''); }
+    else if (f === 'date_commande') o.date_commande = v || null;
+    else if (['n_devis', 'client', 'paiement', 'remarques', 'statut', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye'].includes(f)) o[f] = v === '' ? null : v;
+  }
+  if ('n_devis' in o || 'client' in o) o.cle = cleDe({ ...actuel, ...o }, actuel.excel_id);
+  return o;
+}
+async function ecrireBase(cle, fields) {
+  const actuel = cache.rows.find(r => r.cle === cle) || (await lireBase()).find(r => r.cle === cle);
+  if (!actuel) throw new Error('Planche introuvable : actualise et réessaie');
+  const o = versBase(fields, actuel);
+  const { error } = await supabase.from('gestion_planches').update(o).eq('cle', cle);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+}
+async function insererBase(fields) {
+  const { data: mx } = await supabase.from('gestion_planches').select('excel_id').order('excel_id', { ascending: false, nullsFirst: false }).limit(1);
+  const id = ((mx && mx[0] && mx[0].excel_id) || 0) + 1;
+  const o = { ...versBase(fields, { excel_id: id }), excel_id: id, present: true, synced_at: new Date().toISOString() };
+  o.cle = cleDe(o, id);
+  const { error } = await supabase.from('gestion_planches').insert(o);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return id;
+}
+// Nettoyage de minuit (base) : ponctuelles LIVRÉE + PAYÉE retirées de la liste, hebdo LIVRÉE remises à zéro
+async function nettoyerBase() {
+  const rows = await lireBase();
+  const n = v => String(v || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  let retirees = 0, hebdo = 0;
+  for (const p of rows) {
+    if (n(p.statut) !== 'LIVREE') continue;
+    if (p.hebdo) { await supabase.from('gestion_planches').update({ statut: null }).eq('cle', p.cle); hebdo++; }
+    else if (n(p.paiement) === 'PAYEE') { await supabase.from('gestion_planches').update({ present: false, synced_at: new Date().toISOString() }).eq('cle', p.cle); retirees++; }
+  }
+  await syncNow();
+  return { retirees, hebdo };
+}
+
 // ---------- Synchro ----------
 let cache = { rows: [], syncedAt: null, error: null };
 let excelItemId = null;
@@ -83,6 +146,11 @@ async function syncNow() {
   if (running) return running;
   running = (async () => {
     try {
+      if (!source.etat().charge) await source.charger(); // jamais de synchro Excel avant de connaître la source
+      if (source.estBase() && supabase) {
+        cache = { rows: await lireBase(), syncedAt: new Date().toISOString(), error: null };
+        return cache;
+      }
       if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
       const rows = rowsFromRange(await g.tableRange(excelItemId, cfg.TABLE_PLANCHES));
       const unique = [...new Map(rows.map(r => [r.cle, r])).values()];
@@ -200,6 +268,7 @@ async function ecrireLigne(t, rowIndex, fields) {
 }
 
 async function writeCells(cle, fields) {
+  if (source.estBase()) { await ecrireBase(cle, fields); await syncNow(); return; }
   const t = await lireTableau(); // on retrouve la ligne par sa clé juste avant d'écrire
   const row = t.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Ligne introuvable dans l\'Excel (elle a peut-être été modifiée entre-temps) : actualise et réessaie');
@@ -216,12 +285,20 @@ async function supprimer(cle, user, { fichiers = [], devis = false } = {}) {
     const liste = (await getFichiers(cle)).fichiers || [];
     autorises = liste.filter(f => ids.includes(f.id));
   }
+  let row;
+  if (source.estBase()) {
+    row = cache.rows.find(r => r.cle === cle);
+    if (!row) throw new Error('Planche introuvable : actualise et réessaie');
+    const { error } = await supabase.from('gestion_planches').delete().eq('cle', cle);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+  } else {
   const t = await lireTableau();
-  const row = t.rows.find(r => r.cle === cle);
+  row = t.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Ligne introuvable dans l\'Excel : actualise et réessaie');
   const champs = ['date_commande', 'client', 'metres', 'frequence', 'paiement', 'remarques', 'statut', 'n_devis', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye']
     .filter(f => t.rows.idx[f] !== undefined);
   await ecrireLigne(t, row._row, Object.fromEntries(champs.map(f => [f, ''])));
+  }
   const supprimes = [], erreurs = [];
   for (const f of autorises) {
     try { await g.deleteItem(f.id, { drive: planchesDrive }); supprimes.push(f.nom); }
@@ -262,7 +339,7 @@ async function ajouter(data, user) {
   const metres = format ? null : Number(mv);
   if (!format && !(metres > 0 && metres < 1000)) throw new Error('Métrage invalide (nombre, A3 ou A4)');
   if (partner) await odoo.setAlias(client, partner.id, partner.name, user);
-  const t = await lireTableau();
+  const t = source.estBase() ? (await syncNow(), { rows: cache.rows }) : await lireTableau();
   // Client qui a déjà sa ligne hebdo : toujours ajouté à son compteur
   const hebdo = !!data.hebdo || t.rows.some(r => r.hebdo && key(r.client) === key(client));
 
@@ -271,7 +348,8 @@ async function ajouter(data, user) {
     if (ligne) {
       if (format || ligne.format) throw new Error('Client hebdo : le compteur se fait en mètres (pas en A3/A4)');
       const total = Math.round(((ligne.metres || 0) + metres) * 100) / 100;
-      await ecrireLigne(t, ligne._row, { metres: total });
+      if (source.estBase()) await ecrireBase(ligne.cle, { metres: total });
+      else await ecrireLigne(t, ligne._row, { metres: total });
       await syncNow();
       await journal(user, 'compteur_hebdo_ajoute', ligne.cle, { client: ligne.client, ajout: metres, total });
       return { planche: cache.rows.find(r => r._row === ligne._row) || null, compteur: { avant: ligne.metres || 0, ajout: metres, total } };
@@ -289,6 +367,13 @@ async function ajouter(data, user) {
     remarques: String(data.remarques || '').trim().slice(0, 500) || `Ajoutée à la main par ${user}`,
   };
   if (!hebdo) { fields.paiement = 'NON PAYÉE'; fields.statut = String(data.statut || 'A PREPARER').toUpperCase(); }
+  if (source.estBase()) {
+    const id = await insererBase(fields);
+    await syncNow();
+    const p = cache.rows.find(r => r._row === id) || null;
+    await journal(user, 'planche_ajoutee', p?.cle || client, { ...fields });
+    return { planche: p };
+  }
 
   // Première ligne vide (client vide) du tableau
   const [, ...valeurs] = t.range.values;
@@ -522,4 +607,4 @@ async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' })
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

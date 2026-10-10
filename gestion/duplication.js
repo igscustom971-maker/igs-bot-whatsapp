@@ -162,6 +162,11 @@ async function dupliquer(cleSource, data, user) {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const statut = txt(data.statut).toUpperCase() || (mode === 'refaire' ? 'VALIDÉE' : 'EN DEVIS');
+  const infosDup = mode === 'refaire' && !data.lignesModifiees ? (src.infos || resume(lignes)) : resume(lignes);
+  const remarqueDup = [`${mode === 'refaire' ? 'Reprise' : 'Nouvelle commande'} de ${src.n_devis}`, txt(data.remarque)].filter(Boolean).join(' - ');
+  if (require('./source').estBase()) {
+    await commandes.creerCommande({ n_devis: numero, client: src.client, contenu_mail: src.contenu_mail || '', infos: infosDup, zone_flocage: txt(data.zone_flocage) || src.zone_flocage || '', statut, remarque: remarqueDup }, user);
+  } else {
   const t = await xl.readTable(cfg.TABLE_COMMANDES);
   await xl.addRow(t, {
     'N° Devis': numero,
@@ -173,7 +178,8 @@ async function dupliquer(cleSource, data, user) {
     'Date commande': today,
     'Remarque': [`${mode === 'refaire' ? 'Reprise' : 'Nouvelle commande'} de ${src.n_devis}`, txt(data.remarque)].filter(Boolean).join(' - '),
   }, 'Client');
-  etapes.push(`Ligne ajoutée dans l'Excel (${statut})`);
+  }
+  etapes.push(`Ligne de commande ajoutée (${statut})`);
   await commandes.syncNow();
 
   if (supabase) {
