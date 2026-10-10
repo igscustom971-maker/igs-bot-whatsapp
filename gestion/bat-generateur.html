@@ -98,10 +98,10 @@ const cle = decodeURIComponent(location.pathname.split('/').pop());
 const PRODUITS = {
   tshirt:    { nom: 'T-shirt', avant: 'tshirt-avant', dos: 'tshirt-dos', A: 72, B: 53, femme: [63, 44], enfant: [49, 38],
                zones: { coeur: { x: 11, y: 15 }, poitrine: { x: 0, y: 13 }, dos: { x: 0, y: 10 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
-  polo:      { nom: 'Polo', avant: 'polo-avant', dos: 'polo-dos', A: 72, B: 53, femme: [63, 46],
-               zones: { coeur: { x: 11, y: 17 }, poitrine: { x: 0, y: 18 }, dos: { x: 0, y: 11 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
+  polo:      { nom: 'Polo', avant: 'polo-avant', dos: 'polo-dos', A: 72, B: 53, femme: [63, 46], echelle: 1.25,
+               zones: { coeur: { x: 13, y: 17 }, poitrine: { x: 0, y: 18 }, dos: { x: 0, y: 11 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
   debardeur: { nom: 'Débardeur', avant: 'debardeur-avant', dos: 'debardeur-dos', A: 68, B: 47, femme: [66, 43],
-               zones: { coeur: { x: 9, y: 17 }, poitrine: { x: 0, y: 16 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 7 } } },
+               zones: { coeur: { x: 9, y: 13 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 7 } } },
   tote:      { nom: 'Tote bag', avant: 'tote', dos: 'tote', A: 42, B: 38, tote: true,
                zones: { centre: { x: 0, yCentre: 21 } } },
 };
@@ -130,7 +130,7 @@ function hexCouleur(nom){
 }
 // ---------- Zones de flocage ("Cœur (9cm) + Dos (27cm)") ----------
 const ZONES = { coeur: { lib: 'Cœur', face: 'avant', l: 9 }, poitrine: { lib: 'Poitrine', face: 'avant', l: 25 }, dos: { lib: 'Dos', face: 'dos', l: 27 },
-                manche: { lib: 'Manche', face: 'avant', l: 7 }, bas: { lib: 'Bas de tee-shirt', face: 'avant', l: 10 }, centre: { lib: 'Centre', face: 'avant', l: 25 } };
+                manche: { lib: 'Manche', face: 'avant', l: 7 }, bas: { lib: 'Bas de tee-shirt', face: 'avant', l: 10 }, centre: { lib: 'Face', face: 'avant', l: 27 } };
 function zoneDe(lib){
   const n = norm(lib);
   if (/coeur|cœur|poitrine gauche/.test(n)) return 'coeur';
@@ -166,9 +166,16 @@ async function gabarit(nom){
     const [l, r] = ligne(nom === 'tote' ? 0.75 : 0.6);
     let hautCorps = 0;
     if (nom === 'tote') { for (let fr = 0.2; fr < 0.8; fr += 0.01) { const [a, b] = ligne(fr); if (b - a > (r - l) * 0.9) { hautCorps = Math.round(img.height * fr); break; } } }
-    mesures.set(nom, { img, corps: r - l, cx: (l + r) / 2, hautCorps });
+    const centres = [];
+    for (let k = 0; k <= 100; k++) { const [a, b] = ligne(Math.min(0.995, k / 100)); centres.push(a < 0 ? null : { c: (a + b) / 2, w: b - a }); }
+    mesures.set(nom, { img, corps: r - l, cx: (l + r) / 2, hautCorps, centres });
   }
   return mesures.get(nom);
+}
+// Centre du vêtement à une hauteur donnée (hors manches : sinon centre du corps)
+function centreA(m, y){
+  const k = Math.max(0, Math.min(100, Math.round(y / m.img.height * 100))), r = m.centres && m.centres[k];
+  return r && r.w <= m.corps * 1.15 ? r.c : m.cx;
 }
 // Logo : marges (transparentes ou blanches) rognées automatiquement -> la largeur en cm est celle du dessin visible ;
 // option "fond blanc transparent" pour les JPG à fond blanc. Logos importés depuis l'ordinateur : id "local-…"
@@ -286,7 +293,8 @@ function construirePages(){
     }).filter(Boolean);
     // Tailles par couleur : "Noir : 10 S / 20 M"
     const parCouleur = {};
-    for (const l of lignes) { const k = (l.couleur || '—') + (/femme/i.test(l.coupe || '') ? ' (femme)' : ''); (parCouleur[k] = parCouleur[k] || []).push(l.quantite + ' ' + l.taille); }
+    const plusieursTypes = new Set(lignes.map(l => norm(l.type))).size > 1;
+    for (const l of lignes) { const k = (plusieursTypes ? (l.type || '') + ' ' : '') + (l.couleur || '—') + (/femme/i.test(l.coupe || '') ? ' (femme)' : ''); (parCouleur[k] = parCouleur[k] || []).push(l.quantite + ' ' + l.taille); }
     const tailles = Object.entries(parCouleur).map(([c, t]) => c + ' : ' + t.join(' / ')).join('\n');
     const total = lignes.reduce((t, l) => t + (l.quantite || 0), 0);
     const avantZ = placements.filter(z => ZONES[z.zone].face === 'avant' && z.zone !== 'manche').map(z => z.libelle).join(' + ');
@@ -298,6 +306,8 @@ function construirePages(){
       couleur: [...new Set(articles.map(a => a.couleur))].join(' & '),
       quantite: total ? String(total) : '', tailles, face: avantZ, dos: dosZ, autres,
       zone: placements.map(z => z.libelle).join(' + ') || C.zone_flocage || '', legende: '',
+      // Commande uniquement en tote bags : une face, 27 cm
+      ...(articles.every(a => a.produit === 'tote') && placements.length ? { face: 'Face (27cm)', dos: '', autres: '', zone: 'Face (27cm)' } : {}),
     };
   });
 }
@@ -314,20 +324,30 @@ function rectLogo(pl, a, face, m, img){
   const p = PRODUITS[a.produit], { A, B } = dims(a);
   const pxW = m.corps / B, pxH = p.tote ? pxW : m.img.height / A;
   const zd = p.tote ? p.zones.centre : (p.zones[pl.zone] || p.zones.poitrine);
-  const w = pl.largeur * pxW * ECHELLE, h = w * (img.height / img.width);
+  const w = pl.largeur * pxW * ECHELLE * (p.echelle || 1), h = w * (img.height / img.width);
   const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0);
   pl = Object.assign({}, pl, { dx, dy });
   let cx, top;
   if (p.tote) { cx = m.cx + (zd.x + pl.dx) * pxW; top = m.hautCorps + (zd.yCentre + pl.dy) * pxH - h / 2; }
   else if (zd.fx != null) { cx = m.img.width * zd.fx + pl.dx * pxW; top = m.img.height * zd.fy + pl.dy * pxH - h / 2; }
-  else if (zd.yBas != null) { cx = m.cx + (zd.x + pl.dx) * pxW; top = m.img.height - (zd.yBas - pl.dy) * pxH - h; }
-  else { cx = m.cx + (zd.x + pl.dx) * pxW; top = (zd.y + pl.dy) * pxH; }
+  else if (zd.yBas != null) { top = m.img.height - (zd.yBas - pl.dy) * pxH - h; cx = centreA(m, top + h / 2) + (zd.x + pl.dx) * pxW; }
+  else { top = (zd.y + pl.dy) * pxH; cx = centreA(m, top + h / 2) + (zd.x + pl.dx) * pxW; }
   return { x: cx - w / 2, y: top, w, h, rot: pl.rot != null ? pl.rot : (zd.drot != null ? zd.drot : (zd.rot || 0)), pxW, pxH };
 }
 function placementsDe(page, face, a){
   const p = PRODUITS[a.produit];
+  // Tote bag : une seule face, avec le visuel principal (celui du dos s'il existe) à 27 cm
+  if (p.tote) return face === 'avant' ? [totePlacement(page)].filter(Boolean) : [];
   // Zone non prévue sur ce produit (ex. manche sur un débardeur) : placée comme une poitrine, ajustable à la main
   return page.placements.filter(pl => ZONES[pl.zone].face === face);
+}
+function totePlacement(page){
+  if (!page.totePl) {
+    const base = page.placements.find(pl => pl.zone === 'dos') || page.placements[0];
+    if (!base) return null;
+    page.totePl = { zone: 'centre', libelle: 'Face (27cm)', largeur: 27, image: base.image, dx: 0, dy: 0, rot: null, sansBlanc: base.sansBlanc, tote: true };
+  }
+  return page.totePl;
 }
 const cacheTeint = new Map();
 function teinte(m, nom, hex){
@@ -386,9 +406,10 @@ async function dessinerMockups(i, guides = null){
       const R = RESOLUTION, X = v => (px + v * s) * R, Y = v => (py + v * s) * R, m = it.v.m, Pd = PRODUITS[it.a.produit];
       const cxLogo = hit.r.x + hit.r.w / 2, ligne = (x1, y1, x2, y2, coul, pointille) => { x.strokeStyle = coul; x.setLineDash(pointille ? [6 * R, 4 * R] : []); x.beginPath(); x.moveTo(X(x1), Y(y1)); x.lineTo(X(x2), Y(y2)); x.stroke(); };
       x.save(); x.lineWidth = 1.5 * R;
-      ligne(m.cx, 0, m.cx, m.img.height, Math.abs(cxLogo - m.cx) < 2 ? '#16a34a' : 'rgba(220,38,38,.85)', true);
+      const cxV = centreA(m, hit.r.y + hit.r.h / 2);
+      ligne(cxV, 0, cxV, m.img.height, Math.abs(cxLogo - cxV) < 2 ? '#16a34a' : 'rgba(220,38,38,.85)', true);
       if (!Pd.tote && it.f === 'avant' && Pd.zones.coeur) {
-        const zc = Pd.zones.coeur, xc = m.cx + (zc.x + (zc.ddx || 0)) * hit.r.pxW;
+        const zc = Pd.zones.coeur, xc = cxV + (zc.x + (zc.ddx || 0)) * hit.r.pxW;
         ligne(xc, 0, xc, m.img.height, Math.abs(cxLogo - xc) < 2 ? '#16a34a' : 'rgba(37,99,235,.85)', true);
       }
       const zd = Pd.tote ? null : (Pd.zones[guides.zone] || Pd.zones.poitrine);
@@ -446,6 +467,8 @@ function reglages(){
       + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
     + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
+    + (p.articles.some(a => a.produit === 'tote' && a.actif) && totePlacement(p) ? '<label class="f">Tote bag (une face)</label><div class="pl" data-tote="1"><div class="row"><select data-f="toteImage">' + optImg(p.totePl.image) + '</select><input type="number" step="0.5" min="1" max="40" data-f="toteLargeur" value="' + p.totePl.largeur + '" title="Largeur (cm)" style="max-width:80px"><span class="note" style="flex:none">cm</span></div>'
+      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="toteBlanc"' + (p.totePl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="toteReset" title="Recentrer">↺</button></div></div>' : '')
     + '<label class="f">Couleurs et produits</label>'
     + p.articles.map((a, k) => '<div class="coul" data-c="' + k + '"><input type="checkbox" data-f="actif"' + (a.actif ? ' checked' : '') + '><input type="color" data-f="hex" value="' + a.hex + '" title="Teinte exacte">'
       + '<select data-f="couleurNom" style="flex:1" title="' + esc(a.type) + (a.coupe ? ' ' + a.coupe : '') + (a.qte ? ' · ' + a.qte + ' pièce(s)' : '') + '">' + [...new Set((NUANCIER.some(n => norm(n) === norm(a.couleur)) ? [] : [a.couleur]).concat(NUANCIER))].map(n => '<option' + (norm(n) === norm(a.couleur) ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>'
@@ -472,7 +495,7 @@ let attente = null;
 const redessiner = (complet) => { majPositions(); clearTimeout(attente); attente = setTimeout(async () => { if (complet) { await afficherTout(); } else { await dessinerMockups(courante); } }, 120); };
 $('reglages').addEventListener('input', e => {
   const p = pages[courante], t = e.target, f = t.dataset.f; if (!f) return;
-  const pl = t.closest('.pl'), co = t.closest('.coul');
+  const pl = t.closest('.pl[data-k]'), co = t.closest('.coul');
   if (pl) { const o = p.placements[pl.dataset.k];
     if (f === 'largeur') o.largeur = Math.max(1, Number(t.value) || 1);
     else if (f === 'rot') o.rot = t.value === '' ? null : Number(t.value);
@@ -486,6 +509,9 @@ $('reglages').addEventListener('input', e => {
     else if (f === 'couleurNom') { a.couleur = t.value; a.hex = hexCouleur(t.value); p.couleur = [...new Set(p.articles.filter(x => x.actif).map(x => x.couleur))].join(' & '); reglages(); return redessiner(true); }
     return redessiner();
   }
+  if (f === 'toteImage') { p.totePl.image = t.value; return redessiner(); }
+  if (f === 'toteLargeur') { p.totePl.largeur = Math.max(1, Number(t.value) || 27); p.totePl.libelle = 'Face (' + p.totePl.largeur + 'cm)'; return redessiner(); }
+  if (f === 'toteBlanc') { p.totePl.sansBlanc = t.checked; return redessiner(); }
   if (f === 'echelle') { ECHELLE = Math.max(0.5, Math.min(3, (Number(t.value) || 100) / 100)); clearTimeout(attente); attente = setTimeout(async () => { for (let i = 0; i < pages.length; i++) await dessinerMockups(i); }, 200); return; }
   if (f === 'visuel') { changerVisuel(p, t.value); return; }
   if (f === 'legende') { p.legende = t.value; return redessiner(true); }
@@ -497,6 +523,7 @@ $('reglages').addEventListener('click', e => {
   if (b.dataset.a === 'reset') Object.assign(p.placements[k], { dx: 0, dy: 0, rot: null });
   if (b.dataset.a === 'defaut') { definirDefaut(p, p.placements[k]); return; }
   if (b.dataset.a === 'echelle') { enregistrerEchelle(); return; }
+  if (b.dataset.a === 'toteReset') { Object.assign(p.totePl, { dx: 0, dy: 0 }); return redessiner(); }
   if (b.dataset.a === 'ajout' && p.images.length) p.placements.push({ zone: 'poitrine', libelle: 'Poitrine (25cm)', largeur: 25, image: p.images[0].id, dx: 0, dy: 0, rot: null, sansBlanc: false });
   if (b.dataset.a === 'ajoutCouleur') { const nom = prompt('Couleur (ex. Noir profond, Marine, Blanc) :'); if (!nom) return; p.articles.push({ k: 'x' + Date.now(), produit: p.articles[0] ? p.articles[0].produit : 'tshirt', type: p.articles[0] ? p.articles[0].type : 'T-shirt', couleur: nom, hex: hexCouleur(nom), coupe: '', qte: 0, actif: true }); }
   reglages(); redessiner();
