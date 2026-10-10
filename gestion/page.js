@@ -308,11 +308,12 @@ const COULEURS = {
   'EN COMMANDE':['#fef3c7','#92400e'], 'EN PRODUCTION':['#ffedd5','#c2410c'], 'EN FLOCAGE':['#fce7f3','#be185d'],
   'TERMINÉE':['#dcfce7','#15803d'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'LIVRÉE':['#d1fae5','#065f46'],
 };
-const FINIS = ['TERMINÉE','A EXPEDIER','LIVRÉE'];
-const PL_STATUTS = ['A PREPARER','A VERIFIER','A IMPRIMER','A RECUPERER','A EXPEDIER','LIVREE'];
+const FINIS = ['LIVRÉE'];               // commande finie = livrée (récupérée ou reçue par le client)
+const PRETES = ['TERMINÉE','A EXPEDIER']; // prête, pas encore récupérée / expédiée
+const PL_STATUTS = ['A PREPARER','A VERIFIER','A IMPRIMER','A RECUPERER','A EXPEDIER','EXPEDIEE','LIVREE'];
 const PL_COULEURS = {
   'A PREPARER':['#ffedd5','#c2410c'], 'A VERIFIER':['#fee2e2','#b91c1c'], 'A IMPRIMER':['#fce7f3','#be185d'],
-  'A RECUPERER':['#e0e7ff','#4338ca'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'LIVREE':['#d1fae5','#065f46'],
+  'A RECUPERER':['#e0e7ff','#4338ca'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'EXPEDIEE':['#e0f2fe','#0369a1'], 'LIVREE':['#d1fae5','#065f46'],
 };
 let planches = [];
 const VIEW = '${view}';
@@ -337,7 +338,7 @@ const isoLocal = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate(
 const addDays = n => { const d = new Date(); d.setDate(d.getDate()+n); return isoLocal(d); };
 const today = isoLocal(new Date());
 const actif = c => !FINIS.includes(statutKey(c.statut));
-const enRetard = c => c.date_livraison && c.date_livraison < today && actif(c);
+const enRetard = c => c.date_livraison && c.date_livraison < today && actif(c) && !PRETES.includes(statutKey(c.statut));
 const fphone = p => { if(!p) return ''; const m = p.match(/^(59[06])(\\d{3})(\\d{2})(\\d{2})(\\d{2})$/); return m ? '+'+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5] : '+'+p; };
 
 async function api(path, force){
@@ -406,7 +407,7 @@ function plListe(){
 
   const counts = {}; planches.forEach(p => { const s = plKey(p.statut); counts[s] = (counts[s]||0)+1; });
   const chips = [['ACTIFS','En cours',st.act.length],['TOUS','Toutes',planches.length],['NONPAYEES','Non payées',st.nonPay.length],['HEBDO','Hebdo',st.hebdo.length]]
-    .concat(PL_STATUTS.filter(s=>counts[s]).map(s=>[s,s,counts[s]]))
+    .concat(PL_STATUTS.map(s=>[s,s,counts[s]||0]))
     .concat(Object.keys(counts).filter(s => !PL_STATUTS.includes(s)).map(s=>[s,s,counts[s]]));
   $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('');
 
@@ -775,8 +776,9 @@ function accueil(){
 function liste(){
   const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
-  const chips = [['ACTIFS','En cours',actifs],['TOUS','Toutes',data.length]].concat(STATUTS.filter(s=>counts[s]).map(s=>[s,s,counts[s]]));
-  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('');
+  const chips = [['ACTIFS','En cours',actifs],['TOUS','Toutes',data.length]].concat(STATUTS.map(s=>[s,s,counts[s]||0]));
+  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('')
+    + (filtre === 'LIVRÉE' ? '<span class="note" style="align-self:center">Les commandes livrées sont retirées de l\\'Excel à minuit : retrouve les plus anciennes dans l\\'onglet Historique.</span>' : '');
 
   const q = norm(recherche);
   let rows = data.filter(c => filtre==='TOUS' || (filtre==='ACTIFS' ? !FINIS.includes(statutKey(c.statut)) : statutKey(c.statut)===filtre));
@@ -875,7 +877,7 @@ async function chargerHisto(){
   $('rows').innerHTML = '<tr><td colspan="9"><div class="skel"></div><div class="skel"></div></td></tr>';
   try { const r = await fetch('/gestion/api/commandes-historique?q='+encodeURIComponent(recherche)); const j = await r.json(); if (j.error) throw new Error(j.error); histo = j.commandes || []; }
   catch(e){ $('rows').innerHTML = '<tr><td colspan="9" class="empty">Historique indisponible : '+esc(e.message)+'</td></tr>'; return; }
-  $('chips').innerHTML = '<span class="note">'+histo.length+' commande(s)'+(recherche?' pour « '+esc(recherche)+' »':' (les 300 plus récentes)')+' · clique pour voir le dossier et dupliquer</span>';
+  $('chips').innerHTML = '<span class="note">'+histo.length+' commande(s)'+' livrée(s)'+(recherche?' pour « '+esc(recherche)+' »':' (les 300 plus récentes)')+' · clique pour voir le dossier et dupliquer</span>';
   $('rows').innerHTML = histo.length ? histo.map(c => '<tr class="row" data-k="'+esc(c.cle)+'">'
     + '<td class="devis">'+esc(c.n_devis||'—')+'</td>'
     + '<td><div class="client">'+esc(c.client)+'</div>'+(c.present===false?'<div class="sub">archivée</div>':'')+'</td>'
@@ -884,7 +886,7 @@ async function chargerHisto(){
     + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
     + '<td class="c-hide">'+esc(c.affectation||'')+'</td>'
     + '<td class="c-hide">'+fdate(c.date_commande)+'</td><td class="c-hide">'+fdate(c.date_livraison)+'</td><td class="c-hide">'+esc(c.planche||'')+'</td></tr>').join('')
-    : '<tr><td colspan="9" class="empty">Aucune commande trouvée</td></tr>';
+    : '<tr><td colspan="9" class="empty">Aucune commande livrée trouvée</td></tr>';
 }
 function ligneDupHtml(l){
   const sel = (list, v, cls) => '<select class="'+cls+'">'+[...new Set((v?[v]:[]).concat(list))].map(x => '<option'+(x===v?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>';

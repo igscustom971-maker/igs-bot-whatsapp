@@ -20,14 +20,15 @@ const txt = v => (v === null || v === undefined ? '' : String(v).trim());
 async function historique(q) {
   const recherche = txt(q).slice(0, 60);
   if (supabase) {
-    let req = supabase.from('gestion_commandes').select('*').order('date_commande', { ascending: false, nullsFirst: false }).limit(300);
+    // Historique = commandes livrées uniquement (TERMINÉE = prête mais pas encore récupérée)
+    let req = supabase.from('gestion_commandes').select('*').in('statut', ['LIVRÉE', 'LIVREE']).order('date_commande', { ascending: false, nullsFirst: false }).limit(300);
     if (recherche) req = req.or(`client.ilike.%${recherche.replace(/[%,()]/g, ' ')}%,n_devis.ilike.%${recherche.replace(/[%,()]/g, ' ')}%`);
     const { data, error } = await req;
     if (error) throw new Error(`Supabase : ${error.message}`);
     return data;
   }
   const { rows } = await commandes.listCommandes();
-  return rows.filter(r => !recherche || key(`${r.client} ${r.n_devis}`).includes(key(recherche)));
+  return rows.filter(r => key(r.statut) === 'livree' && (!recherche || key(`${r.client} ${r.n_devis}`).includes(key(recherche))));
 }
 
 async function source(cle) {
