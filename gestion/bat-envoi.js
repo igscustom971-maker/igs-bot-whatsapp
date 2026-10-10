@@ -17,12 +17,23 @@ const FENETRE_H = 23.5; // marge sous les 24 h de Meta
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const prenom = client => String(client || '').trim().split(/\s+/)[0] || '';
 
-// Dernier message reçu du client sur le WhatsApp de Leïla (table conversations du bot)
+// Heure de chaque message reçu sur le WhatsApp de Leïla (notée depuis le webhook, même bot en pause)
+async function noterMessagesEntrants(nums) {
+  if (!supabase || !nums.length) return;
+  const now = new Date().toISOString();
+  const { error } = await supabase.from('gestion_whatsapp_entrants').upsert(nums.map(telephone => ({ telephone, dernier_message: now })));
+  if (error) console.error('Gestion WhatsApp entrants :', error.message);
+}
+
+// Dernier message reçu du client : le plus récent entre le relevé du webhook et l'historique de Leïla
 async function dernierMessageClient(tel) {
   if (!supabase || !tel) return null;
-  const { data } = await supabase.from('conversations').select('created_at')
-    .eq('phone_number', tel).eq('role', 'user').order('created_at', { ascending: false }).limit(1).maybeSingle();
-  return data?.created_at ? new Date(data.created_at) : null;
+  const [a, b] = await Promise.all([
+    supabase.from('gestion_whatsapp_entrants').select('dernier_message').eq('telephone', tel).maybeSingle(),
+    supabase.from('conversations').select('created_at').eq('phone_number', tel).eq('role', 'user').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const dates = [a?.data?.dernier_message, b?.data?.created_at].filter(Boolean).map(d => new Date(d));
+  return dates.length ? new Date(Math.max(...dates)) : null;
 }
 
 async function envoyerWhatsAppDocument(tel, lien, nomFichier, legende) {
@@ -120,4 +131,4 @@ function mount(app) {
   });
 }
 
-module.exports = { envoyer, mount, _test: { dernierMessageClient } };
+module.exports = { noterMessagesEntrants, envoyer, mount, _test: { dernierMessageClient } };

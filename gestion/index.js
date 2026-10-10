@@ -24,6 +24,20 @@ module.exports = function mountGestion(app) {
     next();
   });
 
+  // Fenêtre WhatsApp de 24 h : on note l'heure de CHAQUE message reçu sur le numéro de Leïla
+  // (y compris les jours où le bot est en pause, où les messages ne vont pas dans l'historique).
+  // Lecture seule du webhook : la requête continue vers le bot sans aucune modification.
+  app.use('/webhook', (req, res, next) => {
+    try {
+      if (req.method === 'POST') {
+        const nums = new Set();
+        for (const e of req.body?.entry || []) for (const ch of e.changes || []) for (const m of ch.value?.messages || []) if (m.from) nums.add(String(m.from));
+        if (nums.size) require('./bat-envoi').noterMessagesEntrants([...nums]).catch(() => {});
+      }
+    } catch {}
+    next();
+  });
+
   // Formulaire client public (igscustom.fr/formulaire) -> mail Microsoft 365
   formulaire.mount(app);
   // Lien signé vers le BAT (récupéré par WhatsApp)

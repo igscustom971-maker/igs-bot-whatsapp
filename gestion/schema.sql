@@ -215,3 +215,10 @@ alter table gestion_collaborateurs add column if not exists derniere_connexion t
 -- Commandes : BAT envoyé au client (en attente de validation)
 alter table gestion_commandes add column if not exists bat_envoye_le  timestamptz;
 alter table gestion_commandes add column if not exists bat_envoye_par text;
+
+-- WhatsApp : heure du dernier message reçu par numéro (fenêtre de 24 h pour envoyer le BAT par WhatsApp)
+create table if not exists gestion_whatsapp_entrants (
+  telephone       text primary key,
+  dernier_message timestamptz not null
+);
+alter table gestion_whatsapp_entrants enable row level security;
