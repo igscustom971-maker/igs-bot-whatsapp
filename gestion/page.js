@@ -947,7 +947,7 @@ async function adNotif(){
   catch(err){ box.innerHTML = '<h3>📣 Messages automatiques aux clients</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
   const n = e.enAttente.length;
   let h = '<h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">📣 Messages automatiques aux clients <span class="esp" style="background:'+(e.actives ? '#dcfce7;color:#065f46' : '#f3f4f6;color:#374151')+'">'+(e.actives ? '● Activés' : '○ Désactivés')+'</span></h3>';
-  h += '<div class="note" style="margin-bottom:8px">Vérification toutes les 3 minutes : <b>prête</b> (TERMINÉE / planche A RECUPERER), <b>expédiée</b> (dès que le N° de suivi est saisi), <b>avis</b> le lendemain à 10 h du passage en LIVRÉE. Mail générique + WhatsApp personnalisé si le client a écrit dans les dernières 24 h (sinon mail seulement). La colonne « Mail Envoyé » de l’Excel est mise à « Oui » comme avant. <b>Coupe les flux Power Automate correspondants avant d’activer.</b></div>';
+  h += '<div class="note" style="margin-bottom:8px">Vérification toutes les 3 minutes : <b>prête</b> (TERMINÉE / planche A RECUPERER), <b>expédiée</b> (dès que le N° de suivi est saisi), <b>avis</b> le lendemain à 10 h du passage en LIVRÉE. Mail générique + WhatsApp personnalisé si le client a écrit dans les dernières 24 h (sinon mail seulement). Ne dépend pas de l’Excel : ce qui a déjà été envoyé est suivi par le dashboard (journal dans chaque fiche). <b>Coupe les flux Power Automate correspondants avant d’activer.</b></div>';
   h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="font-size:13px;font-weight:600">Lien avis Google</label><input id="nt-lien" value="'+esc(e.lienAvis || '')+'" placeholder="https://g.page/r/…/review" style="flex:1;min-width:220px;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><button class="btn" id="nt-lien-ok">Enregistrer</button></div>';
   if (!e.lienAvis) h += '<div class="note" style="margin:-4px 0 10px">Sans lien, la demande d’avis n’est pas envoyée.</div>';
   h += '<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+(n ? n+' message(s) '+(e.actives ? 'en cours d’envoi' : 'en attente') : 'Rien en attente')+'</div>';
@@ -1806,7 +1806,7 @@ async function ouvrir(cle){
     + kv('Contact', contact) + kv('N° de suivi', esc(c.numero_suivi))
     + '</div>' + (c.instructions ? '<div class="kv" style="margin-top:10px"><div class="k">Instructions client</div><div class="v pre">'+esc(c.instructions)+'</div></div>' : '')
     + (c.remarque ? '<div class="kv" style="margin-top:10px"><div class="k">Remarque</div><div class="v pre">'+esc(c.remarque)+'</div></div>' : '')
-    + '<div class="note" style="margin-top:10px">Mails : prête '+(c.mail_envoye?'✅':'—')+' · expédition '+(c.mail_expedition_envoye?'✅':'—')+' · avis '+(c.mail_avis_envoye?'✅':'—')+'</div></div>'
+    + '</div>'
     + cmdActionsHtml(c)
     + '<div id="journal"></div>'
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';

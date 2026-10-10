@@ -6,8 +6,10 @@
 //  - « Avis » le lendemain à 10 h du passage en LIVRÉE (si le lien Google est renseigné dans Admin)
 //  - Planche « prête » (A RECUPERER) et « expédiée » (EXPÉDIÉE + N° de suivi)
 // Mail générique depuis contact@ + WhatsApp personnalisé (tutoiement si le client tutoie) si la fenêtre de 24 h
-// est ouverte. Les colonnes « Mail Envoyé » de l'Excel sont mises à « Oui » comme avant.
-// Chaque envoi est noté dans gestion_notifications (journal des messages, conservé 24 mois).
+// est ouverte.
+// Indépendant de l'Excel : ce qui a déjà été envoyé est lu dans gestion_notifications (journal des messages,
+// conservé 24 mois), jamais dans les colonnes « Mail Envoyé ». À l'activation, ce qui est déjà en attente peut être
+// marqué « ignoré » (clients déjà prévenus par Power Automate).
 // ============================================
 
 const g = require('./graph');
@@ -21,8 +23,6 @@ const ADRESSE = '62 rue Louis Vatable, Pointe-à-Pitre';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const heureGuadeloupe = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
 const suiviLien = n => `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(n)}`;
-// Colonne « Mail Envoyé » : remplie (Oui, x, date…) = déjà envoyé ; vide ou « Non » = à envoyer
-const fait = v => !!String(v ?? '').trim() && !/^(non|no|false|0)$/i.test(String(v).trim());
 const statutKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
 
 async function reglage(cle, defaut = null) {
@@ -171,8 +171,8 @@ async function aEnvoyer() {
   for (const c of rows) {
     const st = statutKey(c.statut);
     const base = { cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, especes: c.a_payer_especes ? (c.montant_especes != null && !isNaN(Number(c.montant_especes)) ? Number(c.montant_especes).toFixed(2).replace('.', ',') + ' €' : 'le montant') : null };
-    if (st === 'TERMINEE' && !fait(c.mail_envoye) && libre(c.cle, 'prete')) out.push({ ...base, type: 'prete', drapeau: 'mail_envoye' });
-    if (c.numero_suivi && !fait(c.mail_expedition_envoye) && libre(c.cle, 'expedition')) out.push({ ...base, type: 'expedition', suivi: c.numero_suivi, drapeau: 'mail_expedition_envoye' });
+    if (st === 'TERMINEE' && libre(c.cle, 'prete')) out.push({ ...base, type: 'prete' });
+    if (c.numero_suivi && libre(c.cle, 'expedition')) out.push({ ...base, type: 'expedition', suivi: c.numero_suivi });
   }
   // Avis : le lendemain à 10 h du passage en LIVRÉE (date relevée par le dashboard, après l'activation)
   const lienAvis = await reglage('notif_avis_lien', '');
@@ -183,31 +183,22 @@ async function aEnvoyer() {
     for (const c of data || []) {
       const vu = new Date(new Date(c.livree_vu_le).toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
       const du = new Date(vu.getFullYear(), vu.getMonth(), vu.getDate() + 1, 10, 0, 0);
-      if (maintenant >= du && libre(c.cle, 'avis')) out.push({ cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, type: 'avis', lienAvis, drapeau: 'mail_avis_envoye' });
+      if (maintenant >= du && libre(c.cle, 'avis')) out.push({ cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, type: 'avis', lienAvis });
     }
   }
   // Planches
   const pl = await planches.listPlanches();
   for (const p of pl.rows || []) {
     const st = statutKey(p.statut);
-    const veutPrete = st === 'ARECUPERER' && !fait(p.mail_envoye) && libre(p.cle, 'planche_prete');
-    const veutExp = st === 'EXPEDIEE' && p.numero_suivi && !fait(p.mail_expedition_envoye) && libre(p.cle, 'planche_expedition');
+    const veutPrete = st === 'ARECUPERER' && libre(p.cle, 'planche_prete');
+    const veutExp = st === 'EXPEDIEE' && p.numero_suivi && libre(p.cle, 'planche_expedition');
     if (!veutPrete && !veutExp) continue;
     const ct = await contactPlanche(p.client);
     const base = { cle: p.cle, devis: p.n_devis, nom: p.client, email: ct.email, tel: ct.tel, planche: true, especes: null };
-    if (veutPrete) out.push({ ...base, type: 'planche_prete', drapeau: 'mail_envoye' });
-    if (veutExp) out.push({ ...base, type: 'planche_expedition', suivi: p.numero_suivi, drapeau: 'mail_expedition_envoye' });
+    if (veutPrete) out.push({ ...base, type: 'planche_prete' });
+    if (veutExp) out.push({ ...base, type: 'planche_expedition', suivi: p.numero_suivi });
   }
   return out;
-}
-
-// Colonne « Mail Envoyé » de l'Excel mise à « Oui » (comme Power Automate)
-async function drapeau(item) {
-  if (!item.drapeau) return;
-  try {
-    if (item.planche) await planches.ecrireDrapeau(item.cle, item.drapeau, 'Oui');
-    else await commandes.ecrireDrapeau(item.cle, item.drapeau, 'Oui');
-  } catch (err) { console.error(`Gestion notification : drapeau ${item.drapeau} ${item.cle}`, err.message); }
 }
 
 // Dates de passage en LIVRÉE relevées (pour l'avis du lendemain)
@@ -227,8 +218,7 @@ async function cycle() {
     await releverLivrees();
     if ((await reglage('notif_actives', 'off')) !== 'on') return;
     for (const item of await aEnvoyer()) {
-      const r = await envoyer(item);
-      if (r.ok) await drapeau(item);
+      await envoyer(item);
     }
   } catch (err) {
     console.error('Gestion notifications :', err.message);
@@ -249,7 +239,6 @@ async function activer({ actif, ignorerAttente }, user) {
   if (actif && ignorerAttente) {
     for (const item of await aEnvoyer()) {
       await journal({ cle: item.cle, type: item.type, canal: null, statut: 'ignore', destinataire: null, sujet: null, message: null, erreur: 'Ignoré à l\'activation (déjà traité avant le dashboard)', par: user });
-      await drapeau(item);
     }
   }
   if (actif && !(await reglage('notif_active_le', null))) await setReglage('notif_active_le', new Date().toISOString());
