@@ -752,6 +752,7 @@ async function ouvrir(cle){
 }
 // ---------- Actions commande (écrites dans l'Excel) ----------
 const EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
+const PLANCHE_ETATS = ['A FAIRE', 'A IMPRIMER', 'OK'];
 function cmdActionsHtml(c){
   const st = statutKey(c.statut);
   const pers = [...new Set(EQUIPE.concat(data.map(x => x.affectation).filter(Boolean)))];
@@ -764,8 +765,8 @@ function cmdActionsHtml(c){
     + (st !== 'LIVRÉE' ? '<button class="btn pink" data-st="LIVRÉE">🏁 Livrée</button>' : '')
     + '</div><div class="actions">'
     + '<div class="field"><label>Statut</label><select id="c-statut">'+STATUTS.map(x => '<option'+(x===st?' selected':'')+'>'+x+'</option>').join('')+'</select></div>'
-    + '<div class="field"><label>Affectation</label><input id="c-aff" list="c-aff-list" value="'+esc(c.affectation||'')+'"><datalist id="c-aff-list">'+pers.map(x => '<option>'+esc(x)+'</option>').join('')+'</datalist></div>'
-    + '<div class="field"><label>Planche</label><input id="c-planche" value="'+esc(c.planche||'')+'" placeholder="ex. OK"></div>'
+    + '<div class="field"><label>Affectation</label><select id="c-aff"><option value="">— Non affectée —</option>'+pers.map(x => '<option'+(x===c.affectation?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
+    + '<div class="field"><label>Planche</label><select id="c-planche"><option value="">—</option>'+[...new Set(PLANCHE_ETATS.concat(c.planche ? [c.planche] : []))].map(x => '<option'+(x===c.planche?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
     + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
