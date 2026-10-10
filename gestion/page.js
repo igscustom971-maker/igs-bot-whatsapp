@@ -425,7 +425,16 @@ const payClass = v => { const n = norm(v); return n.includes('NON') ? 'no' : n.i
 const nonPayee = p => norm(p.paiement).includes('NON');
 const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STATUT');
 // BAT : PAYÉE, ou EN DEVIS / sans statut / statut inconnu dès que le formulaire est reçu (commandes sans contenu, saisies à la main)
-const AVANT_BAT = c => { const k = statutKey(c.statut); if (k === 'PAYÉE') return true; if (['VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false; return !!(c.bat_envoye_le || (c.bat_info && c.bat_info.formulaire)); };
+const AVANT_BAT = c => {
+  const k = statutKey(c.statut);
+  if (['VALIDÉE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'].includes(k)) return false;
+  const e = batEtape(c);
+  if (e === 'valide') return false;
+  // EN COMMANDE (t-shirts commandés en avance) : la mention reste tant que le BAT n'est pas fait / envoyé / validé
+  if (k === 'EN COMMANDE') return e === 'faire' || e === 'client' || e === 'modif' || (e === 'envoyer' && !!c.bat_auto_le);
+  if (k === 'PAYÉE') return true;
+  return !!(c.bat_envoye_le || (c.bat_info && c.bat_info.formulaire));
+};
 const badge = s => { const k = statutKey(s); const c = COULEURS[k] || ['#f3f4f6','#374151']; return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+'">'+esc(k)+'</span>'; };
 const fdate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '';
 const pad = n => String(n).padStart(2,'0');
@@ -1430,7 +1439,7 @@ async function ouvrir(cle){
     // BAT
     if (c.bat_reponse && statutKey(c.statut) !== 'PAYÉE') h += '<div class="card"><h3>Réponse du client au BAT</h3>'+batReponseHtml(c)+'</div>';
     if (AVANT_BAT(c) && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + batReponseHtml(c) + (c.bat_envoye_le
-      ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
+      ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client'+(statutKey(c.statut) === 'EN COMMANDE' ? '' : ' (→ VALIDÉE)')+'</button><button class="btn" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
       : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
       ? '<iframe class="bat" src="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'#view=FitH" title="BAT"></iframe><div class="note" style="margin-top:6px"><a href="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'" target="_blank" rel="noopener">Ouvrir le BAT en grand</a> · modifié le '+new Date(d.bat.modifie).toLocaleDateString('fr-FR')+'</div>'
@@ -1449,6 +1458,7 @@ async function ouvrir(cle){
 let modeBat = false;
 // formulaire -> faire -> envoyer -> client (envoyé, attend la validation) ; inconnu = dossier pas encore relu
 function batEtape(c){
+  if (c.bat_reponse && c.bat_reponse.verdict === 'valide') return 'valide';
   if (c.bat_envoye_le && c.bat_reponse && c.bat_reponse.verdict === 'modification') return 'modif';
   if (c.bat_envoye_le) return 'client';
   const i = c.bat_info; if (!i) return 'inconnu';
@@ -1493,7 +1503,7 @@ function batRender(){
     + (e === 'modif' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer le BAT corrigé</button><button class="btn" data-bat-ok="'+esc(c.cle)+'" title="Valider quand même">✅</button>' : '')
     + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';
-  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes <b>PAYÉE</b> (et sans statut ou EN DEVIS dès que le formulaire est reçu), de la livraison la plus urgente à la plus lointaine. Dès que le formulaire arrive, le BAT est créé automatiquement (🤖) : vérifie-le, retouche-le si besoin avec 🎨, puis envoie-le.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
+  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes <b>PAYÉE</b> et <b>EN COMMANDE</b> (et sans statut ou EN DEVIS dès que le formulaire est reçu), de la livraison la plus urgente à la plus lointaine. Dès que le formulaire arrive, le BAT est créé automatiquement (🤖) : vérifie-le, retouche-le si besoin avec 🎨, puis envoie-le.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
     + G.map(([k, t, d]) => { const l = rows.filter(c => batEtape(c) === k); if (!l.length && (k === 'inconnu' || k === 'formulaire')) return '';
       return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
 }
@@ -1547,9 +1557,10 @@ async function batClic(e){
       Object.assign(c, j.commande); afficher(); if (panelCle === c.cle) ouvrir(c.cle); return;
     }
     if (t.dataset.batOk) {
-      if (!confirm(c.client+' a validé son BAT ? La commande passe en VALIDÉE.')) return;
+      const enCommande = statutKey(c.statut) === 'EN COMMANDE';
+      if (!confirm(c.client+' a validé son BAT ?' + (enCommande ? ' La commande reste EN COMMANDE.' : ' La commande passe en VALIDÉE.'))) return;
       t.disabled = true;
-      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/modifier', { statut: 'VALIDÉE' });
+      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bat-valide', {});
       if (j.commande) Object.assign(c, j.commande); await charger(false); if (panelCle === c.cle) ouvrir(c.cle); return;
     }
   } catch(err){ alert(err.message); t.disabled = false; }

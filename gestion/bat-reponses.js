@@ -70,7 +70,7 @@ async function traiter(c, { message, canal, le }) {
   }
   console.log(`Gestion BAT ${c.n_devis} : réponse ${canal} « ${reponse.message.slice(0, 80)} » -> ${verdict}`);
   if (verdict === 'valide') {
-    try { await commandes.modifier(c.cle, { statut: 'VALIDÉE' }, `Client (${canal})`); }
+    try { await commandes.validerBat(c.cle, `Client (${canal})`, canal, reponse.message); }
     catch (err) { console.error(`Gestion BAT ${c.n_devis} : passage en VALIDÉE impossible`, err.message); }
   }
   return reponse;

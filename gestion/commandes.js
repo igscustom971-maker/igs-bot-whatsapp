@@ -422,6 +422,18 @@ async function deposerBat(cle, buffer, user) {
   return { ok: true, id: it.id };
 }
 
+// BAT validé par le client : PAYÉE / sans statut / EN DEVIS -> VALIDÉE ; EN COMMANDE : statut conservé, validation notée
+async function validerBat(cle, user, canal = 'manuel', message = 'Validé') {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  const reponse = { message, canal, le: new Date().toISOString(), verdict: 'valide' };
+  if (supabase) await supabase.from('gestion_commandes').update({ bat_reponse: reponse }).eq('cle', cle);
+  if (key(row.statut || '') !== 'encommande') return modifier(cle, { statut: 'VALIDÉE' }, user);
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_valide', cle, details: { statut: row.statut } });
+  const ov = await loadOverrides();
+  return { ...applyOverride(row, ov.get(cle)), bat_info: batInfo.get(cle) || null };
+}
+
 async function setBatEnvoye(cle, envoye, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
@@ -759,8 +771,9 @@ async function supprimerBordereau(cle, itemId, user) {
 }
 
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
-// Commandes concernées par le BAT : PAYÉE, et aussi EN DEVIS / sans statut / statut inconnu (contenu vide, commande saisie à la main)
-const APRES_BAT = ['validee', 'encommande', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
+// Commandes concernées par le BAT : PAYÉE, EN COMMANDE (t-shirts commandés en avance, BAT validé ensuite),
+// et aussi EN DEVIS / sans statut / statut inconnu (contenu vide, commande saisie à la main)
+const APRES_BAT = ['validee', 'enproduction', 'enflocage', 'terminee', 'aexpedier', 'livree'];
 const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 
-module.exports = { avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

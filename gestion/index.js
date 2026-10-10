@@ -270,6 +270,10 @@ module.exports = function mountGestion(app) {
       res.json({ url: `${process.env.FORM_PAGE_URL || 'https://igscustom.fr/formulaire/'}?${q}` });
     } catch (err) { res.status(400).json({ error: err.message }); }
   });
+  app.post('/gestion/api/commandes/:cle/bat-valide', auth.requireUser, async (req, res) => {
+    try { res.json({ commande: await commandes.validerBat(req.params.cle, req.user.name || req.user.email) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/bat/actualiser', auth.requireUser, async (req, res) => {
     try { await commandes.scannerBat(); res.json({ ok: true }); } catch (err) { res.status(502).json({ error: err.message }); }
   });
