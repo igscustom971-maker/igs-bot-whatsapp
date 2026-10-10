@@ -358,6 +358,7 @@ ${view === 'accueil' ? `
 
 <script>
 const STATUTS = ['EN DEVIS','PAYÉE','VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','LIVRÉE'];
+const ORDRE_TRI = ['A EXPEDIER','EN FLOCAGE','EN PRODUCTION','EN COMMANDE','VALIDÉE','PAYÉE','TERMINÉE','EN DEVIS','LIVRÉE'];
 const COULEURS = {
   'EN DEVIS':['#f3f4f6','#4b5563'], 'PAYÉE':['#dbeafe','#1d4ed8'], 'VALIDÉE':['#e0e7ff','#4338ca'],
   'EN COMMANDE':['#fef3c7','#92400e'], 'EN PRODUCTION':['#ffedd5','#c2410c'], 'EN FLOCAGE':['#fce7f3','#be185d'],
@@ -1117,7 +1118,9 @@ function liste(){
   const q = norm(recherche);
   let rows = data.filter(c => filtre==='TOUS' || (filtre==='ACTIFS' ? !FINIS.includes(statutKey(c.statut)) : statutKey(c.statut)===filtre));
   if (q) rows = rows.filter(c => norm([c.n_devis,c.client,c.zone_flocage,c.affectation,c.infos,c.remarque,c.email].join(' ')).includes(q));
-  rows.sort((a,b) => STATUTS.indexOf(statutKey(a.statut)) - STATUTS.indexOf(statutKey(b.statut)) || String(a.date_commande||'').localeCompare(String(b.date_commande||'')));
+  // Priorité : à expédier, en flocage, production, commande, validée, payée, terminée, devis ; puis livraison la plus urgente
+  const rang = c => { const i = ORDRE_TRI.indexOf(statutKey(c.statut)); return i < 0 ? ORDRE_TRI.length : i; };
+  rows.sort((a,b) => rang(a) - rang(b) || String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')) || String(a.date_commande||'').localeCompare(String(b.date_commande||'')));
 
   $('rows').innerHTML = rows.length ? rows.map(c => {
     const late = enRetard(c);
