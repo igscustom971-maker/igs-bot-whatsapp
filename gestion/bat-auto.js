@@ -14,6 +14,9 @@ const g = require('./graph');
 const { supabase } = require('./db');
 
 const DOSSIER = path.join(__dirname, 'bat-gabarits');
+// Serveur Render à mémoire limitée : un traitement d'image à la fois, pas de cache sharp
+sharp.concurrency(1);
+sharp.cache(false);
 const R = 2; // résolution des mockups (x2, comme le générateur)
 
 // ---------- Gabarits : pixels + mesures ----------
@@ -46,7 +49,10 @@ async function teinte(nom, hex) {
 // ---------- Logos : fond blanc retiré (JPG) et marges rognées, comme dans le générateur ----------
 async function logo(id, sansBlanc) {
   const r = await g.content(id);
-  const { data: p, info } = await sharp(Buffer.from(await r.arrayBuffer())).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  // Visuel réduit à 1600 px max avant traitement (largement suffisant pour le mockup, évite de saturer la mémoire)
+  const { data: p, info } = await sharp(Buffer.from(await r.arrayBuffer()), { limitInputPixels: 120e6 })
+    .rotate().resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const W = info.width, H = info.height;
   const coins = [0, (W - 1) * 4, (H - 1) * W * 4, ((H - 1) * W + W - 1) * 4];
   const opaque = !coins.some(i => p[i + 3] < 16);
