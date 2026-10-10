@@ -188,8 +188,9 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
   app.get('/gestion/auth/reset', async (req, res) => {
     const t = String(req.query.t || '');
     const c = await comptes().compteDuToken(t).catch(() => null);
-    if (!c) return res.status(400).send(pageAuth('Lien expiré', `<h1>Lien expiré</h1><p class="sub">Ce lien n'est plus valable (1 heure, une seule utilisation).</p><a class="ms" href="/gestion/auth/oubli">Refaire une demande</a>`));
-    res.set('Cache-Control', 'no-store').send(pageAuth('Nouveau mot de passe', `<h1>Nouveau mot de passe</h1><p class="sub">${escH(c.affichage)} · identifiant <b>${escH(c.identifiant)}</b></p>
+    if (!c) return res.status(400).send(pageAuth('Lien expiré', `<h1>Lien expiré</h1><p class="sub">Ce lien n'est plus valable (il ne sert qu'une fois, et expire après 1 heure, ou 72 heures pour une invitation).</p><a class="ms" href="/gestion/auth/oubli">Refaire une demande</a>`));
+    const premier = !c.mdp_hash;
+    res.set('Cache-Control', 'no-store').send(pageAuth(premier ? 'Choisis ton mot de passe' : 'Nouveau mot de passe', `<h1>${premier ? 'Bienvenue 👋 Choisis ton mot de passe' : 'Nouveau mot de passe'}</h1><p class="sub">${escH(c.affichage)} · identifiant <b>${escH(c.identifiant)}</b></p>
 <form id="f"><label for="n">Nouveau mot de passe (8 caractères minimum)</label><input id="n" type="password" autocomplete="new-password" minlength="8" required>
 <label for="c">Confirme le mot de passe</label><input id="c" type="password" autocomplete="new-password" minlength="8" required>
 <button class="go" type="submit">Enregistrer et me connecter</button></form><div class="msg" id="msg"></div>`,

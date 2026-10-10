@@ -110,6 +110,8 @@ module.exports = function mountGestion(app) {
   });
   // Comptes individuels (connexion à distance)
   app.post('/gestion/api/admin/collaborateurs/:id/acces', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').definirAcces(Number(req.params.id), req.body || {})));
+  app.post('/gestion/api/admin/collaborateurs/:id/inviter', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').inviter(Number(req.params.id), auth.baseUrl(req))));
+  app.post('/gestion/api/admin/collaborateurs/inviter-tous', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').inviterTous(auth.baseUrl(req))));
   app.post('/gestion/api/admin/collaborateurs/:id/acces/retirer', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').retirerAcces(Number(req.params.id))));
   app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 

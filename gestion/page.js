@@ -287,7 +287,7 @@ ${view === 'accueil' ? `
     <div class="card" style="margin-bottom:12px" id="ad-source"><h3>🗄️ Données</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-taches"><h3>⚙️ Tâches automatiques</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
-    <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
+    <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <span style="display:flex;gap:6px"><button class="btn" id="ad-col-inviter">✉️ Envoyer les invitations</button><button class="btn" id="ad-col-add">＋ Collaborateur</button></span></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
       <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th>Connexion à distance</th><th></th></tr></thead><tbody></tbody></table></div>
     </div>
@@ -924,9 +924,10 @@ function adColRow(c){
   const inp = (cls, v, w, type) => '<input class="'+cls+'" '+(type?'type="'+type+'" ':'')+'value="'+esc(v ?? '')+'" style="width:'+w+';font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px">';
   return '<tr data-id="'+(c.id||'')+'" data-ident="'+esc(c.identifiant||'')+'" data-email="'+esc(c.email_perso||'')+'" data-acces="'+(c.acces?1:'')+'"><td>'+inp('ad-c-aff', c.affichage, '130px')+'</td><td>'+inp('ad-c-nom', c.nom, '170px')+'</td><td>'+inp('ad-c-taux', c.taux_horaire, '90px', 'number')+'</td><td>'+inp('ad-c-ordre', c.ordre ?? 99, '60px', 'number')+'</td>'
     + '<td style="text-align:center"><input type="checkbox" class="ad-c-actif"'+(c.actif !== false ? ' checked' : '')+'></td>'
-    + '<td style="min-width:190px">'+(!c.id ? '<span class="sub">Enregistre d’abord</span>' : c.acces
-        ? '<b>'+esc(c.identifiant)+'</b>'+(c.mdp_provisoire?' <span class="esp">provisoire</span>':'')+'<div class="sub">'+esc(c.email_perso||'pas d’e-mail perso')+(c.derniere_connexion?' · vu le '+new Date(c.derniere_connexion).toLocaleDateString('fr-FR'):'')+'</div>'
-          + '<button class="btn ad-c-acces" style="padding:3px 8px;margin-top:4px">🔑 Modifier</button> <button class="btn ad-c-retirer" style="padding:3px 8px;margin-top:4px">Retirer</button>'
+    + '<td style="min-width:210px">'+(!c.id ? '<span class="sub">Enregistre d’abord</span>' : (c.acces || c.identifiant)
+        ? '<b>'+esc(c.identifiant)+'</b>'+(c.acces ? (c.mdp_provisoire?' <span class="esp">provisoire</span>':'') : ' <span class="esp" style="background:#fef3c7;color:#92400e">'+(c.invitation ? '✉️ invitation envoyée' : 'mot de passe pas encore choisi')+'</span>')
+          + '<div class="sub">'+esc(c.email_perso||'pas d’e-mail perso')+(c.derniere_connexion?' · vu le '+new Date(c.derniere_connexion).toLocaleDateString('fr-FR'):'')+'</div>'
+          + '<button class="btn ad-c-acces" style="padding:3px 8px;margin-top:4px">🔑 Modifier</button> '+(c.email_perso ? '<button class="btn ad-c-inviter" style="padding:3px 8px;margin-top:4px">✉️ '+(c.acces ? 'Lien mot de passe' : (c.invitation ? 'Renvoyer' : 'Inviter'))+'</button> ' : '')+'<button class="btn ad-c-retirer" style="padding:3px 8px;margin-top:4px">Retirer</button>'
         : '<button class="btn ad-c-acces" style="padding:3px 8px">🔑 Créer l’accès</button>')+'</td>'
     + '<td style="white-space:nowrap"><button class="btn ad-c-save" style="padding:3px 8px">💾</button> '+(c.id ? '<button class="btn ad-c-del" style="padding:3px 8px;color:var(--bad)">✕</button>' : '')+'</td></tr>';
 }
@@ -1061,6 +1062,11 @@ function adEvents(){
     try { await post('/gestion/api/admin/listes', { produits, couleurs: $('ad-couleurs').value, coupes: $('ad-coupes').value }); msg('✅ Listes enregistrées : le formulaire client et le dashboard les utilisent maintenant', 'ok'); adCharger(); }
     catch(err){ msg('❌ ' + esc(err.message), 'err'); }
   };
+  $('ad-col-inviter').onclick = async () => {
+    if (!confirm('Envoyer un mail « Choisis ton mot de passe » à tous les collaborateurs actifs qui ont un identifiant et un e-mail perso, et qui n’ont pas encore choisi leur mot de passe ?')) return;
+    try { const k = await post('/gestion/api/admin/collaborateurs/inviter-tous'); alert('✅ Invitations envoyées : '+(k.envoyes.join(', ') || 'aucune')+(k.ignores.length ? '\\n\\nNon envoyées :\\n• '+k.ignores.join('\\n• ') : '')); adCharger(); }
+    catch(err){ alert(err.message); }
+  };
   const ct = document.querySelector('#ad-col tbody');
   $('ad-col-add').onclick = () => { ct.insertAdjacentHTML('beforeend', adColRow({ actif: true, ordre: 99 })); ct.lastElementChild.querySelector('.ad-c-aff').focus(); };
   ct.addEventListener('click', async e => {
@@ -1076,12 +1082,19 @@ function adEvents(){
       const sugg = tr.dataset.ident || prenom.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9.-]/g, '');
       const identifiant = prompt('Identifiant de connexion (prénom sans accent) :', sugg); if (identifiant === null) return;
       const email_perso = prompt('E-mail perso (pour réinitialiser son mot de passe) :', tr.dataset.email || ''); if (email_perso === null) return;
-      const mot_de_passe = prompt(tr.dataset.acces ? 'Nouveau mot de passe provisoire (laisser vide pour garder l’actuel) :' : 'Mot de passe provisoire (8 caractères minimum, à changer à la 1re connexion) :', ''); if (mot_de_passe === null) return;
+      const mot_de_passe = prompt(tr.dataset.acces ? 'Nouveau mot de passe provisoire (laisser vide pour garder l’actuel) :' : 'Mot de passe provisoire (8 caractères minimum)\\n\\nOu laisse VIDE : il recevra un mail sur son e-mail perso pour choisir lui-même son mot de passe.', ''); if (mot_de_passe === null) return;
       try {
         const j = await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/acces', { identifiant, email_perso, mot_de_passe });
-        alert('Accès enregistré.\\n\\nIdentifiant : '+j.identifiant+(mot_de_passe ? '\\nMot de passe provisoire : celui que tu viens de saisir' : '')+'\\nAdresse : '+location.origin+'/gestion');
+        if (!mot_de_passe && !tr.dataset.acces && email_perso.trim()) {
+          const k = await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/inviter');
+          alert('Accès créé et invitation envoyée à '+k.email+'.\\n\\nIdentifiant : '+j.identifiant+'\\nIl choisit son mot de passe depuis le mail (lien valable 72 h).');
+        } else alert('Accès enregistré.\\n\\nIdentifiant : '+j.identifiant+(mot_de_passe ? '\\nMot de passe provisoire : celui que tu viens de saisir' : '')+'\\nAdresse : '+location.origin+'/gestion');
         adCharger();
       } catch(err){ alert(err.message); }
+    }
+    if (e.target.closest('.ad-c-inviter')) {
+      if (!confirm('Envoyer à '+(tr.dataset.email||'son e-mail perso')+' un lien pour choisir son mot de passe ?')) return;
+      try { const k = await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/inviter'); alert('✅ Mail envoyé à '+k.email+' (lien valable 72 h).'); adCharger(); } catch(err){ alert(err.message); }
     }
     if (e.target.closest('.ad-c-retirer')) {
       if (!confirm('Retirer l’accès à distance de ce collaborateur ? Il sera déconnecté (le compte contact@ reste utilisable au bureau).')) return;

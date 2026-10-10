@@ -99,7 +99,7 @@ async function definirAcces(id, data) {
   if (txt(data.mot_de_passe)) {
     controleMdp(data.mot_de_passe);
     Object.assign(maj, { mdp_hash: hacher(data.mot_de_passe), mdp_provisoire: true, mdp_version: (c.mdp_version || 0) + 1, reset_hash: null, reset_expire: null });
-  } else if (!c.mdp_hash) throw new Error('Indique un mot de passe provisoire');
+  } // sans mot de passe : invitation par mail (le collaborateur choisit lui-même son 1er mot de passe)
   const { error } = await supabase.from('gestion_collaborateurs').update(maj).eq('id', id);
   if (error) throw new Error(`Supabase : ${error.message}`);
   oublierCache(id);
@@ -154,6 +154,45 @@ async function demanderReset(saisie, baseUrl, ip) {
   console.log(`Gestion : lien de réinitialisation envoyé à ${c.identifiant}`);
 }
 
+// ---------- Invitation : lien par e-mail perso pour choisir son 1er mot de passe (valable 72 h) ----------
+const INVITATION_HEURES = 72;
+async function inviter(id, baseUrl) {
+  needDb();
+  const { data: c } = await supabase.from('gestion_collaborateurs').select('*').eq('id', id).maybeSingle();
+  if (!c) throw new Error('Collaborateur introuvable');
+  if (!c.actif) throw new Error(`${c.affichage} est inactif`);
+  if (!c.identifiant) throw new Error(`${c.affichage} : crée d'abord son accès (identifiant)`);
+  if (!c.email_perso) throw new Error(`${c.affichage} : pas d'e-mail perso`);
+  const token = crypto.randomBytes(32).toString('base64url');
+  const { error } = await supabase.from('gestion_collaborateurs').update({ reset_hash: sha(token), reset_expire: new Date(Date.now() + INVITATION_HEURES * 3600e3).toISOString() }).eq('id', c.id);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  const lien = `${baseUrl}/gestion/auth/reset?t=${token}`;
+  const prenom = esc(c.affichage.split(' ')[0]);
+  const html = `<p>Bonjour ${prenom},</p>
+<p>Ton accès à <b>IGS DASHBOARD</b>, le nouvel outil de gestion d'IGS CUSTOM BAR, est prêt.</p>
+<p>Ton identifiant : <b>${esc(c.identifiant)}</b></p>
+<p>Clique sur le bouton pour choisir ton mot de passe (8 caractères minimum) :</p>
+<p><a href="${lien}" style="display:inline-block;padding:12px 18px;background:#e91e8c;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">Choisir mon mot de passe</a></p>
+<p>Ce lien est valable ${INVITATION_HEURES} heures et ne sert qu'une fois. Ensuite, connecte-toi sur <a href="${baseUrl}/gestion">${baseUrl.replace(/^https?:\/\//, '')}/gestion</a> avec ton identifiant et ton mot de passe.</p>
+<p>Mot de passe oublié plus tard ? Le lien « Mot de passe oublié ? » de la page de connexion t'en renvoie un sur cette adresse.</p>
+<p style="color:#6b7280;font-size:12px">IGS CUSTOM BAR</p>`;
+  await require('./graph').sendMail(MAILBOX, { to: c.email_perso, subject: 'IGS DASHBOARD - Choisis ton mot de passe', html });
+  console.log(`Gestion : invitation envoyée à ${c.identifiant} (${c.email_perso})`);
+  return { ok: true, identifiant: c.identifiant, email: c.email_perso };
+}
+// Invitations à tous les collaborateurs actifs qui ont un identifiant et un e-mail perso mais pas encore de mot de passe choisi
+async function inviterTous(baseUrl) {
+  needDb();
+  const { data } = await supabase.from('gestion_collaborateurs').select('id, affichage, identifiant, email_perso, mdp_hash, mdp_provisoire, actif').eq('actif', true);
+  const envoyes = [], ignores = [];
+  for (const c of data || []) {
+    if (!c.identifiant || !c.email_perso) { ignores.push(`${c.affichage} (${!c.identifiant ? 'pas d\'identifiant' : 'pas d\'e-mail perso'})`); continue; }
+    if (c.mdp_hash && !c.mdp_provisoire) { ignores.push(`${c.affichage} (mot de passe déjà choisi)`); continue; }
+    try { await inviter(c.id, baseUrl); envoyes.push(c.affichage); } catch (err) { ignores.push(`${c.affichage} (${err.message})`); }
+  }
+  return { envoyes, ignores };
+}
+
 async function compteDuToken(token) {
   needDb();
   if (!token || token.length < 20) return null;
@@ -174,4 +213,4 @@ async function reinitialiser(token, nouveau, confirmation) {
   return session({ ...c, mdp_version: version, mdp_provisoire: false });
 }
 
-module.exports = { connecter, sessionValide, definirAcces, retirerAcces, changerMdp, demanderReset, compteDuToken, reinitialiser, normIdentifiant, MDP_MIN, _test: { hacher, verifierHash } };
+module.exports = { inviter, inviterTous, connecter, sessionValide, definirAcces, retirerAcces, changerMdp, demanderReset, compteDuToken, reinitialiser, normIdentifiant, MDP_MIN, _test: { hacher, verifierHash } };
