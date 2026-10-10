@@ -88,9 +88,21 @@ async function thumbnailUrl(itemId, size = 'large', o) {
   } catch { return null; }
 }
 
+// Écriture d'une plage de cellules (ex. "C7") dans une feuille : values = [[valeur]]
+async function patchRange(itemId, sheet, address, values, o) {
+  const url = `${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}/workbook/worksheets/${encodeURIComponent(sheet)}/range(address='${address}')`;
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values }),
+  });
+  if (!res.ok) throw new Error(`Écriture Excel ${address} refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { graph, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { graph, patchRange, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

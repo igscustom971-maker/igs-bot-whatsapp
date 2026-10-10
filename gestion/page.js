@@ -143,6 +143,23 @@ a.mod:hover{border-color:var(--pink)}
 .plrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
 .plrow:last-child{border-bottom:none}
 .plrow b{font-variant-numeric:tabular-nums}
+/* Actions planche */
+.actions{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-items:end}
+.field label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px}
+.field input,.field select{width:100%;font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;color:var(--ink);background:#fff}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn.pink{background:var(--pink);border-color:var(--pink);color:#fff}
+.btn:disabled{opacity:.5;cursor:wait}
+.msg{margin-top:10px;font-size:13px;border-radius:8px;padding:8px 10px;display:none}
+.msg.ok{display:block;background:#dcfce7;color:#166534}
+.msg.err{display:block;background:#fee2e2;color:#991b1b}
+.msg.info{display:block;background:#eef2ff;color:#3730a3}
+.cand{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+.cand:last-child{border-bottom:none}
+.autobox{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.switch{position:relative;width:44px;height:24px;border-radius:999px;background:#d4d0e2;border:none;flex:none}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+.switch.on{background:var(--ok)} .switch.on::after{left:23px}
 /* Date de livraison modifiable */
 .dliv{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
@@ -218,6 +235,7 @@ ${view === 'accueil' ? `
     <span id="sync" class="sync"></span>
   </div>
   <div class="kpis" id="plkpis"></div>
+  ${user.role === 'admin' ? '<div class="card autobox" id="autobox"></div>' : ''}
   <div id="chips" class="chips"></div>
   <div class="tablewrap">
     <table>
@@ -267,6 +285,7 @@ const PL_COULEURS = {
 };
 let planches = [];
 const VIEW = '${view}';
+const ADMIN = ${user.role === 'admin' ? 'true' : 'false'};
 let data = [], filtre = (new URLSearchParams(location.search).get('filtre') || 'ACTIFS'), recherche = '';
 
 const $ = id => document.getElementById(id);
@@ -372,10 +391,102 @@ function plListe(){
       + '</tr>').join('') : '<tr><td colspan="8" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
 }
 
+let autoEtat = null;
+function plActionsHtml(p){
+  const opts = PL_STATUTS.map(s => '<option'+(plKey(p.statut)===s?' selected':'')+'>'+s+'</option>').join('');
+  let h = '<div class="card"><h3>Actions</h3><div class="actions">'
+    + '<div class="field"><label>Métrage (m, A3 ou A4)</label><input id="a-metres" value="'+esc(p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))+'" placeholder="ex. 2,5"></div>'
+    + '<div class="field"><label>Statut</label><select id="a-statut"><option value="">—</option>'+opts+'</select></div>'
+    + '<div class="field"><label>N° de suivi La Poste</label><input id="a-suivi" value="'+esc(p.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
+    + '</div><div class="btnrow"><button class="btn primary" id="a-save">Enregistrer</button>';
+  const aVerif = plKey(p.statut) === 'A VERIFIER';
+  if (!p.n_devis && !p.hebdo) h += '<button class="btn pink" id="a-devis">'+(aVerif ? '📝 Préparer le devis (sans envoi)' : '📄 Créer et envoyer le devis')+'</button>';
+  if (p.n_devis) h += '<a class="btn" href="/gestion/odoo/devis/'+encodeURIComponent(p.n_devis)+'" target="_blank" rel="noopener">↗ Ouvrir le devis dans Odoo</a>';
+  if (p.hebdo && ADMIN) h += '<button class="btn pink" id="a-facture">🧾 Envoyer la facture maintenant</button>';
+  h += '</div>';
+  if (p.hebdo && ADMIN) h += '<div class="field" style="margin-top:10px"><label>Titre de la facture</label><input id="a-titre" value="'+esc((autoEtat && autoEtat.titreParDefaut) || 'PLANCHE DTF SEMAINE')+'"></div>'
+    + '<div class="note" style="margin-top:4px">Après l\\'envoi, le compteur (Métrage) repart à zéro dans l\\'Excel.</div>';
+  return h + '<div class="msg" id="a-msg"></div><div id="a-cands"></div></div>';
+}
+function msg(t, cls){ const m = $('a-msg'); m.className = 'msg ' + cls; m.innerHTML = t; }
+async function post(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+  return j;
+}
+function busy(on){ ['a-save','a-devis','a-facture'].forEach(id => { if ($(id)) $(id).disabled = on; }); }
+async function apresAction(planche, texte){
+  await charger(false);
+  const p = planche && planches.find(x => x.cle === planche.cle);
+  if (p) { panelCle = p.cle; await ouvrirPlanche(p.cle); }
+  if (texte) msg(texte, 'ok');
+}
+function brancherActions(p){
+  $('a-save').onclick = async () => {
+    const body = {};
+    const m = $('a-metres').value.trim(), st = $('a-statut').value, su = $('a-suivi').value.trim();
+    if (m !== (p.format || (p.metres != null ? String(p.metres).replace('.',',') : ''))) body.metres = m;
+    if (st && st !== plKey(p.statut)) body.statut = st;
+    if (su !== (p.numero_suivi || '')) body.numero_suivi = su;
+    if (!Object.keys(body).length) return msg('Aucune modification', 'info');
+    busy(true); msg('Écriture dans l\\'Excel…', 'info');
+    try { const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/modifier', body); await apresAction(j.planche || p, '✅ Enregistré dans l\\'Excel'); }
+    catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
+  };
+  const lancer = async (type, extra) => {
+    const url = '/gestion/api/planches/'+encodeURIComponent(p.cle)+'/'+(type === 'devis' ? 'devis' : 'facturer');
+    const body = Object.assign(type === 'facture' ? { titre: $('a-titre').value } : {}, extra || {});
+    busy(true); msg(type === 'devis' ? 'Création du devis dans Odoo…' : 'Création et envoi de la facture…', 'info'); $('a-cands').innerHTML = '';
+    try {
+      const j = await post(url, body);
+      if (j.besoinClient) return choisirClient(p, j.candidats || [], pid => lancer(type, Object.assign({}, extra, { partnerId: pid })));
+      if (j.doublon) { if (confirm('Un devis '+j.doublon+' a été créé pour ce client il y a moins de 2 h. Créer quand même un nouveau devis ?')) return lancer(type, Object.assign({}, extra, { force: true })); return msg('Annulé : devis '+esc(j.doublon)+' déjà existant', 'info'); }
+      const d = j.devis || j.facture;
+      const lien = d.lien ? ' · <a href="'+esc(d.lien)+'" target="_blank" rel="noopener">ouvrir dans Odoo ↗</a>' : '';
+      const quoi = j.devis ? (d.envoye === false ? 'Devis ' + esc(d.numero) + ' préparé (non envoyé) : ajuste-le puis envoie-le depuis Odoo' : 'Devis ' + esc(d.numero) + ' envoyé au client') : 'Facture ' + esc(d.numero) + ' envoyée au client';
+      await apresAction(j.planche, '✅ ' + quoi + ' · ' + eur(d.montant_ht) + ' HT' + lien);
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
+  };
+  if ($('a-devis')) $('a-devis').onclick = () => { if (confirm(plKey(p.statut) === 'A VERIFIER' ? 'Préparer le devis dans Odoo pour '+p.client+' (sans l\\'envoyer) ?' : 'Créer le devis dans Odoo et l\\'envoyer par mail à '+p.client+' ?')) lancer('devis'); };
+  if ($('a-facture')) $('a-facture').onclick = () => {
+    const q = p.format || (p.metres ? String(p.metres).replace('.',',')+' m' : '');
+    if (!q) return msg('Compteur à zéro : rien à facturer', 'info');
+    if (confirm('Créer, valider et envoyer la facture « '+$('a-titre').value+' » ('+q+') à '+p.client+' ?\\nLe compteur sera remis à zéro.')) lancer('facture');
+  };
+}
+function choisirClient(p, cands, then){
+  msg('Client « '+esc(p.client)+' » introuvable ou ambigu dans Odoo : choisis la bonne fiche. Ce choix sera mémorisé.', 'info');
+  const render = list => '<div class="field" style="margin-top:8px"><input id="c-q" placeholder="Rechercher dans Odoo (nom, email)…"></div>'
+    + '<div id="c-list">' + (list.length ? list.map(c => '<div class="cand"><div><b>'+esc(c.name)+'</b><div class="sub">'+esc(c.email||'')+'</div></div><button class="btn" data-id="'+c.id+'">Choisir</button></div>').join('') : '<div class="note">Aucun résultat</div>') + '</div>';
+  $('a-cands').innerHTML = render(cands);
+  const bind = () => {
+    $('c-list').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) { $('a-cands').innerHTML=''; then(Number(b.dataset.id)); } };
+    let t; $('c-q').oninput = e => { clearTimeout(t); t = setTimeout(async () => {
+      const r = await fetch('/gestion/api/odoo/clients?q='+encodeURIComponent(e.target.value)); const j = await r.json();
+      $('a-cands').innerHTML = render(j.clients || []); $('c-q').value = e.target.value; $('c-q').focus(); bind();
+    }, 300); };
+  };
+  bind();
+}
+async function chargerAuto(){
+  try { const r = await fetch('/gestion/api/planches/facturation-auto'); autoEtat = await r.json(); } catch(e){ autoEtat = null; }
+  if (!$('autobox') || !autoEtat) return;
+  const b = autoEtat.bilan;
+  $('autobox').innerHTML = '<button class="switch'+(autoEtat.active?' on':'')+'" id="auto-sw" aria-label="Activer la facturation automatique"></button>'
+    + '<div><b>Factures hebdo automatiques</b> · chaque lundi à 8h · '+(autoEtat.active?'<span style="color:var(--ok);font-weight:700">activées</span>':'<span class="sub">désactivées</span>')
+    + (autoEtat.odoo ? '' : ' · <span style="color:var(--bad)">Odoo non configuré</span>')
+    + (b ? '<div class="sub">Dernier envoi ('+esc(b.semaine)+') : '+esc((b.lignes||[]).join(' · ') || 'aucune facture')+'</div>' : '<div class="sub">Aucun envoi automatique pour l\\'instant</div>') + '</div>';
+  $('auto-sw').onclick = async () => {
+    const on = !autoEtat.active;
+    if (on && !confirm('Activer l\\'envoi automatique des factures hebdo chaque lundi à 8h ?')) return;
+    try { await post('/gestion/api/planches/facturation-auto', { active: on }); chargerAuto(); } catch(e){ alert(e.message); }
+  };
+}
 async function ouvrirPlanche(cle){
   const p = planches.find(x => x.cle === cle); if (!p) return;
   $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '');
-  $('psub').textContent = (p.n_devis || 'Pas encore de devis') + (p.hebdo ? ' · Client hebdomadaire' : '');
+  $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
     + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
     + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant HT', eur(p.montant_ht))
@@ -383,7 +494,9 @@ async function ouvrirPlanche(cle){
     + kv('N° de suivi', esc(p.numero_suivi))
     + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + plActionsHtml(p)
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
+  brancherActions(p);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   try{
     const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichiers');
@@ -560,6 +673,7 @@ if (VIEW === 'commandes') {
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
+  chargerAuto();
 } else {
   $('prios').addEventListener('click', e => { const p = e.target.closest('.prio'); if (p){ panelCle = p.dataset.k; ouvrir(panelCle); } });
 }

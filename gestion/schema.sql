@@ -69,3 +69,35 @@ create table if not exists gestion_planches (
   created_at              timestamptz default now()
 );
 alter table gestion_planches enable row level security;
+
+-- ============================================
+-- PHASE 1 PLANCHES : actions, correspondances clients, réglages — à exécuter une fois
+-- ============================================
+create table if not exists gestion_actions (
+  id           bigserial primary key,
+  cree_le      timestamptz default now(),
+  utilisateur  text,
+  action       text,      -- planche_modifiee, devis_envoye, facture_hebdo...
+  cle          text,
+  details      jsonb
+);
+create index if not exists gestion_actions_cree_le_idx on gestion_actions (cree_le desc);
+
+create table if not exists gestion_clients_alias (
+  alias         text primary key,   -- nom Excel normalisé (ex. "zepub")
+  nom_excel     text,
+  partner_id    integer not null,   -- fiche client Odoo (ex. Manuel KOMLHA)
+  partner_name  text,
+  cree_par      text,
+  updated_at    timestamptz default now()
+);
+
+create table if not exists gestion_reglages (
+  cle         text primary key,
+  valeur      text,
+  updated_at  timestamptz default now()
+);
+
+alter table gestion_actions enable row level security;
+alter table gestion_clients_alias enable row level security;
+alter table gestion_reglages enable row level security;

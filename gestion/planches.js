@@ -8,6 +8,7 @@
 const cfg = require('./config');
 const g = require('./graph');
 const { supabase } = require('./db');
+const odoo = require('./odoo');
 
 const key = s => g.norm(s).replace(/[^a-z0-9]/g, '');
 const txt = v => (v === null || v === undefined || v === '' ? null : String(v).trim() || null);
@@ -39,10 +40,10 @@ function rowsFromRange(range) {
   header.forEach((h, i) => { const f = COLUMNS[key(h)]; if (f && idx[f] === undefined) idx[f] = i; });
   if (idx.client === undefined) throw new Error(`En-têtes inattendus dans Planches DTF : ${header.join(' | ')}`);
   const out = [];
-  for (const r of rows) {
+  rows.forEach((r, rowIndex) => {
     const get = f => (idx[f] === undefined ? null : r[idx[f]]);
     const client = txt(get('client'));
-    if (!client) continue; // ligne vidée par le nettoyage de minuit
+    if (!client) return; // ligne vidée par le nettoyage de minuit
     const ndevis = txt(get('n_devis'));
     const metresRaw = get('metres');
     const format = typeof metresRaw === 'string' && /^a[34]$/i.test(metresRaw.trim()) ? metresRaw.trim().toUpperCase() : null;
@@ -67,7 +68,9 @@ function rowsFromRange(range) {
       numero_suivi: txt(get('numero_suivi')),
       mail_expedition_envoye: txt(get('mail_expedition_envoye')),
     });
-  }
+    Object.defineProperty(out[out.length - 1], '_row', { value: rowIndex, enumerable: false }); // position dans le tableau
+  });
+  out.idx = idx;
   return out;
 }
 
@@ -171,12 +174,192 @@ async function fichierAutorise(itemId) {
   return it.file && path.includes(g.norm(cfg.PLANCHES_PATH)) ? it : null;
 }
 
+// ============================================
+// ACTIONS (phase 1) : écriture dans l'Excel + Odoo
+// L'Excel reste la référence tant que les flux Power Automate en dépendent :
+// on y écrit cellule par cellule (les formules Réduction / Montant restent intactes).
+// ============================================
+const colLetter = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const colIndex = l => l.split('').reduce((t, c) => t * 26 + c.charCodeAt(0) - 64, 0) - 1;
+
+async function writeCells(cle, fields) {
+  if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
+  const range = await g.tableRange(excelItemId, cfg.TABLE_PLANCHES); // lecture fraîche : on retrouve la ligne par sa clé
+  const rows = rowsFromRange(range);
+  const row = rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Ligne introuvable dans l\'Excel (elle a peut-être été modifiée entre-temps) : actualise et réessaie');
+  const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
+  if (!m) throw new Error(`Adresse du tableau illisible : ${range.address}`);
+  const [, sheet, startCol, startRow] = m;
+  for (const [field, value] of Object.entries(fields)) {
+    if (rows.idx[field] === undefined) throw new Error(`Colonne « ${field} » absente du tableau`);
+    const address = colLetter(colIndex(startCol) + rows.idx[field]) + (Number(startRow) + 1 + row._row);
+    await g.patchRange(excelItemId, sheet, address, [[value]]);
+  }
+  await syncNow();
+}
+
+async function journal(user, action, cle, details) {
+  console.log(`Gestion action : ${action} ${cle} par ${user}`, details || '');
+  if (!supabase) return;
+  const { error } = await supabase.from('gestion_actions').insert({ utilisateur: user, action, cle, details });
+  if (error) console.error('Gestion journal :', error.message);
+}
+
+const trouve = cle => {
+  const p = cache.rows.find(r => r.cle === cle);
+  if (!p) throw new Error('Planche introuvable, actualise la page');
+  return p;
+};
+
+// Métrage / statut / numéro de suivi
+async function modifier(cle, champs, user) {
+  const p = trouve(cle);
+  const fields = {};
+  if ('metres' in champs) {
+    const v = String(champs.metres ?? '').trim().toUpperCase().replace(',', '.');
+    if (v === 'A3' || v === 'A4') fields.metres = v;
+    else if (v === '' && p.hebdo) fields.metres = '';
+    else if (Number(v) > 0 && Number(v) < 1000) fields.metres = Math.round(Number(v) * 100) / 100;
+    else throw new Error('Métrage invalide (nombre, A3 ou A4)');
+  }
+  if ('statut' in champs) {
+    const v = String(champs.statut || '').trim().toUpperCase();
+    if (!v || v.length > 30) throw new Error('Statut invalide');
+    fields.statut = v;
+  }
+  if ('numero_suivi' in champs) {
+    const v = String(champs.numero_suivi || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (v && !/^[A-Z0-9]{8,20}$/.test(v)) throw new Error('Numéro de suivi invalide');
+    fields.numero_suivi = v;
+  }
+  if (!Object.keys(fields).length) throw new Error('Rien à modifier');
+  await writeCells(cle, fields);
+  await journal(user, 'planche_modifiee', cle, { client: p.client, ...fields });
+  return trouveApres(p);
+}
+
+// Après une écriture, la clé peut changer (ex. N° de devis ajouté) : on retrouve la ligne par sa position
+const trouveApres = p => cache.rows.find(r => r._row === p._row && key(r.client) === key(p.client)) || null;
+
+async function clientOdoo(p, partnerId, user) {
+  if (partnerId) {
+    const partner = await odoo.readPartner(Number(partnerId));
+    if (!partner) throw new Error('Client Odoo introuvable');
+    await odoo.setAlias(p.client, partner.id, partner.name, user); // mémorisé : ZePUB -> Manuel KOMLHA, etc.
+    return { partner };
+  }
+  return odoo.findPartner(p.client);
+}
+
+// Devis Odoo pour une planche ponctuelle (sans N° de devis)
+async function devis(cle, user, { partnerId, force } = {}) {
+  const p = trouve(cle);
+  if (p.n_devis) throw new Error(`Cette planche a déjà un devis (${p.n_devis})`);
+  if (p.hebdo) throw new Error('Client hebdo : on facture le lundi, pas de devis');
+  if (!p.format && !(p.metres > 0)) throw new Error('Renseigne d\'abord le métrage');
+  const c = await clientOdoo(p, partnerId, user);
+  if (!c.partner) return { besoinClient: true, candidats: c.candidats };
+  if (!force) {
+    const recent = await odoo.devisRecent(c.partner.id);
+    if (recent) return { doublon: recent };
+  }
+  const titre = `PLANCHE DTF - ${p.format || String(p.metres).replace('.', ',') + ' m'}`;
+  // Planche "A VERIFIER" : devis préparé dans Odoo mais PAS envoyé (Ismaël l'ajuste puis l'envoie depuis Odoo)
+  const envoyer = (p.statut || '').toUpperCase() !== 'A VERIFIER';
+  const d = await odoo.creerEtEnvoyerDevis({ partner: c.partner, metres: p.metres, format: p.format, titre, envoyer });
+  await writeCells(cle, { n_devis: d.numero });
+  await journal(user, envoyer ? 'devis_envoye' : 'devis_prepare', d.numero, { client: p.client, partenaire: c.partner.name, ...d });
+  return { ok: true, devis: d, planche: trouveApres(p) };
+}
+
+// ---------- Facturation hebdo ----------
+function semaineIso(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const y = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return { annee: d.getUTCFullYear(), semaine: Math.ceil(((d - y) / 86400000 + 1) / 7) };
+}
+const heureGuadeloupe = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
+// Lundi : semaine écoulée. Autres jours (envoi manuel) : semaine en cours.
+function titreParDefaut() {
+  const now = heureGuadeloupe();
+  const ref = new Date(now);
+  if (now.getDay() === 1) ref.setDate(ref.getDate() - 7);
+  return `PLANCHE DTF SEMAINE ${semaineIso(ref).semaine}`;
+}
+
+async function facturer(cle, user, { partnerId, titre } = {}) {
+  const p = trouve(cle);
+  if (!p.hebdo) throw new Error('Facture hebdo réservée aux clients en fréquence hebdomadaire');
+  if (!p.format && !(p.metres > 0)) throw new Error('Compteur à zéro : rien à facturer');
+  const c = await clientOdoo(p, partnerId, user);
+  if (!c.partner) return { besoinClient: true, candidats: c.candidats };
+  const t = (titre || titreParDefaut()).trim().slice(0, 120);
+  const f = await odoo.creerEtEnvoyerFacture({ partner: c.partner, metres: p.metres, format: p.format, titre: t });
+  // Remise à zéro du compteur (seulement après envoi réussi)
+  await writeCells(cle, { metres: '' });
+  await journal(user, 'facture_hebdo', f.numero, { client: p.client, partenaire: c.partner.name, metres: p.metres || p.format, titre: t, ...f });
+  return { ok: true, facture: f, planche: trouveApres(p) };
+}
+
+// ---------- Réglages (facturation automatique du lundi) ----------
+const reglagesMem = new Map();
+async function getReglage(cle, defaut = null) {
+  if (!supabase) return reglagesMem.has(cle) ? reglagesMem.get(cle) : defaut;
+  const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', cle).maybeSingle();
+  return data ? data.valeur : defaut;
+}
+async function setReglage(cle, valeur) {
+  if (!supabase) { reglagesMem.set(cle, valeur); return; }
+  const { error } = await supabase.from('gestion_reglages').upsert({ cle, valeur, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Supabase : ${error.message}`);
+}
+
+let autoEnCours = false;
+async function facturationAutoSiDue() {
+  if (autoEnCours) return;
+  const now = heureGuadeloupe();
+  if (now.getDay() !== 1 || now.getHours() < 8) return; // lundi à partir de 8h
+  if ((await getReglage('facturation_hebdo_auto', 'off')) !== 'on') return;
+  const ref = new Date(now); ref.setDate(ref.getDate() - 7);
+  const { annee, semaine } = semaineIso(ref);
+  const marque = `${annee}-S${semaine}`;
+  if ((await getReglage('facturation_hebdo_derniere')) === marque) return;
+  autoEnCours = true;
+  try {
+    await setReglage('facturation_hebdo_derniere', marque); // marqué avant l'envoi : jamais deux fois la même semaine
+    await syncNow();
+    const aFacturer = cache.rows.filter(p => p.hebdo && (p.format || p.metres > 0));
+    const bilan = [];
+    for (const p of aFacturer) {
+      try {
+        const r = await facturer(p.cle, 'Facturation automatique', { titre: `PLANCHE DTF SEMAINE ${semaine}` });
+        bilan.push(r.ok ? `✅ ${p.client} : ${r.facture.numero}` : `⚠️ ${p.client} : client Odoo à préciser`);
+      } catch (err) {
+        bilan.push(`❌ ${p.client} : ${err.message}`);
+      }
+    }
+    await setReglage('facturation_hebdo_bilan', JSON.stringify({ semaine: marque, le: new Date().toISOString(), lignes: bilan }));
+    console.log('Gestion facturation hebdo', marque, bilan);
+  } finally {
+    autoEnCours = false;
+  }
+}
+
+async function etatFacturationAuto() {
+  let bilan = null;
+  try { bilan = JSON.parse(await getReglage('facturation_hebdo_bilan', 'null')); } catch {}
+  return { active: (await getReglage('facturation_hebdo_auto', 'off')) === 'on', bilan, titreParDefaut: titreParDefaut(), odoo: odoo.configured() };
+}
+
 function startSync() {
   if (!cfg.SITE_ID || !cfg.CLIENT_ID || !cfg.CLIENT_SECRET) return;
   setTimeout(syncNow, 8000);
-  setInterval(syncNow, cfg.SYNC_INTERVAL_MS);
+  setInterval(() => { syncNow().then(() => facturationAutoSiDue()).catch(e => console.error('Gestion planches :', e.message)); }, cfg.SYNC_INTERVAL_MS);
 }
 
 const drive = () => ({ drive: planchesDrive });
 
-module.exports = { drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

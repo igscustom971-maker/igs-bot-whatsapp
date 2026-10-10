@@ -35,6 +35,30 @@ module.exports = function mountGestion(app) {
     res.json({ planches: data.rows, syncedAt: data.syncedAt, erreur: data.error });
   });
 
+  // ---------- Actions Planches (phase 1) ----------
+  const qui = req => req.user.name || req.user.email;
+  const action = fn => async (req, res) => {
+    try { res.json(await fn(req)); }
+    catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.post('/gestion/api/planches/:cle/modifier', auth.requireUser, action(req => planches.modifier(req.params.cle, req.body || {}, qui(req)).then(planche => ({ planche }))));
+  app.post('/gestion/api/planches/:cle/devis', auth.requireUser, action(req => planches.devis(req.params.cle, qui(req), req.body || {})));
+  app.post('/gestion/api/planches/:cle/facturer', auth.requireUser, auth.requireAdmin, action(req => planches.facturer(req.params.cle, qui(req), req.body || {})));
+  // Ouvre un devis Odoo à partir de son numéro (ex. /gestion/odoo/devis/DE2601064)
+  app.get('/gestion/odoo/devis/:numero', auth.requireUser, async (req, res) => {
+    try {
+      const lien = await require('./odoo').lienDevis(req.params.numero);
+      if (!lien) return res.status(404).send(`Devis ${req.params.numero} introuvable dans Odoo`);
+      res.redirect(lien);
+    } catch (err) { res.status(502).send(err.message); }
+  });
+  app.get('/gestion/api/odoo/clients', auth.requireUser, action(req => require('./odoo').searchPartners(String(req.query.q || '').slice(0, 60)).then(clients => ({ clients }))));
+  app.get('/gestion/api/planches/facturation-auto', auth.requireUser, action(() => planches.etatFacturationAuto()));
+  app.post('/gestion/api/planches/facturation-auto', auth.requireUser, auth.requireAdmin, action(async req => {
+    await planches.setReglage('facturation_hebdo_auto', req.body?.active ? 'on' : 'off');
+    return planches.etatFacturationAuto();
+  }));
+
   app.get('/gestion/api/planches/:cle/fichiers', auth.requireUser, async (req, res) => {
     try {
       res.json(await planches.getFichiers(req.params.cle));
