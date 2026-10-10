@@ -48,8 +48,14 @@ async function getDriveId() {
   if (!cfg.SITE_ID) throw new Error('SP_SITE_ID non configuré sur Render');
   const { value } = await graph(`/sites/${cfg.SITE_ID}/drives?$select=id,name`);
   const found = value.find(d => norm(d.name) === norm(cfg.LIBRARY_NAME));
-  if (!found) throw new Error(`Bibliothèque "${cfg.LIBRARY_NAME}" introuvable. Disponibles : ${value.map(d => d.name).join(', ')}`);
-  driveId = found.id;
+  if (found) {
+    driveId = found.id;
+  } else {
+    // Bibliothèque par défaut du site ("Documents partagés")
+    const def = await graph(`/sites/${cfg.SITE_ID}/drive?$select=id,name`);
+    console.warn(`Gestion : bibliothèque "${cfg.LIBRARY_NAME}" introuvable (disponibles : ${value.map(d => d.name).join(', ')}), utilisation de "${def.name}"`);
+    driveId = def.id;
+  }
   return driveId;
 }
 
