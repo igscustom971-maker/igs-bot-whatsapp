@@ -51,6 +51,10 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/listes', auth.requireUser, auth.requireAdmin, actA(req => admin.setListes(req.body || {})));
   app.get('/gestion/api/collaborateurs', auth.requireUser, actA(req => admin.collaborateurs({ admin: req.user.role === 'admin', tous: req.query.tous === '1' && req.user.role === 'admin' }).then(c => ({ collaborateurs: c }))));
   app.post('/gestion/api/admin/collaborateurs', auth.requireUser, auth.requireAdmin, actA(req => admin.enregistrerCollaborateur(req.body || {})));
+  app.post('/gestion/api/admin/test-mail', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try { res.json(await formulaire.testMail(req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message, dernierEchecFormulaire: formulaire.dernierEchec() }); }
+  });
   app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 
   app.get('/gestion/caisse', auth.requireUser, (req, res) => {

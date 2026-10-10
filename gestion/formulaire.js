@@ -14,6 +14,7 @@ const ORIGINS = (process.env.FORM_ORIGINS || 'https://igscustom.fr,https://www.i
 const MAX_FICHIER = 25 * 1024 * 1024;
 const MAX_TOTAL = 32 * 1024 * 1024;
 
+let dernierEchec = null;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FICHIER, files: 12, fields: 60, fieldSize: 20000 } });
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -134,6 +135,7 @@ function mount(app) {
       res.json({ ok: true });
     } catch (err) {
       console.error('Formulaire : erreur', err.message);
+      dernierEchec = { le: new Date().toISOString(), erreur: err.message };
       res.status(500).json({ error: 'Envoi impossible pour le moment' });
     }
   });
@@ -146,4 +148,13 @@ function mount(app) {
   });
 }
 
-module.exports = { mount };
+// Test d'envoi (page Admin) : renvoie l'erreur exacte de Microsoft 365
+async function testMail(user) {
+  await g.sendMail(MAILBOX, {
+    to: DEST, subject: 'Test IGS DASHBOARD - envoi depuis le serveur',
+    html: `<p>Mail de test envoyé par ${esc(user)} depuis le dashboard (boîte ${esc(MAILBOX)}).</p>`,
+  });
+  return { ok: true, boite: MAILBOX, destinataires: DEST };
+}
+
+module.exports = { mount, testMail, dernierEchec: () => dernierEchec };

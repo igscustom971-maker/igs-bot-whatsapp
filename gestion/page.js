@@ -259,7 +259,7 @@ ${view === 'accueil' ? `
     </div>
   </section>` : view === 'admin' ? `
   <section id="v-admin">
-    <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
       <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -631,6 +631,12 @@ async function adCharger(){
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
 }
 function adEvents(){
+  $('ad-test-mail').onclick = async () => {
+    $('ad-test-mail').disabled = true;
+    try { const j = await post('/gestion/api/admin/test-mail'); alert('✅ Mail de test envoyé depuis ' + j.boite + ' vers ' + j.destinataires.join(', ') + '. Vérifie la boîte de réception.'); }
+    catch(e){ alert('❌ Envoi impossible.\\n\\nMessage de Microsoft 365 :\\n' + e.message); }
+    $('ad-test-mail').disabled = false;
+  };
   const tb = document.querySelector('#ad-prod tbody');
   $('ad-prod-add').onclick = () => { tb.insertAdjacentHTML('beforeend', adProdRow({ nom: '', tailles: ['XS','S','M','L','XL','2XL','3XL'], coupe: true })); tb.lastElementChild.querySelector('.ad-p-nom').focus(); };
   tb.addEventListener('click', e => {
