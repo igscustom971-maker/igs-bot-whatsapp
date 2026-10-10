@@ -5,7 +5,10 @@
 const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function render(user, view = 'accueil') {
-  const prenom = user.role === 'admin' ? (user.name || '').split(' ')[0] : 'l\'équipe';
+  // Compte perso (collaborateur ou admin) : son prénom ; compte d'équipe contact@ : « l'équipe »
+  const prenom = user.collab ? String(user.collab).split(' ')[0]
+    : (user.role === 'admin' || String(user.email || '').startsWith('local:')) ? (user.name || '').split(' ')[0] || 'l\'équipe'
+    : 'l\'équipe';
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -255,7 +258,7 @@ td.c-x{width:30px;text-align:right;padding-left:0}
 ${view === 'accueil' ? `
   <section id="v-accueil">
     <div class="hello">
-      <div><h2>Bonjour ${esc(prenom)} 👋</h2><div class="sub" id="today"></div></div>
+      <div><h2><span id="salut">Bonjour</span> ${esc(prenom)} 👋</h2><div class="sub" id="today"></div></div>
       <div class="tools" style="margin:0"><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
     </div>
     <div class="kpis" id="kpis"></div>
@@ -415,6 +418,8 @@ const PL_COULEURS = {
 };
 let planches = [];
 const VIEW = '${view}';
+// Bonjour / Bonsoir selon l'heure (à partir de 18 h : bonsoir)
+(() => { const el = document.getElementById('salut'); if (el) { const h = new Date().getHours(); el.textContent = (h >= 18 || h < 5) ? 'Bonsoir' : 'Bonjour'; } })();
 const MOI = ${JSON.stringify(user.collab || null).replace(/</g, '\\u003c')};
 const ADMIN = ${user.role === 'admin' ? 'true' : 'false'};
 let data = [], filtre = (new URLSearchParams(location.search).get('filtre') || 'ACTIFS'), recherche = '';
