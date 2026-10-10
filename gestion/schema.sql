@@ -225,3 +225,7 @@ alter table gestion_whatsapp_entrants enable row level security;
 
 -- Commandes : réponse du client au BAT (message, canal, date, verdict valide / modification / autre)
 alter table gestion_commandes add column if not exists bat_reponse jsonb;
+
+-- Commandes : BAT créé automatiquement à réception du formulaire (à vérifier avant envoi)
+alter table gestion_commandes add column if not exists bat_auto_le     timestamptz;
+alter table gestion_commandes add column if not exists bat_auto_erreur text;

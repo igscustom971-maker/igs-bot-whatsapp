@@ -1469,16 +1469,19 @@ function batRender(){
   if ($('bat-n')) $('bat-n').textContent = n || '';
   const ligne = (c, e) => '<div class="cand"><div><a href="#" data-bat-open="'+esc(c.cle)+'"><b>'+esc(c.client)+'</b></a> <span class="sub">'+esc(c.n_devis||'')+'</span>'
     + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
-    + (e === 'client' || e === 'modif' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div>'+batReponseHtml(c)+'</div>'
+    + (e === 'client' || e === 'modif' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div>'
+    + (e === 'envoyer' && c.bat_auto_le ? '<div><span class="esp bd" style="background:#ede9fe;color:#5b21b6">🤖 BAT créé automatiquement le '+new Date(c.bat_auto_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : à vérifier avant envoi</span></div>' : '')
+    + (e === 'faire' && c.bat_auto_erreur ? '<div><span class="why r" title="'+esc(c.bat_auto_erreur)+'">⚠ BAT automatique impossible : '+esc(c.bat_auto_erreur.slice(0, 80))+'</span></div>' : '')
+    + batReponseHtml(c)+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
     + (e === 'envoyer' || e === 'modif' ? '<a class="btn" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener" title="Refaire le BAT avec le générateur">🎨</a>' : '')
     + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer au client</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1" title="Déjà envoyé autrement">✓ Déjà envoyé</button>' : '')
     + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-send="'+esc(c.cle)+'" title="Renvoyer le BAT">📨</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
-    + (e === 'faire' ? '<a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 Générer le BAT</a><button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
+    + (e === 'faire' ? '<button class="btn" data-bat-auto="'+esc(c.cle)+'" title="Créer le BAT automatiquement (positions par défaut)">🤖 Auto</button><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 Générer le BAT</a><button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
     + (e === 'modif' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Renvoyer le BAT corrigé</button><button class="btn" data-bat-ok="'+esc(c.cle)+'" title="Valider quand même">✅</button>' : '')
     + (e === 'formulaire' ? '<button class="btn" data-form="'+esc(c.cle)+'">📝 Remplir le formulaire</button>' : '')
     + '</div></div>';
-  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Les planches DTF ne sont pas concernées.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
+  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><a class="btn" href="/gestion/bat/vierge" target="_blank" rel="noopener" title="BAT à remplir à la main, sans commande">📄 BAT vierge</a><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Dès que le formulaire arrive, le BAT est créé automatiquement (🤖) : vérifie-le, retouche-le si besoin avec 🎨, puis envoie-le.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
     + G.map(([k, t, d]) => { const l = rows.filter(c => batEtape(c) === k); if (!l.length && (k === 'inconnu' || k === 'formulaire')) return '';
       return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
 }
@@ -1499,6 +1502,13 @@ function batReponseHtml(c){
 }
 async function batClic(e){
   const f = e.target.closest('[data-form]'); if (f) { e.preventDefault(); return ouvrirFormulaire(f.dataset.form); }
+  const au = e.target.closest('[data-bat-auto]');
+  if (au) {
+    e.preventDefault(); au.disabled = true; au.textContent = '🤖 Création…';
+    try { await post('/gestion/api/commandes/'+encodeURIComponent(au.dataset.batAuto)+'/bat-auto'); await post('/gestion/api/bat/actualiser'); await charger(false); }
+    catch(err){ alert('BAT automatique impossible : ' + err.message); au.disabled = false; au.textContent = '🤖 Auto'; }
+    return;
+  }
   const t = e.target.closest('[data-bat-open],[data-bat-env],[data-bat-ok],[data-bat-send],#bat-scan'); if (!t) return;
   e.preventDefault();
   const k = t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk || t.dataset.batSend;

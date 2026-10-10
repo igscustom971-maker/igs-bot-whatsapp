@@ -90,6 +90,12 @@ function mount(app) {
     catch (err) { console.error('Gestion visuel :', err.message); res.status(400).json({ error: err.message }); }
   });
 
+  // BAT automatique à la demande (remplace le BAT existant si besoin)
+  app.post('/gestion/api/commandes/:cle/bat-auto', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./bat-auto').generer(req.params.cle, { force: true, user: req.user.name || req.user.email })); }
+    catch (err) { console.error('Gestion BAT auto :', err.message); res.status(400).json({ error: err.message }); }
+  });
+
   app.post('/gestion/api/commandes/:cle/bat-pdf', auth.requireUser, (req, res, next) => upload(req, res, err => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'PDF trop lourd (25 Mo max)' : err.message });
     next();

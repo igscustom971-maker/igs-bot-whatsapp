@@ -160,8 +160,8 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par, bat_reponse')
-    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null,bat_envoye_le.not.is.null');
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par, bat_reponse, bat_auto_le, bat_auto_erreur')
+    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null,bat_envoye_le.not.is.null,bat_auto_le.not.is.null,bat_auto_erreur.not.is.null');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
 }
@@ -179,6 +179,8 @@ function applyOverride(r, o) {
   out.bat_envoye_le = (o && o.bat_envoye_le) || null;
   out.bat_envoye_par = (o && o.bat_envoye_par) || null;
   out.bat_reponse = (o && o.bat_reponse) || null;
+  out.bat_auto_le = (o && o.bat_auto_le) || null;
+  out.bat_auto_erreur = (o && o.bat_auto_erreur) || null;
   if (out.a_payer_especes) {
     out.montant_especes = o.montant_especes;
     out.especes_note_par = o.especes_note_par;
@@ -310,6 +312,7 @@ let batScanEnCours = false;
 async function scannerBat() {
   if (batScanEnCours) return;
   batScanEnCours = true;
+  aGenerer = [];
   try {
     for (const r of cache.rows.filter(x => x.n_devis && key(x.statut || '') === 'payee')) {
       try {
@@ -317,15 +320,46 @@ async function scannerBat() {
         if (!f) { batInfo.set(r.cle, { dossier: false, formulaire: false, bat: false, le: new Date().toISOString() }); continue; }
         const items = await g.children(f.id);
         const files = items.filter(i => i.file), folders = items.filter(i => i.folder);
-        batInfo.set(r.cle, {
+        const info = {
           dossier: true,
           formulaire: !!folders.find(x => key(x.name).startsWith('taille')) || files.some(x => /\.xlsx$/i.test(x.name)),
           bat: !!(files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name)))),
           le: new Date().toISOString(),
-        });
+        };
+        batInfo.set(r.cle, info);
+        // BAT automatique : formulaire reçu (tailles + dossier visuel), pas encore de BAT, jamais tenté
+        const ov = (await overridesCache()).get(r.cle);
+        const aVisuel = folders.some(x => !key(x.name).startsWith('taille') && !/archive/i.test(x.name)) || files.some(x => /\.(png|jpe?g|webp)$/i.test(x.name));
+        if (info.formulaire && aVisuel && !info.bat && !(ov && ov.bat_auto_le) && !batAutoTentes.has(r.cle)) aGenerer.push(r.cle);
       } catch (err) { console.error(`Gestion BAT ${r.n_devis} :`, err.message); }
     }
+    for (const cle of aGenerer) {
+      batAutoTentes.add(cle);
+      try {
+        const res = await require('./bat-auto').generer(cle);
+        if (!res.ok) console.log(`Gestion BAT auto ${cle} : ${res.raison}`);
+      } catch (err) {
+        console.error(`Gestion BAT auto ${cle} :`, err.message);
+        await marquerBatAuto(cle, err.message).catch(() => {});
+      }
+    }
   } finally { batScanEnCours = false; }
+}
+const batAutoTentes = new Set(); // une tentative par démarrage du serveur (erreur notée sur la commande)
+let aGenerer = [];
+let ovCache = { at: 0, v: new Map() };
+async function overridesCache() {
+  if (Date.now() - ovCache.at > 30e3) ovCache = { at: Date.now(), v: await loadOverrides() };
+  return ovCache.v;
+}
+// BAT automatique créé (ou échec) : noté sur la commande
+async function marquerBatAuto(cle, erreur, user = 'BAT automatique', pages = null) {
+  if (!erreur) batInfo.set(cle, { ...(batInfo.get(cle) || { dossier: true, formulaire: true }), bat: true, le: new Date().toISOString() });
+  ovCache.at = 0;
+  if (!supabase) return;
+  const o = erreur ? { bat_auto_erreur: String(erreur).slice(0, 300) } : { bat_auto_le: new Date().toISOString(), bat_auto_erreur: null };
+  await supabase.from('gestion_commandes').update(o).eq('cle', cle);
+  await supabase.from('gestion_actions').insert({ utilisateur: user, action: erreur ? 'bat_auto_echec' : 'bat_auto_cree', cle, details: erreur ? { erreur } : { pages } });
 }
 
 // BON A TIRER.pdf du dossier de la commande (ou null)
@@ -379,7 +413,10 @@ async function deposerBat(cle, buffer, user) {
   if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
   const it = await g.uploadFile(f.id, 'BON A TIRER.pdf', buffer, 'application/pdf', undefined, 'replace');
   batInfo.set(cle, { ...(batInfo.get(cle) || { dossier: true, formulaire: true }), bat: true, le: new Date().toISOString() });
-  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_genere', cle, details: { taille: buffer.length } });
+  if (supabase) {
+    await supabase.from('gestion_commandes').update({ bat_auto_le: null, bat_auto_erreur: null }).eq('cle', cle);
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_genere', cle, details: { taille: buffer.length } });
+  }
   console.log(`Gestion : BAT généré et déposé pour ${row.n_devis} (${user})`);
   return { ok: true, id: it.id };
 }
@@ -722,4 +759,4 @@ async function supprimerBordereau(cle, itemId, user) {
 
 const statutEst = (statut, attendu) => key(statut || '') === key(attendu);
 
-module.exports = { deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
