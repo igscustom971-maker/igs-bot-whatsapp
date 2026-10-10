@@ -11,7 +11,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Gestion · ${view === 'commandes' ? 'Commandes' : 'Accueil'}</title>
+<title>IGS Gestion · ${({ commandes: 'Commandes', planches: 'Planches DTF' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
 <style>
 :root{
@@ -128,6 +128,21 @@ tr.row:last-child td{border-bottom:none}
 .mod.soon .t::after{content:" · bientôt";font-weight:500;color:var(--muted);font-size:11px}
 a.mod:hover{border-color:var(--pink)}
 .ok-empty{color:var(--ok);font-weight:600;padding:8px 0}
+/* Planches */
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink);margin-left:6px;vertical-align:middle}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.pay{font-size:11px;font-weight:700;white-space:nowrap}
+.pay.ok{color:var(--ok)} .pay.no{color:var(--bad)} .pay.cash{color:#0f766e}
+.files{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.file{border:1px solid var(--line);border-radius:10px;overflow:hidden;text-decoration:none;background:#fff;display:block}
+.file .th{height:140px;background:repeating-conic-gradient(#f1eef7 0% 25%,#fff 0% 50%) 50%/16px 16px;display:flex;align-items:center;justify-content:center}
+.file .th img{max-width:100%;max-height:140px;object-fit:contain}
+.file .th .pdf{font-size:34px}
+.file .nm{font-size:12px;font-weight:600;padding:6px 8px 0;word-break:break-word}
+.file .ds{font-size:11px;color:var(--muted);padding:0 8px 7px}
+.plrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+.plrow:last-child{border-bottom:none}
+.plrow b{font-variant-numeric:tabular-nums}
 /* Date de livraison modifiable */
 .dliv{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:2px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
@@ -136,7 +151,10 @@ a.mod:hover{border-color:var(--pink)}
 @media (max-width:980px){ .cols{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)} .mods{grid-template-columns:repeat(2,1fr)} }
 /* Mobile : cartes au lieu du tableau */
 @media (max-width:760px){
-  .bar nav{display:none}
+  .bar{flex-wrap:wrap;row-gap:6px}
+  .bar nav{order:3;width:100%;margin:0;overflow-x:auto;scrollbar-width:none}
+  .bar nav a{white-space:nowrap}
+  .who{margin-left:auto}
   .who span{display:none}
   .tablewrap thead{display:none}
   .tablewrap table,.tablewrap tbody,.tablewrap tr,.tablewrap td{display:block;width:100%}
@@ -159,7 +177,7 @@ a.mod:hover{border-color:var(--pink)}
   <nav>
     <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion">Accueil</a>
     <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes">Commandes</a>
-    <a class="off" title="Bientôt">Planches DTF</a>
+    <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
     <a class="off" title="Bientôt">Stock</a>
     <a class="off" title="Bientôt">Journal</a>
   </nav>
@@ -179,7 +197,7 @@ ${view === 'accueil' ? `
         <div class="card"><h3>À traiter en priorité</h3><div id="prios"><div class="skel"></div><div class="skel"></div></div></div>
         <div class="card"><h3>Modules</h3><div class="mods">
           <a class="mod" href="/gestion/commandes"><div class="i">📦</div><div class="t">Commandes</div><div class="d">Suivi, BAT, tailles, visuels</div></a>
-          <div class="mod soon"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></div>
+          <a class="mod" href="/gestion/planches"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></a>
           <div class="mod soon"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></div>
           <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
@@ -187,10 +205,28 @@ ${view === 'accueil' ? `
         </div></div>
       </div>
       <div class="stack">
+        <div class="card"><h3>Planches DTF</h3><div id="plhome"><div class="skel"></div></div></div>
         <div class="card"><h3>Commandes par statut</h3><div class="flow" id="flow"></div></div>
         <div class="card"><h3>Charge par personne</h3><div class="flow" id="charge"></div></div>
       </div>
     </div>
+  </section>` : view === 'planches' ? `
+  <section id="v-planches">
+  <div class="tools">
+    <input id="q" class="search" type="search" placeholder="Rechercher un client, un devis, une remarque…">
+    <button id="refresh" class="btn primary">↻ Actualiser</button>
+    <span id="sync" class="sync"></span>
+  </div>
+  <div class="kpis" id="plkpis"></div>
+  <div id="chips" class="chips"></div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>Date</th><th>Client</th><th>Statut</th><th>Métrage</th><th>Montant HT</th><th>Paiement</th><th>Devis</th><th>Remarques</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="8"><div class="skel"></div><div class="skel"></div><div class="skel"></div></td></tr></tbody>
+    </table>
+  </div>
   </section>` : `
   <section id="v-commandes">
   <div class="tools">
@@ -224,12 +260,25 @@ const COULEURS = {
   'TERMINÉE':['#dcfce7','#15803d'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'LIVRÉE':['#d1fae5','#065f46'],
 };
 const FINIS = ['TERMINÉE','A EXPEDIER','LIVRÉE'];
+const PL_STATUTS = ['A PREPARER','A VERIFIER','A IMPRIMER','A RECUPERER','A EXPEDIER','LIVREE'];
+const PL_COULEURS = {
+  'A PREPARER':['#ffedd5','#c2410c'], 'A VERIFIER':['#fee2e2','#b91c1c'], 'A IMPRIMER':['#fce7f3','#be185d'],
+  'A RECUPERER':['#e0e7ff','#4338ca'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'LIVREE':['#d1fae5','#065f46'],
+};
+let planches = [];
 const VIEW = '${view}';
 let data = [], filtre = (new URLSearchParams(location.search).get('filtre') || 'ACTIFS'), recherche = '';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm = s => String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').toUpperCase();
+const plKey = s => PL_STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STATUT');
+const plBadge = s => { const k = plKey(s); const c = PL_COULEURS[k] || ['#f3f4f6','#374151']; return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+'">'+esc(k)+'</span>'; };
+const plActive = p => plKey(p.statut) !== 'LIVREE';
+const eur = n => n == null ? '' : n.toLocaleString('fr-FR',{style:'currency',currency:'EUR'});
+const metrage = p => p.format ? p.format : (p.metres != null ? String(p.metres).replace('.',',')+' m' : '');
+const payClass = v => { const n = norm(v); return n.includes('NON') ? 'no' : n.includes('PAYEE') ? 'ok' : n ? 'cash' : ''; };
+const nonPayee = p => norm(p.paiement).includes('NON');
 const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STATUT');
 const badge = s => { const k = statutKey(s); const c = COULEURS[k] || ['#f3f4f6','#374151']; return '<span class="badge" style="background:'+c[0]+';color:'+c[1]+'">'+esc(k)+'</span>'; };
 const fdate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '';
@@ -241,22 +290,119 @@ const actif = c => !FINIS.includes(statutKey(c.statut));
 const enRetard = c => c.date_livraison && c.date_livraison < today && actif(c);
 const fphone = p => { if(!p) return ''; const m = p.match(/^(59[06])(\\d{3})(\\d{2})(\\d{2})(\\d{2})$/); return m ? '+'+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5] : '+'+p; };
 
+async function api(path, force){
+  const r = await fetch(path + (force ? '?actualiser=1' : ''));
+  if (r.status === 401) { location.href = '/gestion/auth/login'; throw new Error('401'); }
+  return r.json();
+}
 async function charger(force){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
-    const r = await fetch('/gestion/api/commandes' + (force ? '?actualiser=1' : ''));
-    if (r.status === 401) return location.href = '/gestion/auth/login';
-    const j = await r.json();
-    data = j.commandes || [];
+    const [jc, jp] = await Promise.all([
+      VIEW !== 'planches' ? api('/gestion/api/commandes', force) : null,
+      VIEW !== 'commandes' ? api('/gestion/api/planches', force) : null,
+    ]);
+    if (jc) data = jc.commandes || [];
+    if (jp) planches = jp.planches || [];
+    const erreur = (jc && jc.erreur) || (jp && jp.erreur);
+    const at = (jc || jp).syncedAt;
     const s = $('sync');
-    if (j.erreur){ s.className='sync err'; s.textContent = '⚠️ Synchro en échec : ' + j.erreur; }
-    else { s.className='sync'; s.textContent = j.syncedAt ? 'Synchro Excel : ' + new Date(j.syncedAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : ''; }
+    if (erreur){ s.className='sync err'; s.textContent = '⚠️ Synchro en échec : ' + erreur; }
+    else { s.className='sync'; s.textContent = at ? 'Synchro Excel : ' + new Date(at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : ''; }
     afficher();
   } catch(e){ $('sync').className='sync err'; $('sync').textContent='⚠️ Serveur injoignable'; }
   finally{ $('refresh').disabled=false; $('refresh').textContent='↻ Actualiser'; }
 }
 
-function afficher(){ if (VIEW === 'accueil') accueil(); else liste(); }
+function afficher(){ if (VIEW === 'accueil') { accueil(); plHome(); } else if (VIEW === 'planches') plListe(); else liste(); }
+
+// ---------- Planches DTF ----------
+function plStats(){
+  const act = planches.filter(plActive);
+  const sum = arr => arr.reduce((t,p) => t + (p.metres || 0), 0);
+  const aPrep = act.filter(p => ['A PREPARER','A IMPRIMER'].includes(plKey(p.statut)));
+  return {
+    act, aPrep, mPrep: sum(aPrep),
+    aVerif: act.filter(p => plKey(p.statut) === 'A VERIFIER'),
+    aRecup: act.filter(p => ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut))),
+    nonPay: planches.filter(nonPayee),
+    hebdo: planches.filter(p => p.hebdo),
+  };
+}
+function plHome(){
+  const st = plStats();
+  const montant = st.nonPay.reduce((t,p) => t + (p.montant_ht || 0), 0);
+  const row = (l, v, f) => '<a class="plrow" style="text-decoration:none" href="/gestion/planches'+(f?'?filtre='+encodeURIComponent(f):'')+'"><span>'+l+'</span><b>'+v+'</b></a>';
+  $('plhome').innerHTML = row('À préparer / imprimer', st.aPrep.length + (st.mPrep ? ' · ' + String(Math.round(st.mPrep*100)/100).replace('.',',') + ' m' : ''), 'A PREPARER')
+    + row('À vérifier', st.aVerif.length ? '<span style="color:var(--bad)">'+st.aVerif.length+'</span>' : '0', 'A VERIFIER')
+    + row('À récupérer / expédier', st.aRecup.length, 'A RECUPERER')
+    + row('Non payées', st.nonPay.length + (montant ? ' · ' + eur(montant) : ''), 'NONPAYEES')
+    + row('Clients hebdo', st.hebdo.length, 'HEBDO');
+}
+function plListe(){
+  const st = plStats();
+  const montant = st.nonPay.reduce((t,p) => t + (p.montant_ht || 0), 0);
+  const k = (l,n,h,col,f) => '<a class="kpi" style="--accent:'+col+'" href="#" data-f="'+f+'"><div class="l">'+l+'</div><div class="n">'+n+'</div><div class="h">'+h+'</div></a>';
+  $('plkpis').innerHTML = k('À préparer / imprimer', st.aPrep.length, String(Math.round(st.mPrep*100)/100).replace('.',',')+' m à sortir', '#c2410c', 'A PREPARER')
+    + k('À vérifier', st.aVerif.length, st.aVerif.length ? 'doublon ou client introuvable' : 'rien à vérifier 👌', st.aVerif.length ? '#b91c1c' : '#15803d', 'A VERIFIER')
+    + k('À récupérer / expédier', st.aRecup.length, 'planches prêtes', '#4338ca', 'A RECUPERER')
+    + k('Non payées', st.nonPay.length, eur(montant) + ' HT', '#e91e8c', 'NONPAYEES');
+
+  const counts = {}; planches.forEach(p => { const s = plKey(p.statut); counts[s] = (counts[s]||0)+1; });
+  const chips = [['ACTIFS','En cours',st.act.length],['TOUS','Toutes',planches.length],['NONPAYEES','Non payées',st.nonPay.length],['HEBDO','Hebdo',st.hebdo.length]]
+    .concat(PL_STATUTS.filter(s=>counts[s]).map(s=>[s,s,counts[s]]))
+    .concat(Object.keys(counts).filter(s => !PL_STATUTS.includes(s)).map(s=>[s,s,counts[s]]));
+  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('');
+
+  const q = norm(recherche);
+  let rows = planches.filter(p => filtre==='TOUS' || (filtre==='ACTIFS' ? plActive(p) : filtre==='NONPAYEES' ? nonPayee(p) : filtre==='HEBDO' ? p.hebdo
+    : filtre==='A RECUPERER' ? ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut)) : filtre==='A PREPARER' ? ['A PREPARER','A IMPRIMER'].includes(plKey(p.statut)) : plKey(p.statut)===filtre));
+  if (q) rows = rows.filter(p => norm([p.n_devis,p.client,p.remarques,p.paiement,p.frequence].join(' ')).includes(q));
+  rows.sort((a,b) => (PL_STATUTS.indexOf(plKey(a.statut))+1||0) - (PL_STATUTS.indexOf(plKey(b.statut))+1||0) || String(b.date_commande||'').localeCompare(String(a.date_commande||'')));
+
+  $('rows').innerHTML = rows.length ? rows.map(p => '<tr class="row" data-k="'+esc(p.cle)+'">'
+      + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
+      + '<td><div class="client">'+esc(p.client)+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'</div><div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div></td>'
+      + '<td class="c-statut">'+(p.statut ? plBadge(p.statut) : '<span class="sub">—</span>')+'</td>'
+      + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
+      + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
+      + '<td class="c-hide"><span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span></td>'
+      + '<td class="c-hide devis">'+esc(p.n_devis||'—')+'</td>'
+      + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td>'
+      + '</tr>').join('') : '<tr><td colspan="8" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+}
+
+async function ouvrirPlanche(cle){
+  const p = planches.find(x => x.cle === cle); if (!p) return;
+  $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '');
+  $('psub').textContent = (p.n_devis || 'Pas encore de devis') + (p.hebdo ? ' · Client hebdomadaire' : '');
+  $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
+    + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
+    + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant HT', eur(p.montant_ht))
+    + kv('Paiement', '<span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span>') + kv('Fréquence', esc(p.frequence))
+    + kv('N° de suivi', esc(p.numero_suivi))
+    + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
+    + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  try{
+    const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichiers');
+    const d = await r.json();
+    if (cle !== panelCle) return;
+    if (d.erreur) throw new Error(d.erreur);
+    $('dossier').innerHTML = '<div class="card"><h3>Fichiers · '+d.fichiers.length+'</h3>' + (d.fichiers.length
+      ? '<div class="files">' + d.fichiers.map(f => {
+          const src = '/gestion/api/planches/fichier/'+encodeURIComponent(f.id);
+          const isPdf = /[.]pdf$/i.test(f.nom);
+          return '<a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
+            + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
+            + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>';
+        }).join('') + '</div>'
+      : '<div class="note">Aucun fichier « '+esc(p.client)+' - P… » dans les dossiers Planches (peut-être déjà vidé de l\\'archive mensuelle, ou envoyé par lien).</div>') + '</div>';
+  } catch(e){
+    if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Fichiers indisponibles : '+esc(e.message)+'</div>';
+  }
+}
 
 function accueil(){
   $('today').textContent = new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
@@ -408,6 +554,11 @@ function fermer(){ panelCle=null; $('overlay').classList.remove('on'); $('panel'
 if (VIEW === 'commandes') {
   $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrir(panelCle); } });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
+  $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
+} else if (VIEW === 'planches') {
+  $('rows').addEventListener('click', e => { const tr = e.target.closest('tr.row'); if (tr){ panelCle = tr.dataset.k; ouvrirPlanche(panelCle); } });
+  $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
+  $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
 } else {
   $('prios').addEventListener('click', e => { const p = e.target.closest('.prio'); if (p){ panelCle = p.dataset.k; ouvrir(panelCle); } });

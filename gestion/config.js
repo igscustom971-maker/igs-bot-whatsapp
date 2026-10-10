@@ -28,6 +28,10 @@ module.exports = {
   COMMANDES_PATH: process.env.SP_COMMANDES_PATH || '/Clients/Commandes',
   TABLE_COMMANDES: process.env.SP_TABLE_COMMANDES || 'Commandes',
   TABLE_TAILLES: process.env.SP_TABLE_TAILLES || 'LignesCommande',
+  TABLE_PLANCHES: process.env.SP_TABLE_PLANCHES || 'Tableau4',
+  // Fichiers des planches : bibliothèque "Documents partagés" du site, dossier Technique/Planches
+  PLANCHES_LIBRARY: process.env.SP_PLANCHES_LIBRARY || 'Documents partagés',
+  PLANCHES_PATH: process.env.SP_PLANCHES_PATH || '/Technique/Planches',
 
   // Synchro miroir Excel -> Supabase
   SYNC_INTERVAL_MS: Number(process.env.GESTION_SYNC_MS || 2 * 60 * 1000),

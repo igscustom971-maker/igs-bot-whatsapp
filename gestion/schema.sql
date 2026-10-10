@@ -42,3 +42,30 @@ alter table gestion_commandes enable row level security;
 alter table gestion_commandes add column if not exists date_livraison_manuelle    date;
 alter table gestion_commandes add column if not exists date_livraison_modifiee_par text;
 alter table gestion_commandes add column if not exists date_livraison_modifiee_le  timestamptz;
+
+-- ============================================
+-- MODULE PLANCHES DTF — à exécuter une fois
+-- ============================================
+create table if not exists gestion_planches (
+  cle                     text primary key,      -- N° devis (ou SANS-DEVIS-client-ligne)
+  n_devis                 text,
+  client                  text,
+  date_commande           date,
+  metres                  numeric,
+  format                  text,                  -- A3 / A4 (sinon métrage)
+  reduction               numeric,
+  montant_ht              numeric,
+  frequence               text,
+  hebdo                   boolean default false,
+  paiement                text,
+  remarques               text,
+  statut                  text,
+  excel_id                integer,
+  mail_envoye             text,
+  numero_suivi            text,
+  mail_expedition_envoye  text,
+  present                 boolean default true,
+  synced_at               timestamptz default now(),
+  created_at              timestamptz default now()
+);
+alter table gestion_planches enable row level security;

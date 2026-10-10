@@ -7,6 +7,7 @@
 const cfg = require('./config');
 const auth = require('./auth');
 const commandes = require('./commandes');
+const planches = require('./planches');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -24,6 +25,38 @@ module.exports = function mountGestion(app) {
   });
   app.get('/gestion/commandes', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commandes'));
+  });
+  app.get('/gestion/planches', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
+  });
+
+  app.get('/gestion/api/planches', auth.requireUser, async (req, res) => {
+    const data = await planches.listPlanches({ force: req.query.actualiser === '1' });
+    res.json({ planches: data.rows, syncedAt: data.syncedAt, erreur: data.error });
+  });
+
+  app.get('/gestion/api/planches/:cle/fichiers', auth.requireUser, async (req, res) => {
+    try {
+      res.json(await planches.getFichiers(req.params.cle));
+    } catch (err) {
+      console.error('Gestion fichiers planche :', err.message);
+      res.status(502).json({ erreur: err.message });
+    }
+  });
+
+  app.get('/gestion/api/planches/fichier/:id', auth.requireUser, async (req, res) => {
+    try {
+      const it = await planches.fichierAutorise(req.params.id);
+      if (!it) return res.status(403).send('Fichier non autorisé');
+      const r = await require('./graph').content(it.id, planches.drive());
+      res.set('Content-Type', it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream');
+      res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(it.name)}`);
+      res.set('Cache-Control', 'private, max-age=300');
+      res.send(Buffer.from(await r.arrayBuffer()));
+    } catch (err) {
+      console.error('Gestion fichier planche :', err.message);
+      res.status(502).send('Fichier indisponible');
+    }
   });
 
   app.get('/gestion/api/me', auth.requireUser, (req, res) => {
@@ -71,5 +104,6 @@ module.exports = function mountGestion(app) {
   });
 
   commandes.startSync();
+  planches.startSync();
   console.log('Module Gestion IGS monté sur /gestion');
 };

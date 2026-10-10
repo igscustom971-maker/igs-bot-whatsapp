@@ -7,7 +7,6 @@ const cfg = require('./config');
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 let token = { value: null, exp: 0 };
-let driveId = null;
 
 async function appToken() {
   if (token.value && Date.now() < token.exp - 60e3) return token.value;
@@ -42,32 +41,32 @@ async function graph(path, { raw = false } = {}) {
 const encPath = p => p.split('/').filter(Boolean).map(encodeURIComponent).join('/');
 const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
 
-// Bibliothèque "IGS CUSTOM BAR" du site DOCUMENTS
-async function getDriveId() {
-  if (driveId) return driveId;
+// Bibliothèques du site DOCUMENTS : "IGS CUSTOM BAR" par défaut, ou une autre par son nom
+// (nom introuvable -> bibliothèque par défaut du site, "Documents partagés")
+const driveIds = new Map();
+async function getDriveId(name = cfg.LIBRARY_NAME) {
+  if (driveIds.has(name)) return driveIds.get(name);
   if (!cfg.SITE_ID) throw new Error('SP_SITE_ID non configuré sur Render');
   const { value } = await graph(`/sites/${cfg.SITE_ID}/drives?$select=id,name`);
-  const found = value.find(d => norm(d.name) === norm(cfg.LIBRARY_NAME));
-  if (found) {
-    driveId = found.id;
-  } else {
-    // Bibliothèque par défaut du site ("Documents partagés")
-    const def = await graph(`/sites/${cfg.SITE_ID}/drive?$select=id,name`);
-    console.warn(`Gestion : bibliothèque "${cfg.LIBRARY_NAME}" introuvable (disponibles : ${value.map(d => d.name).join(', ')}), utilisation de "${def.name}"`);
-    driveId = def.id;
+  let found = value.find(d => norm(d.name) === norm(name));
+  if (!found) {
+    found = await graph(`/sites/${cfg.SITE_ID}/drive?$select=id,name`);
+    console.warn(`Gestion : bibliothèque "${name}" introuvable (disponibles : ${value.map(d => d.name).join(', ')}), utilisation de "${found.name}"`);
   }
-  return driveId;
+  driveIds.set(name, found.id);
+  return found.id;
+}
+const D = async o => `/drives/${await getDriveId(o?.drive)}`;
+
+async function itemByPath(path, o) {
+  return graph(`${await D(o)}/root:/${encPath(path)}`);
+}
+async function item(id, o) {
+  return graph(`${await D(o)}/items/${encodeURIComponent(id)}?$select=id,name,file,folder,size,parentReference,lastModifiedDateTime,webUrl`);
 }
 
-async function itemByPath(path) {
-  return graph(`/drives/${await getDriveId()}/root:/${encPath(path)}`);
-}
-async function item(id) {
-  return graph(`/drives/${await getDriveId()}/items/${encodeURIComponent(id)}?$select=id,name,file,folder,size,parentReference,lastModifiedDateTime,webUrl`);
-}
-
-async function children(itemId) {
-  let url = `/drives/${await getDriveId()}/items/${encodeURIComponent(itemId)}/children?$top=999&$select=id,name,file,folder,size,lastModifiedDateTime,parentReference,webUrl`;
+async function children(itemId, o) {
+  let url = `${await D(o)}/items/${encodeURIComponent(itemId)}/children?$top=999&$select=id,name,file,folder,size,lastModifiedDateTime,parentReference,webUrl`;
   const out = [];
   while (url) {
     const page = await graph(url);
@@ -78,21 +77,20 @@ async function children(itemId) {
 }
 
 // Plage complète d'un tableau Excel (en-tête + données) : valeurs calculées et formules
-async function tableRange(itemId, tableName) {
-  const d = await getDriveId();
-  return graph(`/drives/${d}/items/${encodeURIComponent(itemId)}/workbook/tables/${encodeURIComponent(tableName)}/range`);
+async function tableRange(itemId, tableName, o) {
+  return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/workbook/tables/${encodeURIComponent(tableName)}/range`);
 }
 
-async function thumbnailUrl(itemId, size = 'large') {
+async function thumbnailUrl(itemId, size = 'large', o) {
   try {
-    const t = await graph(`/drives/${await getDriveId()}/items/${encodeURIComponent(itemId)}/thumbnails/0/${size}`);
+    const t = await graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/thumbnails/0/${size}`);
     return t.url || null;
   } catch { return null; }
 }
 
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
-async function content(itemId) {
-  return graph(`/drives/${await getDriveId()}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
+async function content(itemId, o) {
+  return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
 module.exports = { graph, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
