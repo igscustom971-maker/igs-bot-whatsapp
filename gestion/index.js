@@ -12,6 +12,7 @@ const stock = require('./stock');
 const duplication = require('./duplication');
 const caisse = require('./caisse');
 const formulaire = require('./formulaire');
+const admin = require('./admin');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -36,6 +37,21 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/planches', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
   });
+
+  // ---------- Admin : collaborateurs et listes ----------
+  app.get('/gestion/admin', auth.requireUser, (req, res) => {
+    if (req.user.role !== 'admin') return res.redirect('/gestion');
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'admin'));
+  });
+  const actA = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Gestion admin :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.get('/gestion/api/listes', auth.requireUser, actA(() => admin.getListes()));
+  app.post('/gestion/api/admin/listes', auth.requireUser, auth.requireAdmin, actA(req => admin.setListes(req.body || {})));
+  app.get('/gestion/api/collaborateurs', auth.requireUser, actA(req => admin.collaborateurs({ admin: req.user.role === 'admin', tous: req.query.tous === '1' && req.user.role === 'admin' }).then(c => ({ collaborateurs: c }))));
+  app.post('/gestion/api/admin/collaborateurs', auth.requireUser, auth.requireAdmin, actA(req => admin.enregistrerCollaborateur(req.body || {})));
+  app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 
   app.get('/gestion/caisse', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'caisse'));

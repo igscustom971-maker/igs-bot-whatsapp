@@ -35,7 +35,7 @@ function cors(req, res) {
   if (o && ORIGINS.includes(o)) {
     res.set('Access-Control-Allow-Origin', o);
     res.set('Vary', 'Origin');
-    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.set('Access-Control-Allow-Headers', 'Content-Type');
   }
 }
@@ -51,6 +51,13 @@ function zoneFlocage(b, aAvant, aArriere) {
 }
 
 function mount(app) {
+  // Listes du formulaire (produits, couleurs, tailles) modifiables depuis la page Admin
+  app.get('/formulaire/listes', async (req, res) => {
+    cors(req, res);
+    try { res.set('Cache-Control', 'public, max-age=300').json(await require('./admin').getListes()); }
+    catch (err) { res.status(500).json({ error: 'Listes indisponibles' }); }
+  });
+
   app.options('/formulaire/commande', (req, res) => { cors(req, res); res.sendStatus(204); });
 
   app.post('/formulaire/commande', (req, res, next) => { cors(req, res); next(); }, upload.any(), async (req, res) => {

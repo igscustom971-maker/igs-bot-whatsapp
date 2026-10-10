@@ -365,11 +365,16 @@
   const MAX_LIGNES = 100;               // lignes du modèle Excel
   const DIM_DEFAULTS = { 'Cœur': 9, 'Poitrine': 27 };
 
-  const PRODUITS = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
-  const COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
+  let PRODUITS = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
+  let COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
   const T_ADULTE = ['XS','S','M','L','XL','2XL','3XL'];
   const T_ENFANT = ['2A','4A','6A','8A','10A','12A'];
-  const taillesPour = p => p === 'T-Shirt Enfant' ? T_ENFANT : (p === 'Tote Bag' || p === 'Casquette') ? ['TU'] : T_ADULTE;
+  let COUPES = ['Unisexe','Femme'];
+  // Tailles et coupe par produit (remplacées par les listes de la page Admin si disponibles)
+  let TAILLES_PRODUIT = { 'T-Shirt Enfant': T_ENFANT, 'Tote Bag': ['TU'], 'Casquette': ['TU'] };
+  let SANS_COUPE = ['Tote Bag', 'Casquette', 'T-Shirt Enfant'];
+  const taillesPour = p => TAILLES_PRODUIT[p] || T_ADULTE;
+  const LISTES_URL = 'https://igs-bot-whatsapp.onrender.com/formulaire/listes';
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -510,7 +515,7 @@
   $('zone-extra-nom').addEventListener('input', function(){ $('bloc-dim-extra').style.display = this.value.trim() ? 'block' : 'none'; });
 
   // ---------------- Tableau des articles (comme le fichier Excel) ----------------
-  const TOUTES_TAILLES = T_ADULTE.concat(T_ENFANT, ['TU']);
+
   function nomsVisuels(){ return visuelIds().map((id, i) => ($('nom-visuel-' + id).value.trim() || 'Visuel ' + (i + 1))); }
   const opts = (list, v, vide) => (vide ? '<option value="">' + vide + '</option>' : '') + [...new Set((v && !list.includes(v) ? [v] : []).concat(list))].map(o => '<option' + (o === v ? ' selected' : '') + '>' + esc(o) + '</option>').join('');
 
@@ -519,9 +524,9 @@
     return '<td class="num"></td>'
       + '<td class="c-prod" data-l="Produit"><select class="g-produit">' + opts(PRODUITS, d.type || 'T-Shirt') + '</select></td>'
       + '<td data-l="Couleur"><select class="g-couleur">' + opts(COULEURS, d.couleur || '', '— Couleur —') + '</select></td>'
-      + '<td data-l="Taille"><select class="g-taille">' + opts(TOUTES_TAILLES, d.taille || '', '—') + '</select></td>'
+      + '<td data-l="Taille"><select class="g-taille">' + opts(taillesPour(d.type || 'T-Shirt'), d.taille || '', '—') + '</select></td>'
       + '<td data-l="Qté"><input class="g-qte" type="number" min="0" inputmode="numeric" placeholder="0" value="' + (d.qte || '') + '"></td>'
-      + '<td data-l="Coupe"><select class="g-coupe">' + opts(['Unisexe','Femme'], d.coupe || 'Unisexe') + '</select></td>'
+      + '<td data-l="Coupe"><select class="g-coupe">' + opts(COUPES, d.coupe || COUPES[0]) + '</select></td>'
       + '<td class="c-vis" data-l="Visuel / texte"><input type="text" class="g-visuel" list="dl-visuels" placeholder="Nom du visuel ou texte" value="' + esc(d.visuel || '') + '"></td>'
       + '<td class="c-rem" data-l="Remarque"><input type="text" class="g-rem" placeholder="Optionnel" value="' + esc(d.remarques || '') + '"></td>'
       + '<td class="c-del"><button type="button" class="g-del" title="Supprimer la ligne">✕</button></td>';
@@ -541,7 +546,7 @@
   const ligneRemplie = l => l.qte > 0 && l.taille;
   function lignesCommande(){
     return [...$('grid-body').rows].map(lireLigne).filter(ligneRemplie)
-      .map(l => ({ ...l, coupe: ['Tote Bag','Casquette','T-Shirt Enfant'].includes(l.type) ? '' : l.coupe }));
+      .map(l => ({ ...l, coupe: SANS_COUPE.includes(l.type) ? '' : l.coupe }));
   }
   function majVisuelsArticles(){
     let dl = $('dl-visuels');
@@ -569,7 +574,17 @@
   }
   const majLigne = (tr, e) => { heriter(tr, e); const l = lireLigne(tr); tr.classList.toggle('filled', ligneRemplie(l)); tr.querySelector('.g-couleur').classList.toggle('error', ligneRemplie(l) && !l.couleur && tr.dataset.verif === '1'); };
   $('grid-body').addEventListener('input', e => { const tr = e.target.closest('tr'); if (tr) majLigne(tr, e); majRecap(); });
-  $('grid-body').addEventListener('change', e => { const tr = e.target.closest('tr'); if (tr) { majLigne(tr, e); autoLigne(tr); } majRecap(); });
+  $('grid-body').addEventListener('change', e => {
+    const tr = e.target.closest('tr');
+    if (tr && e.target.matches('.g-produit')) majTaillesLigne(tr);
+    if (tr) { majLigne(tr, e); autoLigne(tr); } majRecap();
+  });
+  // Produit changé : tailles proposées et coupe adaptées au produit
+  function majTaillesLigne(tr){
+    const p = tr.querySelector('.g-produit').value, st = tr.querySelector('.g-taille'), v = st.value;
+    st.innerHTML = opts(taillesPour(p), taillesPour(p).includes(v) ? v : '', '—');
+    tr.querySelector('.g-coupe').disabled = SANS_COUPE.includes(p);
+  }
   $('grid-body').addEventListener('click', e => {
     if (!e.target.closest('.g-del')) return;
     e.target.closest('tr').remove();
@@ -607,7 +622,8 @@
       const k = [l.type, l.couleur, l.coupe, l.visuel].filter(Boolean).join(' · ');
       parArticle[k] = (parArticle[k] || 0) + l.qte;
     });
-    const tailles = TOUTES_TAILLES.filter(t => parTaille[t]);
+    const ordre = [...new Set(T_ADULTE.concat(T_ENFANT, ['TU'], Object.values(TAILLES_PRODUIT).flat()))];
+    const tailles = ordre.filter(t => parTaille[t]).concat(Object.keys(parTaille).filter(t => !ordre.includes(t)));
     $('recap').innerHTML = total
       ? '<div><span class="tot">' + total + '</span> pièce(s) · ' + lignes.length + ' ligne(s)' + (lignes.length > MAX_LIGNES ? ' — <span style="color:var(--rouge)">' + MAX_LIGNES + ' lignes max, contactez-nous</span>' : '') + '</div>'
         + '<div class="chips-t">' + tailles.map(t => '<span><small>' + t + '</small>' + parTaille[t] + '</span>').join('') + '</div>'
@@ -803,6 +819,18 @@
   // ---------------- Démarrage ----------------
   addVisuel();
   for (let i = 0; i < 6; i++) ajouterLigne();
+  // Listes à jour (produits, couleurs, tailles) depuis la page Admin du dashboard
+  fetch(LISTES_URL).then(r => r.ok ? r.json() : null).then(l => {
+    if (!l || !Array.isArray(l.produits) || !l.produits.length) return;
+    PRODUITS = l.produits.map(p => p.nom);
+    TAILLES_PRODUIT = Object.fromEntries(l.produits.map(p => [p.nom, p.tailles]));
+    SANS_COUPE = l.produits.filter(p => !p.coupe).map(p => p.nom);
+    if (Array.isArray(l.couleurs) && l.couleurs.length) COULEURS = l.couleurs;
+    if (Array.isArray(l.coupes) && l.coupes.length) COUPES = l.coupes;
+    // Reconstruit les lignes en gardant ce qui a déjà été saisi
+    [...$('grid-body').rows].forEach(tr => { const d = lireLigne(tr); tr.innerHTML = ligneHtml(d.couleur || d.qte ? d : { type: d.type }); majTaillesLigne(tr); });
+    renumeroter(); majRecap();
+  }).catch(() => {});
   majVisuelsArticles();
 </script>
 </body>

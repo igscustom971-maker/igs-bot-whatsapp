@@ -151,3 +151,17 @@ create table if not exists gestion_caisse (
 );
 create index if not exists gestion_caisse_idx on gestion_caisse (cree_le);
 alter table gestion_caisse enable row level security;
+
+-- ============================================
+-- ADMIN : collaborateurs — à exécuter une fois
+-- ============================================
+create table if not exists gestion_collaborateurs (
+  id            bigserial primary key,
+  affichage     text not null,      -- nom utilisé dans "Affectation" (ex. Maureen G.)
+  nom           text,
+  taux_horaire  numeric,
+  actif         boolean default true,
+  ordre         integer default 99,
+  updated_at    timestamptz default now()
+);
+alter table gestion_collaborateurs enable row level security;

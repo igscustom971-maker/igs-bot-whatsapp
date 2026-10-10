@@ -11,7 +11,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', admin: 'Admin' })[view] || 'Accueil'}</title>
 <link rel="icon" href="https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png">
 <style>
 :root{
@@ -219,6 +219,7 @@ tr.row{cursor:default}
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock">Stock</a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse">Espèces</a>
+    ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin">Admin</a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
   <div class="who"><span><b>${esc(user.name)}</b> · ${user.role === 'admin' ? 'Admin' : 'Équipe'}</span><a href="/gestion/auth/logout">Déconnexion</a></div>
@@ -240,6 +241,7 @@ ${view === 'accueil' ? `
           <a class="mod" href="/gestion/planches"><div class="i">🎞</div><div class="t">Planches DTF</div><div class="d">Métrages, devis, paiements</div></a>
           <a class="mod" href="/gestion/stock"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></a>
           <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
+          ${user.role === 'admin' ? '<a class="mod" href="/gestion/admin"><div class="i">⚙️</div><div class="t">Admin</div><div class="d">Collaborateurs, produits, couleurs</div></a>' : ''}
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
           ${user.role === 'admin' ? '<a class="mod" href="/panel" target="_blank" rel="noopener"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Panneau du bot WhatsApp</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
@@ -249,6 +251,25 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Planches DTF</h3><div id="plhome"><div class="skel"></div></div></div>
         <div class="card"><h3>Commandes par statut</h3><div class="flow" id="flow"></div></div>
         <div class="card"><h3>Charge par personne</h3><div class="flow" id="charge"></div></div>
+      </div>
+    </div>
+  </section>` : view === 'admin' ? `
+  <section id="v-admin">
+    <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
+      <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
+      <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="cols" style="grid-template-columns:1.5fr 1fr">
+      <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Produits du formulaire <button class="btn" id="ad-prod-add">＋ Produit</button></h3>
+        <div class="note" style="margin-bottom:8px">Tailles séparées par des virgules (ex. XS, S, M, L, XL, 2XL, 3XL · enfants 2A, 4A… · TU pour taille unique). « Coupe » : le client choisit Unisexe / Femme.</div>
+        <div style="overflow-x:auto"><table class="stk" id="ad-prod"><thead><tr><th></th><th>Produit</th><th>Tailles</th><th>Coupe</th><th></th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="stack">
+        <div class="card"><h3>Couleurs <span class="sub" style="text-transform:none;letter-spacing:0">(une par ligne, dans l'ordre d'affichage)</span></h3><textarea id="ad-couleurs" style="width:100%;min-height:320px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px"></textarea></div>
+        <div class="card"><h3>Coupes</h3><input id="ad-coupes" style="width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px" placeholder="Unisexe, Femme"></div>
+        <button class="btn pink" id="ad-save-listes" style="padding:12px">💾 Enregistrer les listes</button>
+        <div class="msg" id="a-msg"></div>
       </div>
     </div>
   </section>` : view === 'caisse' ? `
@@ -372,6 +393,7 @@ async function api(path, force){
 async function charger(force){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
+    if (VIEW === 'admin') { await adCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
       const j = await r.json(); if (j.error) throw new Error(j.error);
@@ -570,6 +592,69 @@ function csEvents(){
 }
 // Écart entre la quantité du devis (colonne Contenu) et le tableau des tailles du client
 const ecartHtml = ct => ct && ct.ecart ? '<div><span class="why r" title="Quantité du devis : '+ct.devis+' · tableau des tailles : '+ct.tableau+'">⚠ Devis '+ct.devis+' / tableau '+ct.tableau+' ('+(ct.ecart>0?'+':'')+ct.ecart+')</span></div>' : '';
+// ---------- Listes et collaborateurs (page Admin) ----------
+async function chargerListes(){
+  try {
+    const [l, c] = await Promise.all([fetch('/gestion/api/listes').then(r => r.json()), fetch('/gestion/api/collaborateurs').then(r => r.json())]);
+    if (l && l.produits) { T_TYPES = l.produits.map(p => p.nom); T_COULEURS = l.couleurs; T_COUPES = l.coupes || T_COUPES; T_TAILLES = [...new Set(l.produits.flatMap(p => p.tailles))]; }
+    if (c && c.collaborateurs && c.collaborateurs.length) EQUIPE = c.collaborateurs.filter(x => x.actif).map(x => x.affichage);
+  } catch(e){}
+}
+let adData = null;
+function adProdRow(p){
+  return '<tr><td style="white-space:nowrap"><button class="btn ad-up" style="padding:2px 6px">↑</button> <button class="btn ad-down" style="padding:2px 6px">↓</button></td>'
+    + '<td><input class="ad-p-nom" value="'+esc(p.nom||'')+'" style="width:100%;min-width:160px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></td>'
+    + '<td><input class="ad-p-tailles" value="'+esc((p.tailles||[]).join(', '))+'" style="width:100%;min-width:200px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></td>'
+    + '<td style="text-align:center"><input type="checkbox" class="ad-p-coupe"'+(p.coupe?' checked':'')+'></td>'
+    + '<td><button class="btn ad-p-del" style="padding:2px 8px;color:var(--bad)">✕</button></td></tr>';
+}
+function adColRow(c){
+  const inp = (cls, v, w, type) => '<input class="'+cls+'" '+(type?'type="'+type+'" ':'')+'value="'+esc(v ?? '')+'" style="width:'+w+';font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px">';
+  return '<tr data-id="'+(c.id||'')+'"><td>'+inp('ad-c-aff', c.affichage, '130px')+'</td><td>'+inp('ad-c-nom', c.nom, '170px')+'</td><td>'+inp('ad-c-taux', c.taux_horaire, '90px', 'number')+'</td><td>'+inp('ad-c-ordre', c.ordre ?? 99, '60px', 'number')+'</td>'
+    + '<td style="text-align:center"><input type="checkbox" class="ad-c-actif"'+(c.actif !== false ? ' checked' : '')+'></td>'
+    + '<td style="white-space:nowrap"><button class="btn ad-c-save" style="padding:3px 8px">💾</button> '+(c.id ? '<button class="btn ad-c-del" style="padding:3px 8px;color:var(--bad)">✕</button>' : '')+'</td></tr>';
+}
+async function adCharger(){
+  try {
+    const [l, c] = await Promise.all([fetch('/gestion/api/listes').then(r => r.json()), fetch('/gestion/api/collaborateurs?tous=1').then(r => r.json())]);
+    if (l.error) throw new Error(l.error); if (c.error) throw new Error(c.error);
+    adData = { listes: l, collaborateurs: c.collaborateurs };
+    document.querySelector('#ad-prod tbody').innerHTML = l.produits.map(adProdRow).join('');
+    $('ad-couleurs').value = l.couleurs.join('\\n');
+    $('ad-coupes').value = (l.coupes || []).join(', ');
+    document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
+    $('sync').className = 'sync'; $('sync').textContent = '';
+  } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
+}
+function adEvents(){
+  const tb = document.querySelector('#ad-prod tbody');
+  $('ad-prod-add').onclick = () => { tb.insertAdjacentHTML('beforeend', adProdRow({ nom: '', tailles: ['XS','S','M','L','XL','2XL','3XL'], coupe: true })); tb.lastElementChild.querySelector('.ad-p-nom').focus(); };
+  tb.addEventListener('click', e => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    if (e.target.closest('.ad-up') && tr.previousElementSibling) tr.parentNode.insertBefore(tr, tr.previousElementSibling);
+    if (e.target.closest('.ad-down') && tr.nextElementSibling) tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+    if (e.target.closest('.ad-p-del') && confirm('Retirer ce produit de la liste ?')) tr.remove();
+  });
+  $('ad-save-listes').onclick = async () => {
+    const produits = [...tb.rows].map(tr => ({ nom: tr.querySelector('.ad-p-nom').value, tailles: tr.querySelector('.ad-p-tailles').value, coupe: tr.querySelector('.ad-p-coupe').checked }));
+    try { await post('/gestion/api/admin/listes', { produits, couleurs: $('ad-couleurs').value, coupes: $('ad-coupes').value }); msg('✅ Listes enregistrées : le formulaire client et le dashboard les utilisent maintenant', 'ok'); adCharger(); }
+    catch(err){ msg('❌ ' + esc(err.message), 'err'); }
+  };
+  const ct = document.querySelector('#ad-col tbody');
+  $('ad-col-add').onclick = () => { ct.insertAdjacentHTML('beforeend', adColRow({ actif: true, ordre: 99 })); ct.lastElementChild.querySelector('.ad-c-aff').focus(); };
+  ct.addEventListener('click', async e => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    if (e.target.closest('.ad-c-save')) {
+      const v = c => tr.querySelector(c);
+      try { await post('/gestion/api/admin/collaborateurs', { id: tr.dataset.id ? Number(tr.dataset.id) : undefined, affichage: v('.ad-c-aff').value, nom: v('.ad-c-nom').value, taux_horaire: v('.ad-c-taux').value, ordre: v('.ad-c-ordre').value, actif: v('.ad-c-actif').checked }); adCharger(); }
+      catch(err){ alert(err.message); }
+    }
+    if (e.target.closest('.ad-c-del')) {
+      if (!confirm('Supprimer définitivement ce collaborateur ? (Pour le garder dans l\\'historique, décoche plutôt « Actif ».)')) return;
+      try { await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/supprimer'); adCharger(); } catch(err){ alert(err.message); }
+    }
+  });
+}
 let autoEtat = null;
 // ---------- Stock ----------
 let stockData = null, stClient = null, stZeros = false;
@@ -1035,10 +1120,10 @@ async function ouvrir(cle){
 }
 // ---------- Historique et duplication ----------
 let histo = [], modeHisto = false, dernierDossier = null;
-const T_TYPES = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
-const T_COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
-const T_TAILLES = ['XS','S','M','L','XL','2XL','3XL','2A','4A','6A','8A','10A','12A'];
-const T_COUPES = ['Unisexe','Femme'];
+let T_TYPES = ['T-Shirt','T-Shirt Col V','T-Shirt Polyester','T-Shirt Longue Manche','Polo','Débardeur','Tote Bag','Casquette','T-Shirt Enfant','T-shirt fourni','Autre : (saisie manuelle)'];
+let T_COULEURS = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
+let T_TAILLES = ['XS','S','M','L','XL','2XL','3XL','2A','4A','6A','8A','10A','12A'];
+let T_COUPES = ['Unisexe','Femme'];
 async function chargerHisto(){
   $('rows').innerHTML = '<tr><td colspan="9"><div class="skel"></div><div class="skel"></div></td></tr>';
   try { const r = await fetch('/gestion/api/commandes-historique?q='+encodeURIComponent(recherche)); const j = await r.json(); if (j.error) throw new Error(j.error); histo = j.commandes || []; }
@@ -1111,7 +1196,7 @@ function dupliquerUI(c){
 }
 
 // ---------- Actions commande (écrites dans l'Excel) ----------
-const EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
+let EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
 const PLANCHE_ETATS = ['A FAIRE', 'A IMPRIMER', 'OK'];
 function cmdActionsHtml(c){
   const st = statutKey(c.statut);
@@ -1192,6 +1277,8 @@ if (VIEW === 'commandes') {
   const onglet = h => { modeHisto = h; $('tab-cours').classList.toggle('on', !h); $('tab-histo').classList.toggle('on', h); if (h) chargerHisto(); else afficher(); };
   $('tab-cours').onclick = () => onglet(false); $('tab-histo').onclick = () => onglet(true);
   if (location.hash === '#historique') onglet(true);
+} else if (VIEW === 'admin') {
+  adEvents();
 } else if (VIEW === 'caisse') {
   csEvents();
 } else if (VIEW === 'stock') {
@@ -1211,7 +1298,7 @@ if (VIEW === 'commandes') {
 $('refresh').addEventListener('click', () => charger(true));
 $('overlay').addEventListener('click', fermer); $('pclose').addEventListener('click', fermer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fermer(); });
-charger(false);
+chargerListes().finally(() => charger(false));
 setInterval(() => { if (!document.hidden) charger(false); }, 120000);
 </script>
 </body>
