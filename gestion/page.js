@@ -705,7 +705,9 @@ async function ouvrir(cle){
     + '</div>' + (c.instructions ? '<div class="kv" style="margin-top:10px"><div class="k">Instructions client</div><div class="v pre">'+esc(c.instructions)+'</div></div>' : '')
     + (c.remarque ? '<div class="kv" style="margin-top:10px"><div class="k">Remarque</div><div class="v pre">'+esc(c.remarque)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : prête '+(c.mail_envoye?'✅':'—')+' · expédition '+(c.mail_expedition_envoye?'✅':'—')+' · avis '+(c.mail_avis_envoye?'✅':'—')+'</div></div>'
+    + cmdActionsHtml(c)
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';
+  brancherCmd(c);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   if (!c.n_devis) { $('dossier').innerHTML = '<div class="card note">Pas de N° de devis : impossible de retrouver le dossier SharePoint.</div>'; return; }
 
@@ -747,6 +749,51 @@ async function ouvrir(cle){
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';
   }
+}
+// ---------- Actions commande (écrites dans l'Excel) ----------
+const EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
+function cmdActionsHtml(c){
+  const st = statutKey(c.statut);
+  const pers = [...new Set(EQUIPE.concat(data.map(x => x.affectation).filter(Boolean)))];
+  return '<div class="card"><h3>Actions</h3>'
+    + '<div class="btnrow" style="margin:0 0 12px">'
+    + (st !== 'EN PRODUCTION' ? '<button class="btn" data-st="EN PRODUCTION">🏭 En production</button>' : '')
+    + (st !== 'EN FLOCAGE' ? '<button class="btn" data-st="EN FLOCAGE">🔥 En flocage</button>' : '')
+    + (st !== 'TERMINÉE' ? '<button class="btn" data-st="TERMINÉE">✅ Terminée</button>' : '')
+    + (st !== 'A EXPEDIER' ? '<button class="btn" data-st="A EXPEDIER">📦 À expédier</button>' : '')
+    + (st !== 'LIVRÉE' ? '<button class="btn pink" data-st="LIVRÉE">🏁 Livrée</button>' : '')
+    + '</div><div class="actions">'
+    + '<div class="field"><label>Statut</label><select id="c-statut">'+STATUTS.map(x => '<option'+(x===st?' selected':'')+'>'+x+'</option>').join('')+'</select></div>'
+    + '<div class="field"><label>Affectation</label><input id="c-aff" list="c-aff-list" value="'+esc(c.affectation||'')+'"><datalist id="c-aff-list">'+pers.map(x => '<option>'+esc(x)+'</option>').join('')+'</datalist></div>'
+    + '<div class="field"><label>Planche</label><input id="c-planche" value="'+esc(c.planche||'')+'" placeholder="ex. OK"></div>'
+    + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
+    + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button></div><div class="msg" id="a-msg"></div></div>';
+}
+function brancherCmd(c){
+  const envoyer = async body => {
+    if (body.statut === 'LIVRÉE' && !confirm('Passer la commande '+(c.n_devis||c.client)+' en LIVRÉE ?\\nElle sera retirée de l\\'Excel au nettoyage de minuit (elle reste consultable ici).')) return;
+    document.querySelectorAll('#pbody .btn').forEach(b => b.disabled = true);
+    msg('Écriture dans l\\'Excel…', 'info');
+    try {
+      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/modifier', body);
+      if (j.commande) Object.assign(c, j.commande);
+      afficher();
+      await ouvrir(c.cle);
+      msg('✅ Enregistré dans l\\'Excel', 'ok');
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); document.querySelectorAll('#pbody .btn').forEach(b => b.disabled = false); }
+  };
+  document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
+  $('c-save').onclick = () => {
+    const body = {};
+    const v = (id, f, cur) => { const x = $(id).value.trim(); if (x !== (cur || '')) body[f] = x; };
+    if ($('c-statut').value !== statutKey(c.statut)) body.statut = $('c-statut').value;
+    v('c-aff', 'affectation', c.affectation); v('c-planche', 'planche', c.planche); v('c-zone', 'zone_flocage', c.zone_flocage);
+    v('c-suivi', 'numero_suivi', c.numero_suivi); v('c-rem', 'remarque', c.remarque);
+    if (!Object.keys(body).length) return msg('Aucune modification', 'info');
+    envoyer(body);
+  };
 }
 function livBox(c){
   return '<div class="k">Livraison prévue '+(c.date_livraison_manuelle?'<span class="manual">✏️ manuelle</span>':'')+'</div>'

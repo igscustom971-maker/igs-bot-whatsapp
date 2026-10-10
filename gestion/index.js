@@ -96,6 +96,11 @@ module.exports = function mountGestion(app) {
     res.json({ commandes: data.rows, syncedAt: data.syncedAt, erreur: data.error });
   });
 
+  app.post('/gestion/api/commandes/:cle/modifier', auth.requireUser, async (req, res) => {
+    try { res.json({ commande: await commandes.modifier(req.params.cle, req.body || {}, req.user.name || req.user.email) }); }
+    catch (err) { console.error('Gestion commande :', err.message); res.status(400).json({ error: err.message }); }
+  });
+
   // Modification manuelle de la date de livraison (admin et équipe). { date: "AAAA-MM-JJ" } ou { date: null } = revenir à la date Excel
   app.post('/gestion/api/commandes/:cle/livraison', auth.requireUser, async (req, res) => {
     try {

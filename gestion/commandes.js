@@ -103,7 +103,9 @@ function rowsFromRange(range) {
       mail_expedition_envoye: txt(get('mail_expedition_envoye')),
       mail_avis_envoye: txt(get('mail_avis_envoye')),
     });
+    Object.defineProperty(out[out.length - 1], '_row', { value: n, enumerable: false }); // position dans le tableau
   });
+  out.idx = idx;
   return out;
 }
 
@@ -337,4 +339,55 @@ function startSync() {
   setInterval(syncNow, cfg.SYNC_INTERVAL_MS);
 }
 
-module.exports = { syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+// ============================================
+// ACTIONS (phase 1) : modification d'une commande, écrite cellule par cellule dans l'Excel
+// (les formules Date livraison / ID restent intactes ; ligne retrouvée par N° devis juste avant d'écrire)
+// ============================================
+const colLetter = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+const colIndex = l => l.split('').reduce((t, c) => t * 26 + c.charCodeAt(0) - 64, 0) - 1;
+
+const STATUTS = ['EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'LIVRÉE'];
+
+async function modifier(cle, champs, user) {
+  const fields = {};
+  if ('statut' in champs) {
+    const v = String(champs.statut || '').trim().toUpperCase();
+    const st = STATUTS.find(x => key(x) === key(v));
+    if (!st) throw new Error('Statut inconnu');
+    fields.statut = st;
+  }
+  for (const f of ['remarque', 'affectation', 'zone_flocage', 'planche', 'infos']) {
+    if (f in champs) fields[f] = String(champs[f] ?? '').trim().slice(0, 500);
+  }
+  if ('numero_suivi' in champs) {
+    const v = String(champs.numero_suivi || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (v && !/^[A-Z0-9]{8,20}$/.test(v)) throw new Error('Numéro de suivi invalide');
+    fields.numero_suivi = v;
+  }
+  if (!Object.keys(fields).length) throw new Error('Rien à modifier');
+
+  if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
+  const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
+  const rows = rowsFromRange(range);
+  const row = rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable dans l\'Excel (supprimée ou modifiée entre-temps) : actualise et réessaie');
+  const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
+  if (!m) throw new Error(`Adresse du tableau illisible : ${range.address}`);
+  const [, sheet, startCol, startRow] = m;
+  for (const [field, value] of Object.entries(fields)) {
+    if (rows.idx[field] === undefined) throw new Error(`Colonne « ${field} » absente du tableau Commandes`);
+    const address = colLetter(colIndex(startCol) + rows.idx[field]) + (Number(startRow) + 1 + row._row);
+    await g.patchRange(excelItemId, sheet, address, [[value]]);
+  }
+  console.log(`Gestion action : commande_modifiee ${cle} par ${user}`, fields);
+  if (supabase) {
+    const { error } = await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_modifiee', cle, details: { client: row.client, ...fields } });
+    if (error) console.error('Gestion journal :', error.message);
+  }
+  await syncNow();
+  const ov = await loadOverrides();
+  const r = cache.rows.find(x => x.cle === cle);
+  return r ? applyOverride(r, ov.get(cle)) : null;
+}
+
+module.exports = { modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
