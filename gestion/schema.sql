@@ -35,3 +35,10 @@ create index if not exists gestion_commandes_statut_idx on gestion_commandes (st
 
 -- Accès uniquement par le serveur (clé service_role) : RLS activée, aucune policy publique
 alter table gestion_commandes enable row level security;
+
+-- ============================================
+-- AJOUT (date de livraison modifiable à la main) — à exécuter une fois
+-- ============================================
+alter table gestion_commandes add column if not exists date_livraison_manuelle    date;
+alter table gestion_commandes add column if not exists date_livraison_modifiee_par text;
+alter table gestion_commandes add column if not exists date_livraison_modifiee_le  timestamptz;

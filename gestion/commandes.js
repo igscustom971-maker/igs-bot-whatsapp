@@ -152,9 +152,49 @@ async function syncNow() {
   return running;
 }
 
-async function listCommandes() {
-  if (!cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
-  return cache;
+// ---------- Date de livraison modifiée à la main (stockée dans Supabase, jamais écrite dans l'Excel) ----------
+const overridesMem = new Map(); // repli si Supabase n'est pas configuré
+
+async function loadOverrides() {
+  if (!supabase) return overridesMem;
+  const { data, error } = await supabase.from('gestion_commandes')
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le')
+    .not('date_livraison_manuelle', 'is', null);
+  if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
+  return new Map(data.map(o => [o.cle, o]));
+}
+
+function applyOverride(r, o) {
+  const out = { ...r, date_livraison_excel: r.date_livraison };
+  if (o && o.date_livraison_manuelle) {
+    out.date_livraison = o.date_livraison_manuelle;
+    out.date_livraison_manuelle = o.date_livraison_manuelle;
+    out.date_livraison_modifiee_par = o.date_livraison_modifiee_par;
+    out.date_livraison_modifiee_le = o.date_livraison_modifiee_le;
+  }
+  return out;
+}
+
+async function listCommandes({ force = false } = {}) {
+  if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
+  const ov = await loadOverrides();
+  return { ...cache, rows: cache.rows.map(r => applyOverride(r, ov.get(r.cle))) };
+}
+
+async function setLivraison(cle, date, user) {
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Date invalide');
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  const o = date === null
+    ? { date_livraison_manuelle: null, date_livraison_modifiee_par: null, date_livraison_modifiee_le: null }
+    : { date_livraison_manuelle: date, date_livraison_modifiee_par: user, date_livraison_modifiee_le: new Date().toISOString() };
+  if (supabase) {
+    const { error } = await supabase.from('gestion_commandes').update(o).eq('cle', cle);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+  } else if (date === null) overridesMem.delete(cle);
+  else overridesMem.set(cle, { cle, ...o });
+  console.log(`Gestion : date de livraison ${cle} -> ${date || 'date Excel'} (${user})`);
+  return applyOverride(row, date === null ? null : o);
 }
 
 // ---------- Dossier client : BAT, tailles, visuels ----------
@@ -297,4 +337,4 @@ function startSync() {
   setInterval(syncNow, cfg.SYNC_INTERVAL_MS);
 }
 
-module.exports = { syncNow, listCommandes, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

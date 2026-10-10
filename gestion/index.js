@@ -20,7 +20,10 @@ module.exports = function mountGestion(app) {
   auth.mount(app);
 
   app.get('/gestion', auth.requireUser, (req, res) => {
-    res.set('Cache-Control', 'no-store').send(page.render(req.user));
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'accueil'));
+  });
+  app.get('/gestion/commandes', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commandes'));
   });
 
   app.get('/gestion/api/me', auth.requireUser, (req, res) => {
@@ -28,9 +31,18 @@ module.exports = function mountGestion(app) {
   });
 
   app.get('/gestion/api/commandes', auth.requireUser, async (req, res) => {
-    const force = req.query.actualiser === '1';
-    const data = force ? await commandes.syncNow() : await commandes.listCommandes();
+    const data = await commandes.listCommandes({ force: req.query.actualiser === '1' });
     res.json({ commandes: data.rows, syncedAt: data.syncedAt, erreur: data.error });
+  });
+
+  // Modification manuelle de la date de livraison (admin et équipe). { date: "AAAA-MM-JJ" } ou { date: null } = revenir à la date Excel
+  app.post('/gestion/api/commandes/:cle/livraison', auth.requireUser, async (req, res) => {
+    try {
+      const date = req.body?.date || null;
+      res.json({ commande: await commandes.setLivraison(req.params.cle, date, req.user.name || req.user.email) });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   app.get('/gestion/api/commandes/:devis/dossier', auth.requireUser, async (req, res) => {
