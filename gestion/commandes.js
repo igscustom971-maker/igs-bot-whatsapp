@@ -496,4 +496,32 @@ async function modifier(cle, champs, user) {
   return r ? applyOverride(r, ov.get(cle)) : null;
 }
 
-module.exports = { setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+// Suppression manuelle (erreur, test) : la ligne est vidée dans l'Excel en une seule écriture,
+// les cellules à formule (date de livraison, ID…) gardent leur formule. Le dossier SharePoint n'est pas touché.
+async function supprimer(cle, user) {
+  if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
+  const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
+  const rows = rowsFromRange(range);
+  const row = rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable dans l\'Excel (déjà supprimée ?) : actualise et réessaie');
+  const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
+  if (!m) throw new Error(`Adresse du tableau illisible : ${range.address}`);
+  const [, sheet, startCol, startRow] = m;
+  const f = (range.formulas || [])[row._row + 1] || [];
+  const nbCol = range.values[0].length;
+  const ligne = Array.from({ length: nbCol }, (_, i) => (typeof f[i] === 'string' && f[i].startsWith('=') ? f[i] : ''));
+  const n = Number(startRow) + 1 + row._row;
+  const address = `${startCol}${n}:${colLetter(colIndex(startCol) + nbCol - 1)}${n}`;
+  await g.patchRange(excelItemId, sheet, address, [ligne], undefined, 'formulas');
+  console.log(`Gestion action : commande_supprimee ${cle} par ${user}`);
+  if (supabase) {
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_supprimee', cle, details: { ...row } });
+    const { error } = await supabase.from('gestion_commandes').delete().eq('cle', cle);
+    if (error) console.error('Gestion suppression Supabase :', error.message);
+  }
+  controles.delete(cle);
+  await syncNow();
+  return { ok: true };
+}
+
+module.exports = { supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

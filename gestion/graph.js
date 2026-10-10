@@ -89,12 +89,13 @@ async function thumbnailUrl(itemId, size = 'large', o) {
 }
 
 // Écriture d'une plage de cellules (ex. "C7") dans une feuille : values = [[valeur]]
-async function patchRange(itemId, sheet, address, values, o) {
+// champ = 'formulas' pour réécrire des formules (les cellules '' sont vidées)
+async function patchRange(itemId, sheet, address, values, o, champ = 'values') {
   const url = `${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}/workbook/worksheets/${encodeURIComponent(sheet)}/range(address='${address}')`;
   const res = await fetch(url, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values }),
+    body: JSON.stringify({ [champ]: values }),
   });
   if (!res.ok) throw new Error(`Écriture Excel ${address} refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json();

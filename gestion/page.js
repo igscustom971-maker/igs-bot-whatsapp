@@ -191,6 +191,9 @@ th{padding:10px 8px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
 .dliv .btn{padding:5px 10px;font-size:12px}
 .manual{font-size:11px;font-weight:700;color:var(--pink)}
+.xdel{border:0;background:transparent;color:#9ca3af;font-size:18px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px}
+.xdel:hover{background:#fee2e2;color:#b91c1c}
+td.c-x{width:30px;text-align:right;padding-left:0}
 .esp{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:nowrap}
 .espbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 12px;padding:10px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a}
 .espbox input[type=text]{width:110px}
@@ -321,7 +324,7 @@ ${view === 'accueil' ? `
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th>Date</th><th>Client</th><th>Statut</th><th>Métrage</th><th>Montant HT</th><th>Paiement</th><th>Devis</th><th>Remarques</th>
+        <th>Date</th><th>Client</th><th>Statut</th><th>Métrage</th><th>Montant HT</th><th>Paiement</th><th>Devis</th><th>Remarques</th><th></th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="8"><div class="skel"></div><div class="skel"></div><div class="skel"></div></td></tr></tbody>
     </table>
@@ -338,7 +341,7 @@ ${view === 'accueil' ? `
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th>Devis</th><th>Client</th><th>Statut</th><th>Contenu</th><th>Zone</th><th>Affectation</th><th>Commande</th><th>Livraison</th><th>Planche</th>
+        <th>Devis</th><th>Client</th><th>Statut</th><th>Contenu</th><th>Zone</th><th>Affectation</th><th>Commande</th><th>Livraison</th><th>Planche</th><th></th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="9"><div class="skel"></div><div class="skel"></div><div class="skel"></div></td></tr></tbody>
     </table>
@@ -484,7 +487,8 @@ function plListe(){
       + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || '', null, true)+'</td>'
       + '<td class="c-hide devis"><a href="#" class="open">'+esc(p.n_devis||'—')+'</a></td>'
       + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td>'
-      + '</tr>').join('') : '<tr><td colspan="8" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+      + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
+      + '</tr>').join('') : '<tr><td colspan="9" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
 }
 
 // Sélecteur directement dans la ligne (comme une liste déroulante Excel)
@@ -606,6 +610,16 @@ function csEvents(){
 // Écart entre la quantité du devis (colonne Contenu) et le tableau des tailles du client
 const montantFr = m => m == null ? '' : String(m).replace('.', ',') + ' €';
 const especesHtml = c => c && c.a_payer_especes ? '<div><span class="esp" title="Le client paiera en espèces à la remise'+(c.especes_note_par?' (noté par '+esc(c.especes_note_par)+')':'')+'">💵 À payer en espèces'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+'</span></div>' : '';
+async function supprimerCmd(c){
+  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?\\nLa ligne sera vidée dans l\\'Excel (erreur ou test). Le dossier SharePoint n\\'est pas supprimé.')) return false;
+  try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer'); await charger(false); return true; }
+  catch(e){ alert('Non supprimée : ' + e.message); return false; }
+}
+async function supprimerPl(p){
+  if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\nLa ligne sera vidée dans l\\'Excel (comme au nettoyage de minuit).')) return false;
+  try { await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer'); await charger(false); return true; }
+  catch(e){ alert('Non supprimée : ' + e.message); return false; }
+}
 async function setEspecesCmd(c, actif, montant){
   const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/especes', { actif, montant });
   if (j.commande) Object.assign(c, j.commande);
@@ -1070,8 +1084,9 @@ function liste(){
       + '<td class="c-hide">'+fdate(c.date_commande)+(c.date_dynamique?' <span class="dyn" title="La cellule Excel contient =TODAY() : la date change chaque jour">⚠ date auto</span>':'')+'</td>'
       + '<td class="c-hide'+(late?' late':'')+'">'+fdate(c.date_livraison)+(late?' ⏰':'')+(c.date_livraison_manuelle?' <span class="manual" title="Date modifiée manuellement">✏️</span>':'')+'</td>'
       + '<td class="c-hide">'+inlSel('cmd', c.cle, 'planche', PLANCHE_ETATS, c.planche || '', null, true)+'</td>'
+      + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
       + '</tr>';
-  }).join('') : '<tr><td colspan="9" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+  }).join('') : '<tr><td colspan="10" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
 }
 
 function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>' : ''; }
@@ -1163,7 +1178,7 @@ async function chargerHisto(){
     + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
     + '<td class="c-hide">'+esc(c.affectation||'')+'</td>'
     + '<td class="c-hide">'+fdate(c.date_commande)+'</td><td class="c-hide">'+fdate(c.date_livraison)+'</td><td class="c-hide">'+esc(c.planche||'')+'</td></tr>').join('')
-    : '<tr><td colspan="9" class="empty">Aucune commande livrée trouvée</td></tr>';
+    : '<tr><td colspan="10" class="empty">Aucune commande livrée trouvée</td></tr>';
 }
 function ligneDupHtml(l){
   const sel = (list, v, cls) => '<select class="'+cls+'">'+[...new Set((v?[v]:[]).concat(list))].map(x => '<option'+(x===v?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select>';
@@ -1245,7 +1260,7 @@ function cmdActionsHtml(c){
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -1262,6 +1277,7 @@ function brancherCmd(c){
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
   $('dup-btn').onclick = () => dupliquerUI(c);
+  $('c-suppr').onclick = async () => { if (await supprimerCmd(c)) fermer(); };
   const espMaj = async (actif, montant) => {
     try { await setEspecesCmd(c, actif, montant); afficher(); await ouvrir(c.cle); msg(actif ? '✅ Noté : paiement en espèces à la remise' : '✅ Mention espèces retirée', 'ok'); }
     catch(e){ msg('❌ ' + esc(e.message), 'err'); }
@@ -1307,7 +1323,10 @@ let panelCle = null;
 function fermer(){ panelCle=null; $('overlay').classList.remove('on'); $('panel').classList.remove('on'); $('panel').setAttribute('aria-hidden','true'); }
 
 if (VIEW === 'commandes') {
-  $('rows').addEventListener('click', e => { const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrir(panelCle); } });
+  $('rows').addEventListener('click', e => {
+    const x = e.target.closest('[data-del]');
+    if (x) { const c = data.find(z => z.cle === x.closest('tr.row').dataset.k); if (c) { x.disabled = true; supprimerCmd(c).finally(() => { x.disabled = false; }); } return; }
+    const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrir(panelCle); } });
   $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   let th; $('q').addEventListener('input', e => { recherche = e.target.value; if (modeHisto) { clearTimeout(th); th = setTimeout(chargerHisto, 350); } else afficher(); });
@@ -1322,7 +1341,10 @@ if (VIEW === 'commandes') {
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
   stEvents();
 } else if (VIEW === 'planches') {
-  $('rows').addEventListener('click', e => { const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrirPlanche(panelCle); } });
+  $('rows').addEventListener('click', e => {
+    const x = e.target.closest('[data-del]');
+    if (x) { const p = planches.find(z => z.cle === x.closest('tr.row').dataset.k); if (p) { x.disabled = true; supprimerPl(p).finally(() => { x.disabled = false; }); } return; }
+    const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrirPlanche(panelCle); } });
   $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });

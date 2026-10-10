@@ -179,6 +179,11 @@ module.exports = function mountGestion(app) {
     }
   });
 
+  app.post('/gestion/api/commandes/:cle/supprimer', auth.requireUser, async (req, res) => {
+    try { res.json(await commandes.supprimer(req.params.cle, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion suppression commande :', err.message); res.status(400).json({ error: err.message }); }
+  });
+
   // "À payer en espèces" : { actif: true|false, montant?: "45,50" }
   app.post('/gestion/api/commandes/:cle/especes', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.setEspeces(req.params.cle, { actif: !!req.body?.actif, montant: req.body?.montant }, req.user.name || req.user.email) }); }
