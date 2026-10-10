@@ -120,7 +120,7 @@ async function gabarit(nom){
 const centreA = (m, y) => BC.centreA(m, y);
 // Logo : marges (transparentes ou blanches) rognées automatiquement -> la largeur en cm est celle du dessin visible ;
 // option "fond blanc transparent" pour les JPG à fond blanc. Logos importés depuis l'ordinateur : id "local-…"
-const cacheLogo = new Map(), logosLocaux = new Map();
+const cacheLogo = new Map(), logosLocaux = new Map(), RATIOS = new Map();
 async function logo(id, sansBlanc){
   const k = id + '|' + String(sansBlanc);
   if (!cacheLogo.has(k)) cacheLogo.set(k, (async () => {
@@ -227,6 +227,7 @@ async function vignette(page, a, face){
   const zonesHit = [];
   for (const pl of placementsDe(page, face, a)) {
     const img = await logo(pl.image, pl.sansBlanc).catch(() => null); if (!img) continue;
+    RATIOS.set(pl.image, img.height / img.width);
     const r = rectLogo(pl, a, face, m, img);
     x.save(); x.translate(r.x + r.w / 2, r.y + r.h / 2); x.rotate(r.rot * Math.PI / 180); x.drawImage(img, -r.w / 2, -r.h / 2, r.w, r.h); x.restore();
     zonesHit.push({ pl, r });
@@ -234,6 +235,16 @@ async function vignette(page, a, face){
   return { canvas: c, hits: zonesHit, m };
 }
 // Toutes les vignettes de la page dans un seul canvas (devant puis dos pour chaque couleur)
+function afficherAlertes(i){
+  const page = pages[i], el = $('al' + i); if (!el) return;
+  page._alertes = BC.alertes(page, RATIOS);
+  el.innerHTML = page._alertes.length ? '<div class="msg on err" style="margin:0 0 8px">⚠️ <b>Visuel trop grand</b> (n\'apparaît pas sur le PDF) :<br>' + page._alertes.map(a => esc(a.message)).join('<br>') + '</div>' : '';
+  if (i === courante) alertesPanneau();
+}
+function alertesPanneau(){
+  const page = pages[courante]; if (!page || !page._alertes) return;
+  document.querySelectorAll('#reglages [data-alerte]').forEach(x => { const pl = page.placements[x.dataset.alerte]; const al = page._alertes.filter(a => a.placement === pl || (a.placement.tote && pl === page.placements[0])); x.innerHTML = al.length ? '⚠️ ' + al.map(a => esc(a.message)).join('<br>⚠️ ') : ''; });
+}
 async function dessinerMockups(i, guides = null){
   const page = pages[i], el = document.querySelector('#page' + i + ' canvas'); if (!el) return;
   const items = [];
@@ -256,16 +267,20 @@ async function dessinerMockups(i, guides = null){
       x.save(); x.lineWidth = 1.5 * R;
       const cxV = centreA(m, hit.r.y + hit.r.h / 2);
       ligne(cxV, 0, cxV, m.img.height, Math.abs(cxLogo - cxV) < 2 ? '#16a34a' : 'rgba(220,38,38,.85)', true);
+      let surAxe = Math.abs(cxLogo - cxV) < 2;
       if (!Pd.tote && it.f === 'avant' && Pd.zones.coeur) {
-        const zc = Pd.zones.coeur, xc = cxV + (zc.x + (zc.ddx || 0)) * hit.r.pxW;
-        ligne(xc, 0, xc, m.img.height, Math.abs(cxLogo - xc) < 2 ? '#16a34a' : 'rgba(37,99,235,.85)', true);
+        const zc = Pd.zones.coeur, xc = cxV + (zc.x + (zc.ddx || 0)) * hit.r.pxW, ok = Math.abs(cxLogo - xc) < 2;
+        if (guides.zone === 'coeur') surAxe = ok;
+        ligne(xc, 0, xc, m.img.height, ok ? '#16a34a' : 'rgba(37,99,235,.85)', true);
       }
       const zd = Pd.tote ? null : (Pd.zones[guides.zone] || Pd.zones.poitrine);
-      if (zd && zd.y != null) { const yl = (zd.y + (zd.ddy || 0)) * hit.r.pxH; ligne(0, yl, m.img.width, yl, Math.abs(hit.r.y - yl) < 2 ? '#16a34a' : 'rgba(220,38,38,.85)', false); }
+      // Logo centré sur son axe ET à la bonne hauteur : les lignes passent au vert ensemble
+      if (zd && zd.y != null) { const yl = (zd.y + (zd.ddy || 0)) * hit.r.pxH, okH = Math.abs(hit.r.y - yl) < 2; ligne(0, yl, m.img.width, yl, okH && surAxe ? '#16a34a' : okH ? 'rgba(234,88,12,.9)' : 'rgba(220,38,38,.85)', false); }
       x.setLineDash([]); x.strokeStyle = 'rgba(220,38,38,.9)'; x.strokeRect(X(hit.r.x), Y(hit.r.y), hit.r.w * s * R, hit.r.h * s * R);
       x.restore();
     }
   });
+  afficherAlertes(i);
 }
 
 // ---------- Page HTML (aperçu = rendu PDF) ----------
@@ -273,7 +288,7 @@ const edG = k => '<span contenteditable="true" data-g="' + k + '" style="display
 function pageHtml(p, i){
   const d = new Date().toLocaleDateString('fr-FR');
   const ed = (k, v, ph) => '<span contenteditable="true" data-i="' + i + '" data-k="' + k + '"' + (ph ? ' data-ph="' + esc(ph) + '"' : '') + '>' + esc(v) + '</span>';
-  return '<div class="scaler" id="sc' + i + '"><div class="page" id="page' + i + '">'
+  return '<div id="al' + i + '" style="width:100%;max-width:1123px"></div><div class="scaler" id="sc' + i + '"><div class="page" id="page' + i + '">'
     + '<div class="ph"><div class="t"><img src="/gestion/gabarits/logo-igs.png" alt="">BON A TIRER</div>'
     + '<div class="r"><b>Ref devis :</b> ' + edG('n_devis') + ' &nbsp;<b>Date du BAT :</b> ' + d + '<br><b>Client :</b> ' + edG('client') + ' &nbsp;<b>Email :</b> ' + edG('email') + '</div></div>'
     + '<div class="frame"><div class="fond"></div><canvas></canvas>' + (p.legende.trim() ? '<div class="legende">' + esc(p.legende) + '</div>' : '') + '</div>'
@@ -312,7 +327,7 @@ function reglages(){
     + p.placements.map((pl, k) => '<div class="pl" data-k="' + k + '"><div class="row"><select data-f="zone">' + optZone(pl.zone) + '</select><select data-f="image">' + optImg(pl.image) + '</select></div>'
       + '<div class="row"><label class="note">Largeur (cm)</label><input type="number" step="0.5" min="1" max="60" data-f="largeur" value="' + pl.largeur + '"><label class="note">Rotation</label><input type="number" step="5" data-f="rot" value="' + (pl.rot ?? '') + '" placeholder="auto"></div>'
       + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc !== false ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent' + (pl.sansBlanc === 'auto' ? ' (auto)' : '') + '</label><label class="btn" title="Remplacer ce visuel par un fichier de l\'ordinateur' + (VIERGE ? '' : ' (remplacé aussi dans SharePoint)') + '">⬆<input type="file" accept="image/*" data-remplace="' + k + '" style="display:none"></label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
-      + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div>'
+      + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div><div class="note" data-alerte="' + k + '" style="color:#b91c1c;font-weight:600"></div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
     + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
     + (p.articles.some(a => a.produit === 'tote' && a.actif) && totePlacement(p) ? '<label class="f">Tote bag (une face)</label><div class="pl" data-tote="1"><div class="row"><select data-f="toteImage">' + optImg(p.totePl.image) + '</select><input type="number" step="0.5" min="1" max="40" data-f="toteLargeur" value="' + p.totePl.largeur + '" title="Largeur (cm)" style="max-width:80px"><span class="note" style="flex:none">cm</span></div>'
@@ -324,6 +339,7 @@ function reglages(){
     + '<select data-f="ajoutCouleur" style="margin-top:4px"><option value="">＋ Ajouter une couleur…</option>' + NUANCIER.map(n => '<option>' + esc(n) + '</option>').join('') + '</select>'
     + '<label class="f">Texte dans le cadre (facultatif)</label><textarea data-f="legende" placeholder="ex. jude : Taille S (x2) bleu royal">' + esc(p.legende) + '</textarea>'
     + '<div class="note" style="margin-top:6px">Les champs Modèle, Couleur, Tailles, Face, Dos… se modifient directement sur l\'aperçu.</div>';
+  alertesPanneau();
 }
 // Position réelle du logo (cm) : écart au centre du corps et distance sous le haut du col, sur le 1er produit de la page
 function positionTexte(p, pl){

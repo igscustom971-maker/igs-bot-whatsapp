@@ -185,8 +185,8 @@ function textePage(doc, p, C, i, n, cadreImg, logoBuf) {
   t('Signature client (bon pour accord) :', 879, 752, { taille: 8.5, couleur: '#555555' });
 }
 
-async function pdfDepuisPages(BC, pages, C) {
-  const logos = new Map(), logoBuf = await chargerLogoIgs();
+async function pdfDepuisPages(BC, pages, C, logos = new Map()) {
+  const logoBuf = await chargerLogoIgs();
   const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 0, autoFirstPage: false, info: { Title: `BON A TIRER ${C.n_devis || ''}`, Author: 'IGS CUSTOM BAR' } });
   const morceaux = []; doc.on('data', b => morceaux.push(b));
   const fini = new Promise(res => doc.on('end', res));
@@ -223,16 +223,21 @@ async function generer(cle, { force = false, user = 'BAT automatique' } = {}) {
   if (D.bat && !force) return { ok: false, raison: 'Un BAT existe déjà' };
   const BC = BATCOMMUN.creer({ positions: await lirePositions() });
   const pages = BC.construirePages(C, D);
-  const pdf = await pdfDepuisPages(BC, pages, C);
+  const logos = new Map();
+  const pdf = await pdfDepuisPages(BC, pages, C, logos);
+  // Alertes "visuel trop grand" (plus petite taille commandée)
+  const ratios = new Map();
+  for (const [k, lg] of logos) if (lg) ratios.set(k.split('|')[0], lg.h / lg.w);
+  const alertes = pages.flatMap(p => BC.alertes(p, ratios).map(a => (pages.length > 1 ? p.titre + ' · ' : '') + a.message));
   try {
     await g.uploadFile(D.dossier.id, 'BON A TIRER.pdf', pdf, 'application/pdf', undefined, force ? 'replace' : 'fail');
   } catch (err) {
     if (/ 409 /.test(err.message) || /nameAlreadyExists/.test(err.message)) return { ok: false, raison: 'Un BAT existe déjà' };
     throw err;
   }
-  await commandes.marquerBatAuto(cle, null, user, pages.length);
+  await commandes.marquerBatAuto(cle, null, user, pages.length, alertes);
   console.log(`Gestion BAT auto : ${C.n_devis} (${C.client}) ${pages.length} page(s), ${(pdf.length / 1024).toFixed(0)} Ko`);
-  return { ok: true, pages: pages.length };
+  return { ok: true, pages: pages.length, alertes };
 }
 
 module.exports = { generer, pdfDepuisPages, _test: { logo, vignette, cadre } };

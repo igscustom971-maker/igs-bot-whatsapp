@@ -12,13 +12,39 @@
   const PRODUITS_BASE = {
     tshirt:    { nom: 'T-shirt', avant: 'tshirt-avant', dos: 'tshirt-dos', A: 72, B: 53, femme: [63, 44], enfant: [49, 38],
                  zones: { coeur: { x: 12.5, y: 15 }, poitrine: { x: 0, y: 13 }, dos: { x: 0, y: 10 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
-    polo:      { nom: 'Polo', avant: 'polo-avant', dos: 'polo-dos', A: 72, B: 53, femme: [63, 46], echelle: 1.25,
+    polo:      { nom: 'Polo', avant: 'polo-avant', dos: 'polo-dos', A: 72, B: 53, femme: [63, 46], echelle: 1.12,
                  zones: { coeur: { x: 14.5, y: 17 }, poitrine: { x: 0, y: 18 }, dos: { x: 0, y: 11 }, bas: { x: 0, yBas: 7 }, manche: { fx: 0.12, fy: 0.27, rot: -35 } } },
     debardeur: { nom: 'Débardeur', avant: 'debardeur-avant', dos: 'debardeur-dos', A: 68, B: 47, femme: [66, 43],
                  zones: { coeur: { x: 10, y: 13 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 7 } } },
-    tote:      { nom: 'Tote bag', avant: 'tote', dos: 'tote', A: 42, B: 38, tote: true,
+    tote:      { nom: 'Tote bag', avant: 'tote', dos: 'tote', A: 42, B: 38, tote: true, echelle: 0.9,
                  zones: { centre: { x: 0, yCentre: 21 } } },
   };
+  // Mesures fournisseur par taille (A longueur / B largeur à plat, cm) : sert aux alertes "visuel trop grand"
+  const TAILLES = {
+    tshirt: {
+      homme: { XS: [64, 48], S: [70, 50], M: [72, 53], L: [74, 56], XL: [76, 59], XXL: [78, 62], '3XL': [80, 65], '4XL': [82, 68], '5XL': [84, 71] },
+      femme: { S: [61, 41], M: [63, 44], L: [65, 47], XL: [67, 50], XXL: [69, 53], '3XL': [71, 56] },
+      enfant: { '2A': [40, 29], '4A': [43, 32], '6A': [46, 35], '8A': [49, 38], '10A': [52, 41], '12A': [55, 44] } },
+    polo: {
+      homme: { S: [70, 50], M: [72, 53], L: [74, 56], XL: [76, 59], XXL: [79, 62], '3XL': [83, 66], '4XL': [87, 70], '5XL': [91, 74] },
+      femme: { S: [61, 43], M: [63, 46], L: [65, 49], XL: [67, 52], XXL: [69, 55], '3XL': [71, 58] } },
+    debardeur: {
+      homme: { S: [66, 44], M: [68, 47], L: [70, 50], XL: [71, 53], XXL: [73, 56], '3XL': [74, 59], '4XL': [76, 62], '5XL': [77, 65] },
+      femme: { XS: [62, 39], S: [64, 41], M: [66, 43], L: [68, 45], XL: [69, 47], XXL: [70, 49] } },
+    tote: { homme: { TU: [42, 38] } },
+  };
+  function normTaille(t) {
+    const s = String(t || '').toUpperCase().replace(/\s+/g, '').replace(/ANS?$/, 'A');
+    if (s === '2XL') return 'XXL';
+    if (s === 'XXXL') return '3XL';
+    return s;
+  }
+  function dimsTaille(produit, coupe, taille) {
+    const T = TAILLES[produit]; if (!T) return null;
+    const t = normTaille(taille);
+    return (T[coupe === 'femme' ? 'femme' : coupe === 'enfant' ? 'enfant' : 'homme'] || {})[t] || (T.enfant || {})[t] || (T.homme || {})[t] || null;
+  }
+
   const ZONES = {
     coeur: { lib: 'Cœur (poitrine gauche)', court: 'Cœur', face: 'avant', l: 9 },
     poitrine: { lib: 'Poitrine centrée', court: 'Poitrine', face: 'avant', l: 25 },
@@ -107,8 +133,9 @@
           const coupe = /femme/i.test(l.coupe || '') ? 'femme' : (/enfant|\b\d+\s*a(ns)?\b/i.test((l.type || '') + ' ' + (l.taille || '')) ? 'enfant' : '');
           const k = produit + '|' + norm(l.couleur) + '|' + coupe;
           let a = articles.find(x => x.k === k);
-          if (!a) articles.push(a = { k, produit, type: l.type || PRODUITS[produit].nom, couleur: l.couleur || 'Blanc', hex: hexCouleur(l.couleur || 'Blanc'), coupe, qte: 0, actif: true });
+          if (!a) articles.push(a = { k, produit, type: l.type || PRODUITS[produit].nom, couleur: l.couleur || 'Blanc', hex: hexCouleur(l.couleur || 'Blanc'), coupe, qte: 0, actif: true, tailles: [] });
           a.qte += l.quantite || 0;
+          if (l.taille && !a.tailles.includes(l.taille)) a.tailles.push(l.taille);
         }
         if (!articles.length) articles.push({ k: 'tshirt|blanc|', produit: 'tshirt', type: 'T-shirt', couleur: 'Blanc', hex: '#ffffff', coupe: '', qte: 0, actif: true });
         // Placements : zones de la commande, logo Avant sur les zones de face, Arrière sur le dos
@@ -202,7 +229,35 @@
         return { px: x0 + col * cw + (cw - w) / 2, py: row * ch + (ch - h) / 2, s, w, h };
       });
     }
-    return { PRODUITS, ZONES, etat, appliquerPositions, construirePages, majTextes, dims, centreA, rectLogo, totePlacement, placementsDe, vignettesDe, grille };
+    // Visuel trop grand pour la plus petite taille commandée (ratios : id image -> hauteur / largeur du dessin)
+    function alertes(page, ratios) {
+      const out = [], vus = new Set();
+      for (const a of page.articles.filter(x => x.actif)) {
+        const P = PRODUITS[a.produit];
+        const tailles = (a.tailles && a.tailles.length ? a.tailles : ['M']).map(t => ({ t, d: dimsTaille(a.produit, a.coupe, t) })).filter(x => x.d);
+        if (!tailles.length) continue;
+        const petite = tailles.sort((x, y) => x.d[0] - y.d[0])[0];
+        const [A, B] = petite.d;
+        for (const face of ['avant', 'dos']) for (const pl of placementsDe(page, face, a)) {
+          const ratio = ratios && ratios.get(pl.image); if (!ratio) continue;
+          const w = pl.largeur, h = Math.round(pl.largeur * ratio * 2) / 2;
+          let maxW, maxH;
+          if (P.tote) { maxW = B - 4; maxH = A - 4; }
+          else if (pl.zone === 'coeur') { maxW = 12; maxH = 14; }
+          else if (pl.zone === 'manche') { maxW = 10; maxH = 12; }
+          else if (pl.zone === 'bas') { maxW = B - 10; maxH = 15; }
+          else { const zd = P.zones[pl.zone] || P.zones.poitrine; const haut = (zd.y || 10) + (zd.ddy || 0) + (pl.dy || 0); maxW = B - 10; maxH = A - haut - 8; }
+          if (w > maxW + 0.01 || h > maxH + 0.01) {
+            const k = pl.image + '|' + pl.zone + '|' + petite.t + '|' + a.produit;
+            if (vus.has(k)) continue; vus.add(k);
+            const f = n => String(n).replace('.', ',');
+            out.push({ placement: pl, message: `${ZONES[pl.zone].court} : ${f(w)} × ${f(h)} cm, trop grand pour ${P.nom.toLowerCase()} ${petite.t}${a.coupe === 'femme' ? ' femme' : ''} (zone max ≈ ${Math.round(maxW)} × ${Math.round(maxH)} cm)` });
+          }
+        }
+      }
+      return out;
+    }
+    return { alertes, PRODUITS, ZONES, etat, appliquerPositions, construirePages, majTextes, dims, centreA, rectLogo, totePlacement, placementsDe, vignettesDe, grille };
   }
 
   // Mesures d'un gabarit à partir de son canal alpha (alpha(x, y) -> 0..255)
@@ -216,7 +271,7 @@
     return { w, h, corps: r - l, cx: (l + r) / 2, hautCorps, centres };
   }
 
-  const api = { norm, ZONES, COULEURS, NUANCIER_DEFAUT, PRODUITS_BASE, produitDe, hexCouleur, zoneDe, parserZones, creer, mesurer };
+  const api = { TAILLES, dimsTaille, norm, ZONES, COULEURS, NUANCIER_DEFAUT, PRODUITS_BASE, produitDe, hexCouleur, zoneDe, parserZones, creer, mesurer };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else racine.BATCOMMUN = api;
 })(typeof window !== 'undefined' ? window : globalThis);

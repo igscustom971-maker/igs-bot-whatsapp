@@ -160,7 +160,7 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par, bat_reponse, bat_auto_le, bat_auto_erreur')
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par, bat_reponse, bat_auto_le, bat_auto_erreur, bat_alertes')
     .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null,bat_envoye_le.not.is.null,bat_auto_le.not.is.null,bat_auto_erreur.not.is.null');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
@@ -181,6 +181,7 @@ function applyOverride(r, o) {
   out.bat_reponse = (o && o.bat_reponse) || null;
   out.bat_auto_le = (o && o.bat_auto_le) || null;
   out.bat_auto_erreur = (o && o.bat_auto_erreur) || null;
+  out.bat_alertes = (o && Array.isArray(o.bat_alertes) && o.bat_alertes.length) ? o.bat_alertes : null;
   if (out.a_payer_especes) {
     out.montant_especes = o.montant_especes;
     out.especes_note_par = o.especes_note_par;
@@ -353,13 +354,13 @@ async function overridesCache() {
   return ovCache.v;
 }
 // BAT automatique créé (ou échec) : noté sur la commande
-async function marquerBatAuto(cle, erreur, user = 'BAT automatique', pages = null) {
+async function marquerBatAuto(cle, erreur, user = 'BAT automatique', pages = null, alertes = []) {
   if (!erreur) batInfo.set(cle, { ...(batInfo.get(cle) || { dossier: true, formulaire: true }), bat: true, le: new Date().toISOString() });
   ovCache.at = 0;
   if (!supabase) return;
-  const o = erreur ? { bat_auto_erreur: String(erreur).slice(0, 300) } : { bat_auto_le: new Date().toISOString(), bat_auto_erreur: null };
+  const o = erreur ? { bat_auto_erreur: String(erreur).slice(0, 300) } : { bat_auto_le: new Date().toISOString(), bat_auto_erreur: null, bat_alertes: alertes && alertes.length ? alertes : null };
   await supabase.from('gestion_commandes').update(o).eq('cle', cle);
-  await supabase.from('gestion_actions').insert({ utilisateur: user, action: erreur ? 'bat_auto_echec' : 'bat_auto_cree', cle, details: erreur ? { erreur } : { pages } });
+  await supabase.from('gestion_actions').insert({ utilisateur: user, action: erreur ? 'bat_auto_echec' : 'bat_auto_cree', cle, details: erreur ? { erreur } : { pages, alertes } });
 }
 
 // BON A TIRER.pdf du dossier de la commande (ou null)
@@ -414,7 +415,7 @@ async function deposerBat(cle, buffer, user) {
   const it = await g.uploadFile(f.id, 'BON A TIRER.pdf', buffer, 'application/pdf', undefined, 'replace');
   batInfo.set(cle, { ...(batInfo.get(cle) || { dossier: true, formulaire: true }), bat: true, le: new Date().toISOString() });
   if (supabase) {
-    await supabase.from('gestion_commandes').update({ bat_auto_le: null, bat_auto_erreur: null }).eq('cle', cle);
+    await supabase.from('gestion_commandes').update({ bat_auto_le: null, bat_auto_erreur: null, bat_alertes: null }).eq('cle', cle);
     await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_genere', cle, details: { taille: buffer.length } });
   }
   console.log(`Gestion : BAT généré et déposé pour ${row.n_devis} (${user})`);

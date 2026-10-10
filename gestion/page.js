@@ -1471,6 +1471,7 @@ function batRender(){
     + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
     + (e === 'client' || e === 'modif' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div>'
     + (e === 'envoyer' && c.bat_auto_le ? '<div><span class="esp bd" style="background:#ede9fe;color:#5b21b6">🤖 BAT créé automatiquement le '+new Date(c.bat_auto_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : à vérifier avant envoi</span></div>' : '')
+    + ((e === 'envoyer' || e === 'client') && c.bat_alertes ? '<div><span class="why r">⚠ Visuel trop grand : '+esc(c.bat_alertes.join(' · '))+'</span></div>' : '')
     + (e === 'faire' && c.bat_auto_erreur ? '<div><span class="why r" title="'+esc(c.bat_auto_erreur)+'">⚠ BAT automatique impossible : '+esc(c.bat_auto_erreur.slice(0, 80))+'</span></div>' : '')
     + batReponseHtml(c)+'</div>'
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'

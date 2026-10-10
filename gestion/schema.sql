@@ -229,3 +229,6 @@ alter table gestion_commandes add column if not exists bat_reponse jsonb;
 -- Commandes : BAT créé automatiquement à réception du formulaire (à vérifier avant envoi)
 alter table gestion_commandes add column if not exists bat_auto_le     timestamptz;
 alter table gestion_commandes add column if not exists bat_auto_erreur text;
+
+-- Commandes : alertes du BAT automatique (visuel trop grand pour la plus petite taille commandée)
+alter table gestion_commandes add column if not exists bat_alertes jsonb;
