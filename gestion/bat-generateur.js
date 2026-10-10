@@ -96,6 +96,28 @@ function mount(app) {
     catch (err) { console.error('Gestion BAT auto :', err.message); res.status(400).json({ error: err.message }); }
   });
 
+  // Tous les visuels de la commande dans un zip (un dossier par visuel, noms d'origine)
+  app.get('/gestion/api/commandes/:cle/visuels.zip', auth.requireUser, async (req, res) => {
+    try {
+      const { rows } = await commandes.listCommandes();
+      const c = rows.find(r => r.cle === req.params.cle);
+      if (!c || !c.n_devis) throw new Error('Commande introuvable');
+      const d = await commandes.getDossier(c.n_devis);
+      if (!d.trouve) throw new Error('Dossier introuvable');
+      const JSZip = require('jszip'), zip = new JSZip(), g = require('./graph');
+      let n = 0;
+      for (const v of d.visuels || []) for (const im of v.images) {
+        const r = await g.content(im.id);
+        zip.folder(v.nom === 'Visuels' ? '' : v.nom).file(im.nom, Buffer.from(await r.arrayBuffer()));
+        n++;
+      }
+      if (!n) throw new Error('Aucun visuel dans le dossier');
+      const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
+      const nom = `Visuels ${c.n_devis} - ${c.client}.zip`.replace(/[\\/:*?"<>|]/g, '');
+      res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(nom)}` }).send(buf);
+    } catch (err) { console.error('Gestion zip visuels :', err.message); res.status(400).send(err.message); }
+  });
+
   app.post('/gestion/api/commandes/:cle/bat-pdf', auth.requireUser, (req, res, next) => upload(req, res, err => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'PDF trop lourd (25 Mo max)' : err.message });
     next();

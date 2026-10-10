@@ -1419,11 +1419,12 @@ async function ouvrir(cle){
     h += '</div>';
     // Visuels
     if (d.visuels.length) {
-      h += '<div class="card"><h3>Visuels</h3><div class="visuels">' + d.visuels.map(v =>
+      h += '<div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Visuels <a class="btn" href="/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/visuels.zip" title="Télécharger tous les visuels de la commande (zip)">⬇ Tout télécharger</a></h3><div class="visuels">' + d.visuels.map(v =>
         '<div class="visuel"><div class="t">'+esc(v.nom)+'</div><div class="imgs">'
-        + (v.images.length ? v.images.map(i => '<a href="/gestion/api/fichier/'+encodeURIComponent(i.id)+'" target="_blank" rel="noopener">'
+        + (v.images.length ? v.images.map(i => '<div style="display:flex;flex-direction:column;gap:4px"><a href="/gestion/api/fichier/'+encodeURIComponent(i.id)+'" target="_blank" rel="noopener">'
           + (i.miniature ? '<img loading="lazy" src="'+esc(i.miniature)+'" alt="">' : '<img loading="lazy" src="/gestion/api/fichier/'+encodeURIComponent(i.id)+'" alt="">')
-          + '<span>'+(i.face==='avant'?'Avant':i.face==='arriere'?'Arrière':esc(i.nom))+'</span></a>').join('') : '<span class="note">Aucune image</span>')
+          + '<span>'+(i.face==='avant'?'Avant':i.face==='arriere'?'Arrière':esc(i.nom))+'</span></a>'
+          + '<a class="btn" style="justify-content:center;padding:4px 8px;font-size:12px" href="/gestion/api/fichier/'+encodeURIComponent(i.id)+'?dl=1" title="Télécharger '+esc(i.nom)+'">⬇ '+esc(i.nom.length > 18 ? i.nom.slice(0, 16) + '…' : i.nom)+'</a></div>').join('') : '<span class="note">Aucune image</span>')
         + '</div></div>').join('') + '</div></div>';
     }
     // BAT
