@@ -222,6 +222,17 @@ async function deleteItem(itemId, o) {
   if (!res.ok && res.status !== 404) throw new Error(`Suppression SharePoint refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
 }
 
+// Déplacement d'un fichier/dossier vers un autre dossier (même bibliothèque ; nom déjà pris = renommage)
+async function moveItem(itemId, parentId, o) {
+  const res = await fetch(`${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}?@microsoft.graph.conflictBehavior=rename`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ parentReference: { id: parentId } }),
+  });
+  if (!res.ok) throw new Error(`Déplacement refusé : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 // Dépôt d'un fichier dans un dossier (conflit = renommage automatique "NOM 1.pdf")
 async function uploadFile(parentId, name, buffer, contentType, o) {
   const base = `${GRAPH}${await D(o)}/items/${encodeURIComponent(parentId)}:/${encodeURIComponent(name)}:`;
@@ -253,4 +264,4 @@ async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

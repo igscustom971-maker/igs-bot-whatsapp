@@ -1325,7 +1325,7 @@ function brancherCmd(c){
       if (j.commande) Object.assign(c, j.commande);
       afficher();
       await ouvrir(c.cle);
-      msg('✅ Enregistré dans l\\'Excel', 'ok');
+      msg('✅ Enregistré dans l\\'Excel' + (j.commande && j.commande.dossier_info ? '<br>' + esc(j.commande.dossier_info) : ''), 'ok');
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); document.querySelectorAll('#pbody .btn').forEach(b => b.disabled = false); }
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));

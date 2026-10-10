@@ -287,6 +287,20 @@ async function findCommandeFolder(ndevis) {
   return f ? { ...f, archive: true } : null;
 }
 
+// Commande LIVRÉE : son dossier part dans Clients/Commandes/ARCHIVES ; repassée dans un autre statut : il en ressort
+async function rangerDossier(ndevis, livree) {
+  const f = await findCommandeFolder(ndevis);
+  if (!f) return null;
+  if (livree && f.archive) return null;
+  if (!livree && !f.archive) return null;
+  let arch = commandesFolder.list.find(x => /^archives?$/i.test(x.name.trim()));
+  if (livree && !arch) arch = await g.createFolder(commandesFolder.id, 'ARCHIVES');
+  await g.moveItem(f.id, livree ? arch.id : commandesFolder.id);
+  commandesFolder.at = 0; archivesFolder.at = 0;
+  console.log(`Gestion : dossier « ${f.name} » ${livree ? 'archivé' : 'sorti des archives'}`);
+  return livree ? `Dossier « ${f.name} » déplacé dans ARCHIVES` : `Dossier « ${f.name} » sorti des ARCHIVES`;
+}
+
 // Dossiers de Clients/Commandes/ARCHIVES (commandes livrées et archivées), pour l'historique
 async function listArchives() {
   if (!commandesFolder.id) commandesFolder.id = (await g.itemByPath(cfg.COMMANDES_PATH)).id;
@@ -495,10 +509,18 @@ async function modifier(cle, champs, user) {
     const { error } = await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_modifiee', cle, details: { client: row.client, ...fields } });
     if (error) console.error('Gestion journal :', error.message);
   }
+  // Rangement du dossier SharePoint selon le statut (n'empêche pas l'enregistrement en cas d'échec)
+  let dossierInfo = null;
+  if (fields.statut && row.n_devis && key(fields.statut) !== key(row.statut || '')) {
+    try { dossierInfo = await rangerDossier(row.n_devis, fields.statut === 'LIVRÉE'); }
+    catch (err) { console.error('Gestion archivage dossier :', err.message); dossierInfo = `⚠ Dossier non déplacé : ${err.message}`; }
+  }
   await syncNow();
   const ov = await loadOverrides();
   const r = cache.rows.find(x => x.cle === cle);
-  return r ? applyOverride(r, ov.get(cle)) : null;
+  const out = r ? applyOverride(r, ov.get(cle)) : null;
+  if (out && dossierInfo) out.dossier_info = dossierInfo;
+  return out;
 }
 
 // Suppression manuelle (erreur, test) : la ligne est vidée dans l'Excel en une seule écriture,
