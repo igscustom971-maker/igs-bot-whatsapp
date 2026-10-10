@@ -1616,6 +1616,8 @@ function cmdActionsHtml(c){
     + '<div class="field"><label>Affectation</label><select id="c-aff"><option value="">— Non affectée —</option>'+pers.map(x => '<option'+(x===c.affectation?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
     + '<div class="field"><label>Planche</label><select id="c-planche"><option value="">—</option>'+[...new Set(PLANCHE_ETATS.concat(c.planche ? [c.planche] : []))].map(x => '<option'+(x===c.planche?' selected':'')+'>'+esc(x)+'</option>').join('')+'</select></div>'
     + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
+    + '<div class="field"><label>E-mail du client</label><input id="c-email" type="email" value="'+esc(c.email||'')+'" placeholder="client@exemple.fr"></div>'
+    + '<div class="field"><label>Téléphone du client</label><input id="c-tel" type="tel" value="'+esc(c.telephone ? fphone(c.telephone) : '')+'" placeholder="0690 12 34 56"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
     + '</div><div class="espbox"><b>💵 Paiement en espèces à la remise</b>'
@@ -1659,6 +1661,8 @@ function brancherCmd(c){
     if ($('c-statut').value !== statutKey(c.statut)) body.statut = $('c-statut').value;
     v('c-aff', 'affectation', c.affectation); v('c-planche', 'planche', c.planche); v('c-zone', 'zone_flocage', c.zone_flocage);
     v('c-suivi', 'numero_suivi', c.numero_suivi); v('c-rem', 'remarque', c.remarque);
+    v('c-email', 'email', c.email);
+    if ($('c-tel').value.replace(/\\D/g, '') !== (c.telephone ? fphone(c.telephone) : '').replace(/\\D/g, '')) body.telephone = $('c-tel').value.trim();
     if (!Object.keys(body).length) return msg('Aucune modification', 'info');
     envoyer(body);
   };

@@ -536,6 +536,27 @@ async function modifier(cle, champs, user) {
   for (const f of ['remarque', 'affectation', 'zone_flocage', 'planche', 'infos']) {
     if (f in champs) fields[f] = String(champs[f] ?? '').trim().slice(0, 500);
   }
+  // Contact (e-mail / téléphone) : réécrit dans "Contenu mail" en gardant les instructions et le séparateur d'origine
+  if ('email' in champs || 'telephone' in champs) {
+    const actuel = cache.rows.find(r => r.cle === cle);
+    if (!actuel) throw new Error('Commande introuvable : actualise et réessaie');
+    const email = 'email' in champs ? String(champs.email || '').trim().toLowerCase() : null;
+    const tel = 'telephone' in champs ? String(champs.telephone || '').trim() : null;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('E-mail invalide');
+    if (tel && !/^[+\d][\d\s.\-()]{8,}$/.test(tel)) throw new Error('Téléphone invalide');
+    const brut = actuel.contenu_mail || '';
+    const sep = /\r?\n/.test(brut) || !brut.includes('|') ? '\n' : ' | ';
+    let parts = brut.split(/\r?\n|\|/).map(s => s.trim()).filter(Boolean);
+    const estEmail = p => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p);
+    const estTel = p => /^[+\d][\d\s.\-()]{8,}$/.test(p);
+    if (email !== null) { const i = parts.findIndex(estEmail); if (i >= 0) { if (email) parts[i] = email; else parts.splice(i, 1); } else if (email) parts.unshift(email); }
+    if (tel !== null) {
+      const i = parts.findIndex(estTel);
+      if (i >= 0) { if (tel) parts[i] = tel; else parts.splice(i, 1); }
+      else if (tel) { const j = parts.findIndex(estEmail); parts.splice(j >= 0 ? j + 1 : 0, 0, tel); }
+    }
+    fields.contenu_mail = parts.join(sep);
+  }
   if ('numero_suivi' in champs) {
     const v = String(champs.numero_suivi || '').trim().toUpperCase().replace(/\s+/g, '');
     if (v && !/^[A-Z0-9]{8,20}$/.test(v)) throw new Error('Numéro de suivi invalide');
