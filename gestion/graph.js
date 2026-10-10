@@ -177,8 +177,15 @@ async function sendMail(mailbox, { to, subject, html, replyTo, attachments = [] 
   }
   // Gros fichiers : brouillon + session d'envoi (nécessite la permission Mail.ReadWrite)
   let draft;
-  try { draft = await gPost(`${box}/messages`, message); }
-  catch (err) {
+  try {
+    try { draft = await gPost(`${box}/messages`, message); }
+    catch (err) {
+      if (!/403/.test(err.message)) throw err;
+      // Autorisation peut-être ajoutée depuis la création du jeton en cache : nouveau jeton, nouvel essai
+      token = { value: null, exp: 0 };
+      draft = await gPost(`${box}/messages`, message);
+    }
+  } catch (err) {
     if (/403/.test(err.message)) throw new Error(`Pièces jointes de plus de 3 Mo : la permission Mail.ReadWrite (application) manque sur l'app Azure. ${err.message}`);
     throw err;
   }
