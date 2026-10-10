@@ -368,7 +368,7 @@ ${view === 'accueil' ? `
   </section>` : `
   <section id="v-commandes">
   <div class="tools">
-    <div class="chips" style="margin:0"><button class="chip on" id="tab-cours">📦 En cours</button><button class="chip" id="tab-histo">🗂 Historique</button></div>
+    <div class="chips" style="margin:0"><button class="chip on" id="tab-cours">📦 En cours</button><button class="chip" id="tab-histo">🗂 Historique</button><button class="chip" id="tab-bat">🖨 BAT <span class="n" id="bat-n"></span></button></div>
     <input id="q" class="search" type="search" placeholder="Rechercher un client, un devis, une zone…">
     <button id="refresh" class="btn primary">↻ Actualiser</button>
     <span id="sync" class="sync"></span>
@@ -382,6 +382,7 @@ ${view === 'accueil' ? `
       <tbody id="rows"><tr><td colspan="9"><div class="skel"></div><div class="skel"></div><div class="skel"></div></td></tr></tbody>
     </table>
   </div>
+  <div id="batbox" style="display:none"></div>
   </section>`}
 </main>
 
@@ -487,7 +488,7 @@ async function hrHome(){
     }
   } catch(e){ box.innerHTML = '<span class="sub">Heures indisponibles</span>'; }
 }
-function afficher(){ if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
+function afficher(){ if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -1309,7 +1310,7 @@ function accueil(){
   retards.sort((a,b)=>a.date_livraison.localeCompare(b.date_livraison)).forEach(c => add(c, 'En retard · '+fdate(c.date_livraison), 'r'));
   actifs.filter(c => c.date_livraison === today).forEach(c => add(c, 'Livraison aujourd\\'hui', 'o'));
   actifs.filter(c => c.date_livraison === addDays(1)).forEach(c => add(c, 'Livraison demain', 'o'));
-  data.filter(c => statutKey(c.statut) === 'PAYÉE').forEach(c => add(c, 'Attend le formulaire', 'b'));
+  data.filter(c => statutKey(c.statut) === 'PAYÉE').forEach(c => { const e = batEtape(c); if (e === 'faire') add(c, 'BAT à faire', 'o'); else if (e === 'envoyer') add(c, 'BAT à envoyer', 'o'); else if (e === 'formulaire') add(c, 'Attend le formulaire', 'b'); });
   actifs.filter(c => c.controle && c.controle.ecart).forEach(c => add(c, 'Écart devis '+c.controle.devis+' / tableau '+c.controle.tableau, 'r'));
   actifs.filter(c => c.date_dynamique && !c.date_livraison_manuelle).forEach(c => add(c, 'Date auto (=TODAY)', 'y'));
   $('prios').innerHTML = prios.length ? prios.slice(0,10).map(p =>
@@ -1331,6 +1332,7 @@ function accueil(){
 }
 
 function liste(){
+  if ($('bat-n')) $('bat-n').textContent = data.filter(c => statutKey(c.statut) === 'PAYÉE' && ['faire','envoyer'].includes(batEtape(c))).length || '';
   const counts = {}; data.forEach(c => { const k = statutKey(c.statut); counts[k] = (counts[k]||0)+1; });
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
   if (filtre === 'TOUS') filtre = 'ACTIFS';
@@ -1423,17 +1425,77 @@ async function ouvrir(cle){
         + '</div></div>').join('') + '</div></div>';
     }
     // BAT
+    if (statutKey(c.statut) === 'PAYÉE' && d.bat) h += '<div class="card"><h3>Suivi du BAT</h3>' + (c.bat_envoye_le
+      ? '<div class="note">📤 Envoyé au client le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'')+' : en attente de sa validation.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé par le client (→ VALIDÉE)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0">↩ Pas encore envoyé</button></div>'
+      : '<div class="btnrow"><button class="btn primary" data-bat-env="'+esc(c.cle)+'" data-v="1">📤 Marquer le BAT envoyé au client</button></div>') + '</div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
       ? '<iframe class="bat" src="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'#view=FitH" title="BAT"></iframe><div class="note" style="margin-top:6px"><a href="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'" target="_blank" rel="noopener">Ouvrir le BAT en grand</a> · modifié le '+new Date(d.bat.modifie).toLocaleDateString('fr-FR')+'</div>'
       : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '</div>';
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
+    $('dossier').onclick = batClic;
     brancherBordereau(c);
     if (d.bordereaux) { const avant = JSON.stringify(c.bordereaux||null); c.bordereaux = d.bordereaux.length ? d.bordereaux.map(b => ({ id: b.id, nom: b.nom })) : null; if (avant !== JSON.stringify(c.bordereaux)) afficher(); }
     dernierDossier = d;
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';
   }
+}
+// ---------- Liste des BAT (commandes PAYÉE) ----------
+let modeBat = false;
+// formulaire -> faire -> envoyer -> client (envoyé, attend la validation) ; inconnu = dossier pas encore relu
+function batEtape(c){
+  if (c.bat_envoye_le) return 'client';
+  const i = c.bat_info; if (!i) return 'inconnu';
+  if (!i.dossier || !i.formulaire) return 'formulaire';
+  return i.bat ? 'envoyer' : 'faire';
+}
+function batRender(){
+  const q = norm(recherche);
+  let rows = data.filter(c => statutKey(c.statut) === 'PAYÉE');
+  if (q) rows = rows.filter(c => norm([c.n_devis, c.client, c.affectation, c.infos].join(' ')).includes(q));
+  rows.sort((a,b) => String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')));
+  const G = [
+    ['faire', '🎨 BAT à faire', 'Formulaire reçu, pas encore de « BON A TIRER.pdf » dans le dossier'],
+    ['envoyer', '📤 BAT à envoyer', 'Le BAT est dans le dossier : vérifie-le puis envoie-le au client'],
+    ['client', '⏳ Envoyé, attend la validation du client', 'Quand le client valide, la commande passe en VALIDÉE'],
+    ['formulaire', '📝 Attend le formulaire du client', 'Commande payée, formulaire pas encore reçu'],
+    ['inconnu', '… Dossier pas encore relu', 'Clique « Relire les dossiers »'],
+  ];
+  const n = rows.filter(c => ['faire','envoyer'].includes(batEtape(c))).length;
+  if ($('bat-n')) $('bat-n').textContent = n || '';
+  const ligne = (c, e) => '<div class="cand"><div><a href="#" data-bat-open="'+esc(c.cle)+'"><b>'+esc(c.client)+'</b></a> <span class="sub">'+esc(c.n_devis||'')+'</span>'
+    + '<div class="sub">'+(c.date_livraison ? 'Livraison '+fdate(c.date_livraison)+(enRetard(c)?' ⏰':'') : 'Sans date')+(c.affectation?' · '+esc(c.affectation):'')
+    + (e === 'client' ? ' · envoyé le '+new Date(c.bat_envoye_le).toLocaleDateString('fr-FR')+(c.bat_envoye_par?' par '+esc(c.bat_envoye_par):'') : '')+'</div></div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">'
+    + (e === 'envoyer' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Voir le BAT</button><button class="btn primary" data-bat-env="'+esc(c.cle)+'" data-v="1">📤 Envoyé</button>' : '')
+    + (e === 'client' ? '<button class="btn pink" data-bat-ok="'+esc(c.cle)+'">✅ Validé</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="0" title="Annuler « envoyé »">↩</button>' : '')
+    + (e === 'faire' ? '<button class="btn" data-bat-open="'+esc(c.cle)+'">Ouvrir le dossier</button>' : '')
+    + '</div></div>';
+  $('batbox').innerHTML = '<div class="tools" style="margin:10px 0"><div class="note" style="flex:1">Commandes au statut <b>PAYÉE</b>, de la livraison la plus urgente à la plus lointaine. Les planches DTF ne sont pas concernées.</div><button class="btn" id="bat-scan">↻ Relire les dossiers</button></div>'
+    + G.map(([k, t, d]) => { const l = rows.filter(c => batEtape(c) === k); if (!l.length && (k === 'inconnu' || k === 'formulaire')) return '';
+      return '<div class="card" style="margin-bottom:12px"><h3>'+t+' · '+l.length+'</h3><div class="note" style="margin-bottom:6px">'+d+'</div>'+(l.length ? l.map(c => ligne(c, k)).join('') : '<div class="ok-empty">✅ Rien ici</div>')+'</div>'; }).join('');
+}
+async function batClic(e){
+  const t = e.target.closest('[data-bat-open],[data-bat-env],[data-bat-ok],#bat-scan'); if (!t) return;
+  e.preventDefault();
+  const c = t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk ? data.find(x => x.cle === (t.dataset.batOpen || t.dataset.batEnv || t.dataset.batOk)) : null;
+  try {
+    if (t.id === 'bat-scan') { t.disabled = true; t.textContent = '↻ Lecture…'; await post('/gestion/api/bat/actualiser'); await charger(false); return; }
+    if (!c) return;
+    if (t.dataset.batOpen) { panelCle = c.cle; return ouvrir(c.cle); }
+    if (t.dataset.batEnv) {
+      t.disabled = true;
+      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bat-envoye', { envoye: t.dataset.v === '1' });
+      Object.assign(c, j.commande); afficher(); if (panelCle === c.cle) ouvrir(c.cle); return;
+    }
+    if (t.dataset.batOk) {
+      if (!confirm(c.client+' a validé son BAT ? La commande passe en VALIDÉE.')) return;
+      t.disabled = true;
+      const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/modifier', { statut: 'VALIDÉE' });
+      if (j.commande) Object.assign(c, j.commande); await charger(false); if (panelCle === c.cle) ouvrir(c.cle); return;
+    }
+  } catch(err){ alert(err.message); t.disabled = false; }
 }
 // ---------- Historique et duplication ----------
 let histo = [], modeHisto = false, dernierDossier = null;
@@ -1606,9 +1668,16 @@ if (VIEW === 'commandes') {
   $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
   let th; $('q').addEventListener('input', e => { recherche = e.target.value; if (modeHisto) { clearTimeout(th); th = setTimeout(chargerHisto, 350); } else afficher(); });
-  const onglet = h => { modeHisto = h; $('tab-cours').classList.toggle('on', !h); $('tab-histo').classList.toggle('on', h); if (h) chargerHisto(); else afficher(); };
-  $('tab-cours').onclick = () => onglet(false); $('tab-histo').onclick = () => onglet(true);
-  if (location.hash === '#historique') onglet(true);
+  const onglet = m => {
+    modeHisto = m === 'histo'; modeBat = m === 'bat';
+    $('tab-cours').classList.toggle('on', m === 'cours'); $('tab-histo').classList.toggle('on', modeHisto); $('tab-bat').classList.toggle('on', modeBat);
+    document.querySelector('#v-commandes .tablewrap').style.display = modeBat ? 'none' : ''; $('chips').style.display = modeBat ? 'none' : ''; $('batbox').style.display = modeBat ? '' : 'none';
+    if (modeHisto) chargerHisto(); else afficher();
+  };
+  $('tab-cours').onclick = () => onglet('cours'); $('tab-histo').onclick = () => onglet('histo'); $('tab-bat').onclick = () => onglet('bat');
+  if (location.hash === '#bat') onglet('bat');
+  $('batbox').addEventListener('click', batClic);
+  if (location.hash === '#historique') onglet('histo');
 } else if (VIEW === 'admin') {
   adEvents();
 } else if (VIEW === 'caisse') {

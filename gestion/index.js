@@ -223,6 +223,15 @@ module.exports = function mountGestion(app) {
     catch (err) { res.status(400).json({ error: err.message }); }
   });
 
+  // BAT : marqué envoyé au client (ou annulé) ; relecture des dossiers à la demande
+  app.post('/gestion/api/commandes/:cle/bat-envoye', auth.requireUser, async (req, res) => {
+    try { res.json({ commande: await commandes.setBatEnvoye(req.params.cle, !!req.body?.envoye, req.user.name || req.user.email) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/bat/actualiser', auth.requireUser, async (req, res) => {
+    try { await commandes.scannerBat(); res.json({ ok: true }); } catch (err) { res.status(502).json({ error: err.message }); }
+  });
+
   // "À payer en espèces" : { actif: true|false, montant?: "45,50" }
   app.post('/gestion/api/commandes/:cle/especes', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.setEspeces(req.params.cle, { actif: !!req.body?.actif, montant: req.body?.montant }, req.user.name || req.user.email) }); }

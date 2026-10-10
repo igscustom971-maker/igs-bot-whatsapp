@@ -160,8 +160,8 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux')
-    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null');
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par, bordereaux, bat_envoye_le, bat_envoye_par')
+    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true,bordereaux.not.is.null,bat_envoye_le.not.is.null');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
 }
@@ -176,6 +176,8 @@ function applyOverride(r, o) {
   }
   out.a_payer_especes = !!(o && o.a_payer_especes);
   out.bordereaux = o && Array.isArray(o.bordereaux) && o.bordereaux.length ? o.bordereaux : null;
+  out.bat_envoye_le = (o && o.bat_envoye_le) || null;
+  out.bat_envoye_par = (o && o.bat_envoye_par) || null;
   if (out.a_payer_especes) {
     out.montant_especes = o.montant_especes;
     out.especes_note_par = o.especes_note_par;
@@ -186,7 +188,7 @@ function applyOverride(r, o) {
 async function listCommandes({ force = false } = {}) {
   if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
   const ov = await loadOverrides();
-  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), controle: controles.get(r.cle) || null })) };
+  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), controle: controles.get(r.cle) || null, bat_info: batInfo.get(r.cle) || null })) };
 }
 
 // ---------- Contrôle devis / tableau des tailles ----------
@@ -301,6 +303,43 @@ async function rangerDossier(ndevis, livree) {
   return livree ? `Dossier « ${f.name} » déplacé dans ARCHIVES` : `Dossier « ${f.name} » sorti des ARCHIVES`;
 }
 
+// ---------- Liste des BAT (commandes PAYÉE : formulaire reçu -> BAT à faire -> envoyé -> VALIDÉE) ----------
+const batInfo = new Map(); // cle -> { dossier, formulaire, bat, le }
+let batScanEnCours = false;
+async function scannerBat() {
+  if (batScanEnCours) return;
+  batScanEnCours = true;
+  try {
+    for (const r of cache.rows.filter(x => x.n_devis && key(x.statut || '') === 'payee')) {
+      try {
+        const f = await findCommandeFolder(r.n_devis);
+        if (!f) { batInfo.set(r.cle, { dossier: false, formulaire: false, bat: false, le: new Date().toISOString() }); continue; }
+        const items = await g.children(f.id);
+        const files = items.filter(i => i.file), folders = items.filter(i => i.folder);
+        batInfo.set(r.cle, {
+          dossier: true,
+          formulaire: !!folders.find(x => key(x.name).startsWith('taille')) || files.some(x => /\.xlsx$/i.test(x.name)),
+          bat: !!(files.find(x => key(x.name) === 'bonatirerpdf') || files.find(x => /\.pdf$/i.test(x.name) && /bonatirer|^bat/.test(key(x.name)))),
+          le: new Date().toISOString(),
+        });
+      } catch (err) { console.error(`Gestion BAT ${r.n_devis} :`, err.message); }
+    }
+  } finally { batScanEnCours = false; }
+}
+
+async function setBatEnvoye(cle, envoye, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  const o = envoye ? { bat_envoye_le: new Date().toISOString(), bat_envoye_par: user } : { bat_envoye_le: null, bat_envoye_par: null };
+  if (supabase) {
+    const { error } = await supabase.from('gestion_commandes').update(o).eq('cle', cle);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: envoye ? 'bat_envoye' : 'bat_envoye_annule', cle, details: { client: row.client } });
+  } else overridesMem.set(cle, { ...(overridesMem.get(cle) || { cle }), ...o });
+  const ov = await loadOverrides();
+  return { ...applyOverride(row, ov.get(cle)), bat_info: batInfo.get(cle) || null };
+}
+
 // Dossiers de Clients/Commandes/ARCHIVES (commandes livrées et archivées), pour l'historique
 async function listArchives() {
   if (!commandesFolder.id) commandesFolder.id = (await g.itemByPath(cfg.COMMANDES_PATH)).id;
@@ -362,6 +401,8 @@ async function getDossier(ndevis) {
   const files = items.filter(i => i.file);
   const folders = items.filter(i => i.folder);
 
+  const rowB = cache.rows.find(r => r.n_devis === ndevis);
+  if (rowB) batInfo.set(rowB.cle, { dossier: true, formulaire: !!folders.find(f => key(f.name).startsWith('taille')) || files.some(f => /\.xlsx$/i.test(f.name)), bat: !!(files.find(f => key(f.name) === 'bonatirerpdf') || files.find(f => /\.pdf$/i.test(f.name) && /bonatirer|^bat/.test(key(f.name)))), le: new Date().toISOString() });
   const bordereaux = files.filter(f => key(f.name).startsWith('bordereau'))
     .map(f => ({ id: f.id, nom: f.name, modifie: f.lastModifiedDateTime }));
   majBordereaux(ndevis, bordereaux).catch(() => {});
@@ -462,6 +503,9 @@ function startSync() {
   // Contrôle des quantités devis / tableau : au démarrage puis toutes les 20 min
   setTimeout(controlerQuantites, 60e3);
   setInterval(controlerQuantites, 20 * 60e3);
+  // BAT : dossiers des commandes PAYÉE relus au démarrage puis toutes les 10 min
+  setTimeout(scannerBat, 30e3);
+  setInterval(scannerBat, 10 * 60e3);
 }
 
 // ============================================
@@ -597,4 +641,4 @@ async function supprimerBordereau(cle, itemId, user) {
   return { bordereaux: d.bordereaux || [] };
 }
 
-module.exports = { ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

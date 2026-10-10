@@ -211,3 +211,7 @@ alter table gestion_collaborateurs add column if not exists mdp_version        i
 alter table gestion_collaborateurs add column if not exists reset_hash         text;
 alter table gestion_collaborateurs add column if not exists reset_expire       timestamptz;
 alter table gestion_collaborateurs add column if not exists derniere_connexion timestamptz;
+
+-- Commandes : BAT envoyé au client (en attente de validation)
+alter table gestion_commandes add column if not exists bat_envoye_le  timestamptz;
+alter table gestion_commandes add column if not exists bat_envoye_par text;
