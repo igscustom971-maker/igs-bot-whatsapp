@@ -395,11 +395,10 @@ function plListe(){
 let autoEtat = null;
 function nouvellePlanche(){
   panelCle = '__nouvelle__';
-  const clients = [...new Set(planches.map(p => p.client))].sort((a,b) => a.localeCompare(b,'fr'));
   $('ptitle').textContent = 'Nouvelle planche';
   $('psub').textContent = 'Ajoutée dans l\\'Excel (ligne vide réutilisée)';
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="actions">'
-    + '<div class="field" style="grid-column:1/-1"><label>Client</label><input id="n-client" list="n-clients" placeholder="Nom du client (comme dans l\\'Excel)"><datalist id="n-clients">'+clients.map(c => '<option value="'+esc(c)+'">').join('')+'</datalist></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Client Odoo</label><div id="n-choisi"></div><div id="n-pk"></div></div>'
     + '<div class="field"><label>Métrage (m, A3 ou A4)</label><input id="n-metres" placeholder="ex. 2,5"></div>'
     + '<div class="field"><label>Date</label><input id="n-date" type="date" value="'+today+'"></div>'
     + '<div class="field"><label>Statut</label><select id="n-statut">'+PL_STATUTS.filter(s => s !== 'LIVREE').map(s => '<option>'+s+'</option>').join('')+'</select></div>'
@@ -407,10 +406,18 @@ function nouvellePlanche(){
     + '</div><label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:600"><input type="checkbox" id="n-hebdo"> Client hebdo (ajouter au compteur de la semaine)</label>'
     + '<div class="btnrow"><button class="btn primary" id="n-ok">Ajouter la planche</button></div><div class="msg" id="a-msg"></div></div>';
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
-  $('n-client').oninput = e => { const h = planches.find(p => p.hebdo && norm(p.client) === norm(e.target.value)); $('n-hebdo').checked = !!h; };
+  let choisi = null;
+  const ouvrirPicker = () => { $('n-choisi').innerHTML = ''; picker($('n-pk'), '', [], (id, c) => {
+    choisi = { id, name: c ? c.name : '' };
+    $('n-pk').innerHTML = '';
+    $('n-choisi').innerHTML = '<div class="cand" style="border:none"><div><b>'+esc(choisi.name)+'</b><div class="sub">Client Odoo sélectionné</div></div><button class="btn" id="n-chg">Changer</button></div>';
+    $('n-chg').onclick = ouvrirPicker;
+    $('n-hebdo').checked = planches.some(p => p.hebdo && norm(p.client) === norm(choisi.name));
+  }); setTimeout(() => { const i = $('n-pk').querySelector('.pk-q'); if (i) i.focus(); }, 50); };
+  ouvrirPicker();
   $('n-ok').onclick = async () => {
-    const body = { client: $('n-client').value, metres: $('n-metres').value, date: $('n-date').value, statut: $('n-statut').value, remarques: $('n-rem').value, hebdo: $('n-hebdo').checked };
-    if (!body.client.trim()) return msg('Indique le client', 'err');
+    if (!choisi) return msg('Choisis le client Odoo (ou crée-le)', 'err');
+    const body = { partnerId: choisi.id, client: choisi.name, metres: $('n-metres').value, date: $('n-date').value, statut: $('n-statut').value, remarques: $('n-rem').value, hebdo: $('n-hebdo').checked };
     $('n-ok').disabled = true; msg('Écriture dans l\\'Excel…', 'info');
     try {
       const j = await post('/gestion/api/planches/ajouter', body);
@@ -419,7 +426,6 @@ function nouvellePlanche(){
       if (!j.planche) msg(texte, 'ok');
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('n-ok').disabled = false; }
   };
-  $('n-client').focus();
 }
 function plActionsHtml(p){
   const opts = PL_STATUTS.map(s => '<option'+(plKey(p.statut)===s?' selected':'')+'>'+s+'</option>').join('');
@@ -484,19 +490,71 @@ function brancherActions(p){
     if (confirm('Créer, valider et envoyer la facture « '+$('a-titre').value+' » ('+q+') à '+p.client+' ?\\nLe compteur sera remis à zéro.')) lancer('facture');
   };
 }
-function choisirClient(p, cands, then){
-  msg('Client « '+esc(p.client)+' » introuvable ou ambigu dans Odoo : choisis la bonne fiche. Ce choix sera mémorisé.', 'info');
-  const render = list => '<div class="field" style="margin-top:8px"><input id="c-q" placeholder="Rechercher dans Odoo (nom, email)…"></div>'
-    + '<div id="c-list">' + (list.length ? list.map(c => '<div class="cand"><div><b>'+esc(c.name)+'</b><div class="sub">'+esc(c.email||'')+'</div></div><button class="btn" data-id="'+c.id+'">Choisir</button></div>').join('') : '<div class="note">Aucun résultat</div>') + '</div>';
-  $('a-cands').innerHTML = render(cands);
-  const bind = () => {
-    $('c-list').onclick = e => { const b = e.target.closest('button[data-id]'); if (b) { $('a-cands').innerHTML=''; then(Number(b.dataset.id)); } };
-    let t; $('c-q').oninput = e => { clearTimeout(t); t = setTimeout(async () => {
-      const r = await fetch('/gestion/api/odoo/clients?q='+encodeURIComponent(e.target.value)); const j = await r.json();
-      $('a-cands').innerHTML = render(j.clients || []); $('c-q').value = e.target.value; $('c-q').focus(); bind();
-    }, 300); };
+// ---------- Sélecteur de client Odoo (recherche + suggestions + création) ----------
+// box : élément conteneur ; q : recherche initiale ; list : suggestions initiales ; onChoose(id, client)
+function picker(box, q, list, onChoose){
+  const item = c => '<div class="cand"><div><b>'+esc(c.name)+'</b>'+(c.score===1?' <span class="tag">identique</span>':c.score>=0.6?' <span class="tag">ressemblant</span>':'')
+    + '<div class="sub">'+esc([c.email, [c.zip, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div><button class="btn" data-id="'+c.id+'">Choisir</button></div>';
+  const draw = (items, query) => {
+    box.querySelector('.pk-list').innerHTML = (items.length ? items.map(item).join('') : '<div class="note" style="padding:6px 0">Aucun client Odoo trouvé'+(query?' pour « '+esc(query)+' »':'')+'</div>')
+      + (query ? '<div class="cand"><div class="sub">Pas dans la liste ?</div><button class="btn pink pk-new">＋ Créer « '+esc(query)+' » dans Odoo</button></div>' : '');
+    box._items = items;
   };
-  bind();
+  box.innerHTML = '<div class="field" style="margin-top:8px"><input class="pk-q" placeholder="Rechercher dans Odoo (nom, email)…" value="'+esc(q||'')+'"></div><div class="pk-list"></div><div class="pk-form"></div>';
+  draw(list || [], q);
+  let t;
+  const chercher = async v => {
+    if (!v.trim()) return draw([], '');
+    try { const r = await fetch('/gestion/api/odoo/clients?q='+encodeURIComponent(v)); const j = await r.json(); if (box.querySelector('.pk-q').value === v) draw(j.clients || [], v); } catch(e){}
+  };
+  box.querySelector('.pk-q').oninput = e => { clearTimeout(t); t = setTimeout(() => chercher(e.target.value), 300); };
+  if (q && !(list && list.length)) chercher(q);
+  box.onclick = async e => {
+    const b = e.target.closest('button[data-id]');
+    if (b) { const c = (box._items||[]).find(x => x.id === Number(b.dataset.id)); return onChoose(Number(b.dataset.id), c); }
+    if (e.target.closest('.pk-new')) {
+      const name = box.querySelector('.pk-q').value.trim();
+      box.querySelector('.pk-form').innerHTML = '<div class="card" style="margin-top:8px;background:#faf9fd"><h3>Nouveau client Odoo (IGS)</h3><div class="actions">'
+        + '<div class="field" style="grid-column:1/-1"><label>Nom</label><input class="nf-name" value="'+esc(name)+'"></div>'
+        + '<div class="field"><label>Email</label><input class="nf-email" type="email"></div>'
+        + '<div class="field"><label>Téléphone</label><input class="nf-phone"></div>'
+        + '<div class="field"><label>Code postal</label><input class="nf-zip" placeholder="971xx / 972xx"></div>'
+        + '<div class="field"><label>Ville</label><input class="nf-city"></div>'
+        + '</div><div class="btnrow"><button class="btn primary nf-ok">Créer le client</button></div></div>';
+      box.querySelector('.nf-ok').onclick = async () => {
+        const v = c => box.querySelector(c).value;
+        if (!confirm('Créer le client « '+v('.nf-name')+' » dans Odoo (société IGS) ?')) return;
+        try { const j = await post('/gestion/api/odoo/clients', { name: v('.nf-name'), email: v('.nf-email'), phone: v('.nf-phone'), zip: v('.nf-zip'), city: v('.nf-city') }); onChoose(j.client.id, j.client); }
+        catch(err){ alert('Création impossible : ' + err.message); }
+      };
+    }
+  };
+}
+function choisirClient(p, cands, then){
+  msg('Client « '+esc(p.client)+' » non identifié dans Odoo : choisis la bonne fiche ou crée-la. Ce choix sera mémorisé.', 'info');
+  picker($('a-cands'), p.client, cands, id => { $('a-cands').innerHTML = ''; then(id); });
+}
+// Bloc "Client Odoo" de la fiche planche
+async function chargerClientOdoo(p){
+  const box = $('cliobox'); if (!box) return;
+  const affiche = j => {
+    if (j.partner) {
+      const src = { memorise: 'mémorisé', identique: 'nom identique', auto: 'trouvé automatiquement' }[j.source] || '';
+      box.innerHTML = '<div class="cand" style="border:none"><div><b>'+esc(j.partner.name)+'</b> <span class="tag">'+esc(src)+'</span>'+(j.partner.martinique?' <span class="tag">🇲🇶 Martinique</span>':'')
+        + '<div class="sub">'+esc([j.partner.email, [j.partner.zip, j.partner.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+'</div></div><button class="btn" id="clio-chg">Changer</button></div><div id="clio-pk"></div>';
+      $('clio-chg').onclick = () => picker($('clio-pk'), '', [], choisir);
+    } else {
+      box.innerHTML = '<div class="note">Pas de correspondance sûre pour « '+esc(p.client)+' » : choisis la fiche Odoo ou crée-la.</div><div id="clio-pk"></div>';
+      picker($('clio-pk'), p.client, j.candidats || [], choisir);
+    }
+  };
+  const choisir = async id => {
+    box.innerHTML = '<div class="skel"></div>';
+    try { affiche(await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/client', { partnerId: id })); }
+    catch(e){ box.innerHTML = '<div class="warnbox">'+esc(e.message)+'</div>'; }
+  };
+  try { const r = await fetch('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/client'); const j = await r.json(); if (panelCle !== p.cle) return; if (j.error) throw new Error(j.error); affiche(j); }
+  catch(e){ box.innerHTML = '<div class="note">Odoo indisponible : '+esc(e.message)+'</div>'; }
 }
 async function chargerAuto(){
   try { const r = await fetch('/gestion/api/planches/facturation-auto'); autoEtat = await r.json(); } catch(e){ autoEtat = null; }
@@ -523,9 +581,11 @@ async function ouvrirPlanche(cle){
     + kv('N° de suivi', esc(p.numero_suivi))
     + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
     + plActionsHtml(p)
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherActions(p);
+  chargerClientOdoo(p);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   try{
     const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichiers');

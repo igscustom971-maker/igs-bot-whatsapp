@@ -77,20 +77,80 @@ async function setAlias(nom, partnerId, partnerName, user) {
   if (error) throw new Error(`Supabase : ${error.message}`);
 }
 
-const PARTNER_FIELDS = ['id', 'name', 'email', 'zip', 'state_id', 'country_id', 'phone']; // (pas de 'mobile' : supprimé dans Odoo 19)
+const PARTNER_FIELDS = ['id', 'name', 'email', 'zip', 'city', 'state_id', 'country_id', 'phone']; // (pas de 'mobile' : supprimé dans Odoo 19)
 
-// Retourne { partner } ou { candidats } si le client n'est pas identifié avec certitude
+// ---------- Correspondance automatique nom Excel -> client Odoo ----------
+// Score de ressemblance entre deux noms (0 à 1)
+function similarite(a, b) {
+  const ka = k(a), kb = k(b);
+  if (!ka || !kb) return 0;
+  if (ka === kb) return 1;
+  const court = ka.length < kb.length ? ka : kb, long = ka.length < kb.length ? kb : ka;
+  let s = long.includes(court) ? 0.6 + 0.35 * (court.length / long.length) : 0;
+  const ta = new Set(String(a).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(t => t.length >= 2));
+  const tb = new Set(String(b).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(t => t.length >= 2));
+  if (ta.size && tb.size) {
+    const inter = [...ta].filter(t => tb.has(t)).length;
+    s = Math.max(s, inter / Math.max(ta.size, tb.size) * 0.9);
+  }
+  return Math.round(s * 100) / 100;
+}
+
+// Suggestions Odoo classées par ressemblance (nom complet, puis mots du nom)
+async function suggest(nom, limit = 8) {
+  const dom = await igsOuPartage();
+  const vus = new Map();
+  const add = list => list.forEach(p => vus.set(p.id, p));
+  add(await kw('res.partner', 'search_read', [[...dom, '|', ['name', 'ilike', nom], ['email', 'ilike', nom]]], { fields: PARTNER_FIELDS, limit: 15 }));
+  const mots = String(nom).split(/[^A-Za-zÀ-ÿ0-9]+/).filter(m => m.length >= 3);
+  if (vus.size < 5 && mots.length) {
+    const ors = mots.map(m => ['name', 'ilike', m]);
+    const domMots = ors.length > 1 ? [...Array(ors.length - 1).fill('|'), ...ors] : ors;
+    add(await kw('res.partner', 'search_read', [[...dom, ...domMots]], { fields: PARTNER_FIELDS, limit: 15 }));
+  }
+  return [...vus.values()]
+    .map(p => ({ id: p.id, name: p.name, email: p.email || null, ville: p.city || null, zip: p.zip || null, score: similarite(nom, p.name) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+// { partner, source } si identifié (mémorisé, identique, ou correspondance sûre), sinon { candidats }
 async function findPartner(nom) {
   const alias = await getAlias(nom);
   if (alias) {
-    const [p] = await kw('res.partner', 'read', [[alias.partner_id]], { fields: PARTNER_FIELDS });
-    if (p) return { partner: p };
+    const p = await readPartner(alias.partner_id);
+    if (p) return { partner: p, source: 'memorise' };
   }
-  const exact = await kw('res.partner', 'search_read', [[...(await igsOuPartage()), ['name', '=ilike', nom]]], { fields: PARTNER_FIELDS, limit: 5 });
-  if (exact.length === 1) return { partner: exact[0] };
-  const proches = exact.length ? exact
-    : await kw('res.partner', 'search_read', [[...(await igsOuPartage()), ['name', 'ilike', nom]]], { fields: PARTNER_FIELDS, limit: 10 });
-  return { candidats: proches.map(p => ({ id: p.id, name: p.name, email: p.email })) };
+  const cands = await suggest(nom);
+  const [a, b] = cands;
+  // Correspondance sûre : nom identique (unique), ou très ressemblant et nettement devant le suivant
+  const sure = a && ((a.score === 1 && (!b || b.score < 1)) || (a.score >= 0.85 && (!b || b.score <= a.score - 0.25)));
+  if (sure) {
+    const p = await readPartner(a.id);
+    await setAlias(nom, p.id, p.name, 'Correspondance automatique');
+    return { partner: p, source: a.score === 1 ? 'identique' : 'auto' };
+  }
+  return { candidats: cands };
+}
+
+// Création d'une fiche client IGS (Guadeloupe ou Martinique selon le code postal)
+async function createPartner({ name, email, phone, zip, city, street }) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('Nom du client obligatoire');
+  const z = String(zip || '').trim();
+  const vals = { name, company_id: (await ctx(), companyId), customer_rank: 1 };
+  if (email) vals.email = String(email).trim();
+  if (phone) vals.phone = String(phone).trim();
+  if (street) vals.street = String(street).trim();
+  if (city) vals.city = String(city).trim();
+  if (z) vals.zip = z;
+  const code = z.startsWith('972') ? 'MQ' : z.startsWith('971') ? 'GP' : null;
+  if (code) {
+    const c = await kw('res.country', 'search_read', [[['code', '=', code]]], { fields: ['id'], limit: 1 });
+    if (c.length) vals.country_id = c[0].id;
+  }
+  const id = await kw('res.partner', 'create', [vals]);
+  return readPartner(id);
 }
 
 async function readPartner(id) {
@@ -99,8 +159,8 @@ async function readPartner(id) {
 }
 
 async function searchPartners(q) {
-  const r = await kw('res.partner', 'search_read', [[...(await igsOuPartage()), '|', ['name', 'ilike', q], ['email', 'ilike', q]]], { fields: ['id', 'name', 'email'], limit: 15 });
-  return r.map(p => ({ id: p.id, name: p.name, email: p.email }));
+  if (!String(q || '').trim()) return [];
+  return suggest(q, 12);
 }
 
 function isMartinique(p) {
@@ -206,6 +266,6 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
 }
 
 module.exports = {
-  configured, findPartner, readPartner, searchPartners, setAlias, isMartinique, remise,
+  configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis,
 };

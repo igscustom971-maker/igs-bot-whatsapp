@@ -207,17 +207,36 @@ async function writeCells(cle, fields) {
   await syncNow();
 }
 
+// Nom Excel déjà associé à ce client Odoo (pour retrouver sa ligne hebdo)
+async function trouverNomExcel(partnerId) {
+  for (const r of cache.rows) {
+    const a = await odoo.getAlias(r.client);
+    if (a && Number(a.partner_id) === Number(partnerId)) return r.client;
+  }
+  return null;
+}
+
 // Nouvelle planche saisie à la main : réutilise une ligne vide du tableau (formules conservées), sinon ajoute une ligne.
 // Client hebdo qui a déjà sa ligne : on ajoute le métrage à son compteur.
 async function ajouter(data, user) {
-  const client = String(data.client || '').trim().slice(0, 80);
+  let client = String(data.client || '').trim().slice(0, 80);
+  let partner = null;
+  if (data.partnerId) {
+    partner = await odoo.readPartner(Number(data.partnerId));
+    if (!partner) throw new Error('Client Odoo introuvable');
+    // Une ligne hebdo existante sous un autre nom (ex. ZePUB pour The Pub) garde son nom Excel
+    const existant = await trouverNomExcel(partner.id);
+    client = existant || client || partner.name;
+  }
   if (!client) throw new Error('Nom du client obligatoire');
   const mv = String(data.metres ?? '').trim().toUpperCase().replace(',', '.');
   const format = mv === 'A3' || mv === 'A4' ? mv : null;
   const metres = format ? null : Number(mv);
   if (!format && !(metres > 0 && metres < 1000)) throw new Error('Métrage invalide (nombre, A3 ou A4)');
-  const hebdo = !!data.hebdo;
+  if (partner) await odoo.setAlias(client, partner.id, partner.name, user);
   const t = await lireTableau();
+  // Client qui a déjà sa ligne hebdo : toujours ajouté à son compteur
+  const hebdo = !!data.hebdo || t.rows.some(r => r.hebdo && key(r.client) === key(client));
 
   if (hebdo) {
     const ligne = t.rows.find(r => r.hebdo && key(r.client) === key(client));
@@ -316,6 +335,22 @@ async function clientOdoo(p, partnerId, user) {
     return { partner };
   }
   return odoo.findPartner(p.client);
+}
+
+// Client Odoo associé à une planche (affiché dans la fiche, modifiable)
+async function clientPlanche(cle) {
+  const p = trouve(cle);
+  const r = await odoo.findPartner(p.client);
+  const fmt = x => x && { id: x.id, name: x.name, email: x.email || null, zip: x.zip || null, ville: x.city || null, martinique: odoo.isMartinique(x) };
+  return r.partner ? { partner: fmt(r.partner), source: r.source } : { candidats: r.candidats };
+}
+async function choisirClient(cle, partnerId, user) {
+  const p = trouve(cle);
+  const partner = await odoo.readPartner(Number(partnerId));
+  if (!partner) throw new Error('Client Odoo introuvable');
+  await odoo.setAlias(p.client, partner.id, partner.name, user);
+  await journal(user, 'client_associe', cle, { client: p.client, partenaire: partner.name, partner_id: partner.id });
+  return clientPlanche(cle);
 }
 
 // Devis Odoo pour une planche ponctuelle (sans N° de devis)
@@ -428,4 +463,4 @@ function startSync() {
 
 const drive = () => ({ drive: planchesDrive });
 
-module.exports = { ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
