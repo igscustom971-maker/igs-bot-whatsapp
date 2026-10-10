@@ -387,7 +387,7 @@ async function devis(cle, user, { partnerId, force } = {}) {
   }
   const titre = `PLANCHE DTF - ${p.format || String(p.metres).replace('.', ',') + ' m'}`;
   // Planche "A VERIFIER" : devis préparé dans Odoo mais PAS envoyé (Ismaël l'ajuste puis l'envoie depuis Odoo)
-  const envoyer = (p.statut || '').toUpperCase() !== 'A VERIFIER';
+  const envoyer = key(p.statut) !== 'averifier'; // insensible aux accents (A VÉRIFIER)
   const d = await odoo.creerEtEnvoyerDevis({ partner: c.partner, metres: p.metres, format: p.format, titre, envoyer });
   await writeCells(cle, { n_devis: d.numero });
   await journal(user, envoyer ? 'devis_envoye' : 'devis_prepare', d.numero, { client: p.client, partenaire: c.partner.name, ...d });
