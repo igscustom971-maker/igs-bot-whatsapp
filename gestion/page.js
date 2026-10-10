@@ -837,27 +837,27 @@ function csEvents(){
 const montantFr = m => m == null ? '' : String(m).replace('.', ',') + ' €';
 const especesHtml = c => c && c.a_payer_especes ? '<div><span class="esp" title="Le client paiera en espèces à la remise'+(c.especes_note_par?' (noté par '+esc(c.especes_note_par)+')':'')+'">💵 À payer en espèces'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+'</span></div>' : '';
 async function supprimerCmd(c){
-  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?'+(c.n_devis ? '\\n\\nLe devis '+c.n_devis+' sera aussi annulé et supprimé dans Odoo (sauf s\\'il est déjà facturé).' : ''))) return false;
-  const dossier = !!c.n_devis && confirm('Supprimer aussi le dossier SharePoint « '+c.n_devis+' - … » (BAT, visuels, tailles) ?\\n\\nOK = supprimer le dossier (il part dans la corbeille SharePoint, récupérable 93 jours)\\nAnnuler = garder le dossier');
+  // Une seule confirmation : ligne + dossier SharePoint + devis Odoo
+  const quoi = ['la ligne de commande'];
+  if (c.n_devis) quoi.push('le dossier SharePoint « '+c.n_devis+' - … » (corbeille, récupérable 93 jours)', 'le devis '+c.n_devis+' dans Odoo (sauf s\\'il est déjà facturé)');
+  if (!confirm('Supprimer la commande '+(c.n_devis||'')+' · '+c.client+' ?\\n\\nSera supprimé :\\n• '+quoi.join('\\n• '))) return false;
   try {
-    const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer', { dossier });
+    const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/supprimer', { dossier: !!c.n_devis, devis: true });
     if (j.avertissement) alert(j.avertissement);
     await charger(false); return true;
   } catch(e){ alert('Non supprimée : ' + e.message); return false; }
 }
 async function supprimerPl(p){
-  if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?'+(p.n_devis ? '\\n\\nLe devis '+p.n_devis+' sera aussi annulé et supprimé dans Odoo (sauf s\\'il est déjà facturé).' : ''))) return false;
   let fichiers = [];
   try { const r = await fetch('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/fichiers'); const j = await r.json(); fichiers = j.fichiers || []; } catch(e){}
-  let ids = [];
-  if (fichiers.length) {
-    const autres = planches.filter(x => x.cle !== p.cle && norm(x.client) === norm(p.client)).length;
-    if (confirm('Supprimer aussi le(s) fichier(s) de la planche ?\\n\\n'+fichiers.map(f => '• '+f.nom+(f.archive?' (archives)':'')).join('\\n')
-      + (autres ? '\\n\\n⚠ '+autres+' autre(s) ligne(s) pour ce client : ces fichiers les concernent peut-être.' : '')
-      + '\\n\\nOK = supprimer les fichiers (corbeille SharePoint, récupérables 93 jours)\\nAnnuler = garder les fichiers')) ids = fichiers.map(f => f.id);
-  }
+  const autres = planches.filter(x => x.cle !== p.cle && norm(x.client) === norm(p.client)).length;
+  const quoi = ['la ligne de la planche'];
+  if (fichiers.length) quoi.push(fichiers.length+' fichier(s) : '+fichiers.map(f => f.nom).join(', ')+' (corbeille, récupérables 93 jours)');
+  if (p.n_devis) quoi.push('le devis '+p.n_devis+' dans Odoo (sauf s\\'il est déjà facturé)');
+  if (!confirm('Supprimer la planche de '+p.client+(p.n_devis?' ('+p.n_devis+')':'')+' ?\\n\\nSera supprimé :\\n• '+quoi.join('\\n• ')
+    + (fichiers.length && autres ? '\\n\\n⚠ '+autres+' autre(s) ligne(s) pour ce client : ces fichiers les concernent peut-être.' : ''))) return false;
   try {
-    const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer', { fichiers: ids });
+    const j = await post('/gestion/api/planches/'+encodeURIComponent(p.cle)+'/supprimer', { fichiers: fichiers.map(f => f.id), devis: true });
     if (j.avertissement) alert(j.avertissement);
     await charger(false); return true;
   } catch(e){ alert('Non supprimée : ' + e.message); return false; }
