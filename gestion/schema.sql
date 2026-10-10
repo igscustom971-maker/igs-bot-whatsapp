@@ -165,3 +165,8 @@ create table if not exists gestion_collaborateurs (
   updated_at    timestamptz default now()
 );
 alter table gestion_collaborateurs enable row level security;
+
+-- Commandes : paiement à encaisser en espèces à la remise
+alter table gestion_commandes add column if not exists a_payer_especes  boolean default false;
+alter table gestion_commandes add column if not exists montant_especes  numeric(10,2);
+alter table gestion_commandes add column if not exists especes_note_par text;

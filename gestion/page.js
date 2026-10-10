@@ -191,6 +191,9 @@ th{padding:10px 8px}
 .dliv input{font:inherit;padding:5px 8px;border:1px solid var(--line);border-radius:8px;color:var(--ink)}
 .dliv .btn{padding:5px 10px;font-size:12px}
 .manual{font-size:11px;font-weight:700;color:var(--pink)}
+.esp{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:nowrap}
+.espbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 12px;padding:10px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a}
+.espbox input[type=text]{width:110px}
 @media (max-width:980px){ .cols{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)} .mods{grid-template-columns:repeat(2,1fr)} }
 /* Mobile : cartes au lieu du tableau */
 @media (max-width:760px){
@@ -523,7 +526,7 @@ function remettre(){
   $('psub').textContent = (cmds.length + pls.length) + ' élément(s) prêts';
   const ligne = (kind, cle, client, sous, statutHtml, boutons) => '<div class="cand"><div><b>'+esc(client)+'</b> '+statutHtml+'<div class="sub">'+sous+'</div></div><div style="display:flex;gap:6px">'+boutons+'</div></div>';
   $('pbody').innerHTML = '<div class="card"><h3>Commandes · '+cmds.length+'</h3>'
-    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')), badge(c.statut),
+    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + especesHtml(c), badge(c.statut),
         '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
     + '</div><div class="card"><h3>Planches DTF · '+pls.length+'</h3>'
     + (pls.length ? pls.map(p => ligne('pl', p.cle, p.client, esc([p.n_devis, metrage(p), p.paiement].filter(Boolean).join(' · ')), plBadge(p.statut),
@@ -535,6 +538,12 @@ function remettre(){
     const b = e.target.closest('[data-liv]'); if (!b) return;
     const kind = b.dataset.liv, cle = b.dataset.k;
     const statut = kind === 'pl-exp' ? 'EXPÉDIÉE' : 'LIVRÉE';
+    const cmd = kind === 'cmd' ? data.find(x => x.cle === cle) : null;
+    if (cmd && cmd.a_payer_especes) {
+      if (!confirm('💵 '+cmd.client+' doit payer en espèces'+(cmd.montant_especes!=null?' ('+montantFr(cmd.montant_especes)+')':'')+'.\\nAs-tu bien encaissé ? (OK = saisir le montant reçu)')) return;
+      if (!(await encaisserEspeces('commande', cmd.n_devis || cmd.cle, cmd.client, cmd.montant_especes != null ? montantFr(cmd.montant_especes).replace(' €','') : ''))) return;
+      try { await setEspecesCmd(cmd, false); } catch(e){}
+    }
     b.disabled = true;
     try {
       await post('/gestion/api/'+(kind === 'cmd' ? 'commandes' : 'planches')+'/'+encodeURIComponent(cle)+'/modifier', { statut });
@@ -595,6 +604,13 @@ function csEvents(){
   });
 }
 // Écart entre la quantité du devis (colonne Contenu) et le tableau des tailles du client
+const montantFr = m => m == null ? '' : String(m).replace('.', ',') + ' €';
+const especesHtml = c => c && c.a_payer_especes ? '<div><span class="esp" title="Le client paiera en espèces à la remise'+(c.especes_note_par?' (noté par '+esc(c.especes_note_par)+')':'')+'">💵 À payer en espèces'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+'</span></div>' : '';
+async function setEspecesCmd(c, actif, montant){
+  const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/especes', { actif, montant });
+  if (j.commande) Object.assign(c, j.commande);
+  return c;
+}
 const ecartHtml = ct => ct && ct.ecart ? '<div><span class="why r" title="Quantité du devis : '+ct.devis+' · tableau des tailles : '+ct.tableau+'">⚠ Devis '+ct.devis+' / tableau '+ct.tableau+' ('+(ct.ecart>0?'+':'')+ct.ecart+')</span></div>' : '';
 // ---------- Listes et collaborateurs (page Admin) ----------
 async function chargerListes(){
@@ -1046,7 +1062,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+especesHtml(c)+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -1225,6 +1241,10 @@ function cmdActionsHtml(c){
     + '<div class="field"><label>Zone de flocage</label><input id="c-zone" value="'+esc(c.zone_flocage||'')+'"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
+    + '</div><div class="espbox"><b>💵 Paiement en espèces à la remise</b>'
+    + (c.a_payer_especes
+        ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
+        : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
     + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
@@ -1242,8 +1262,15 @@ function brancherCmd(c){
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
   $('dup-btn').onclick = () => dupliquerUI(c);
+  const espMaj = async (actif, montant) => {
+    try { await setEspecesCmd(c, actif, montant); afficher(); await ouvrir(c.cle); msg(actif ? '✅ Noté : paiement en espèces à la remise' : '✅ Mention espèces retirée', 'ok'); }
+    catch(e){ msg('❌ ' + esc(e.message), 'err'); }
+  };
+  if ($('esp-on')) $('esp-on').onclick = () => espMaj(true, $('esp-montant').value);
+  if ($('esp-off')) $('esp-off').onclick = () => espMaj(false);
   $('cash-btn').onclick = async () => {
-    if (!(await encaisserEspeces('commande', c.n_devis || c.cle, c.client, ''))) return;
+    if (!(await encaisserEspeces('commande', c.n_devis || c.cle, c.client, c.montant_especes != null ? montantFr(c.montant_especes).replace(' €','') : ''))) return;
+    if (c.a_payer_especes) { try { await setEspecesCmd(c, false); afficher(); } catch(e){} }
     const rem = /ESP[EÈ]CE/i.test(c.remarque || '') ? null : [c.remarque, 'PAIEMENT EN ESPECE'].filter(Boolean).join(' - ');
     if (rem) await envoyer({ remarque: rem }); else msg('✅ Espèces enregistrées dans la caisse', 'ok');
   };

@@ -160,8 +160,8 @@ const overridesMem = new Map(); // repli si Supabase n'est pas configuré
 async function loadOverrides() {
   if (!supabase) return overridesMem;
   const { data, error } = await supabase.from('gestion_commandes')
-    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le')
-    .not('date_livraison_manuelle', 'is', null);
+    .select('cle, date_livraison_manuelle, date_livraison_modifiee_par, date_livraison_modifiee_le, a_payer_especes, montant_especes, especes_note_par')
+    .or('date_livraison_manuelle.not.is.null,a_payer_especes.eq.true');
   if (error) { console.error('Gestion overrides :', error.message); return overridesMem; }
   return new Map(data.map(o => [o.cle, o]));
 }
@@ -173,6 +173,11 @@ function applyOverride(r, o) {
     out.date_livraison_manuelle = o.date_livraison_manuelle;
     out.date_livraison_modifiee_par = o.date_livraison_modifiee_par;
     out.date_livraison_modifiee_le = o.date_livraison_modifiee_le;
+  }
+  out.a_payer_especes = !!(o && o.a_payer_especes);
+  if (out.a_payer_especes) {
+    out.montant_especes = o.montant_especes;
+    out.especes_note_par = o.especes_note_par;
   }
   return out;
 }
@@ -214,6 +219,30 @@ async function controlerQuantites() {
   } finally {
     controleEnCours = false;
   }
+}
+
+// ---------- Paiement à encaisser en espèces à la remise (Supabase uniquement) ----------
+async function setEspeces(cle, { actif, montant }, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  let m = null;
+  if (actif && montant !== undefined && montant !== null && String(montant).trim() !== '') {
+    m = Number(String(montant).replace(',', '.').replace(/\s/g, ''));
+    if (!(m > 0)) throw new Error('Montant invalide');
+    m = Math.round(m * 100) / 100;
+  }
+  const o = actif
+    ? { a_payer_especes: true, montant_especes: m, especes_note_par: user }
+    : { a_payer_especes: false, montant_especes: null, especes_note_par: null };
+  if (supabase) {
+    const { error } = await supabase.from('gestion_commandes').update(o).eq('cle', cle);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+  } else {
+    overridesMem.set(cle, { ...(overridesMem.get(cle) || { cle }), ...o });
+  }
+  console.log(`Gestion : ${cle} ${actif ? `à payer en espèces${m ? ` (${m} €)` : ''}` : 'paiement espèces retiré'} (${user})`);
+  const ov = await loadOverrides();
+  return applyOverride(row, ov.get(cle));
 }
 
 async function setLivraison(cle, date, user) {
@@ -467,4 +496,4 @@ async function modifier(cle, champs, user) {
   return r ? applyOverride(r, ov.get(cle)) : null;
 }
 
-module.exports = { getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
