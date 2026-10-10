@@ -173,3 +173,31 @@ alter table gestion_commandes add column if not exists especes_note_par text;
 
 -- Commandes : bordereaux d'expédition déposés depuis le dashboard
 alter table gestion_commandes add column if not exists bordereaux jsonb;
+
+-- Heures des collaborateurs (remplace les onglets Saisie Heures / Paramètres de l'Excel)
+create table if not exists gestion_heures_paiements (
+  id            bigserial primary key,
+  collaborateur text not null,
+  semaine       text not null,          -- ex. 2026-S41
+  debut         date not null,
+  fin           date not null,
+  minutes       integer not null,
+  taux          numeric(8,2) not null,
+  montant       numeric(10,2) not null,
+  paye_le       timestamptz default now(),
+  paye_par      text,
+  note          text
+);
+alter table gestion_heures_paiements enable row level security;
+create table if not exists gestion_heures (
+  id            bigserial primary key,
+  collaborateur text not null,           -- nom affiché (ex. Maureen G.)
+  jour          date not null,
+  minutes       integer not null check (minutes > 0),
+  remarque      text,
+  saisi_par     text,
+  cree_le       timestamptz default now(),
+  paiement_id   bigint references gestion_heures_paiements(id) on delete set null
+);
+create index if not exists gestion_heures_jour on gestion_heures (jour);
+alter table gestion_heures enable row level security;

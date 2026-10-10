@@ -194,6 +194,13 @@ th{padding:10px 8px}
 .xdel{border:0;background:transparent;color:#9ca3af;font-size:18px;line-height:1;cursor:pointer;padding:4px 6px;border-radius:6px}
 .xdel:hover{background:#fee2e2;color:#b91c1c}
 td.c-x{width:30px;text-align:right;padding-left:0}
+.hrform{display:grid;gap:10px}
+.hrform .field input,.hrform .field select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.hrnav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.hrnav h3{margin:0;flex:1;min-width:200px}
+.hrtot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.hrtot b.m{font-size:18px}
+.paid{display:inline-block;padding:3px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:700;font-size:12px}
 .esp.bd{background:#dbeafe;color:#1e40af;text-decoration:none;margin-right:4px}
 .esp{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:nowrap}
 .espbox{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:4px 0 12px;padding:10px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a}
@@ -230,6 +237,7 @@ td.c-x{width:30px;text-align:right;padding-left:0}
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches">Planches DTF</a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock">Stock</a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse">Espèces</a>
+    <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures">Heures</a>
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin">Admin</a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
@@ -254,6 +262,7 @@ ${view === 'accueil' ? `
           <div class="mod soon"><div class="i">🖨</div><div class="t">Générateur BAT</div><div class="d">Mockup automatique à l'échelle</div></div>
           ${user.role === 'admin' ? '<a class="mod" href="/gestion/admin"><div class="i">⚙️</div><div class="t">Admin</div><div class="d">Collaborateurs, produits, couleurs</div></a>' : ''}
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
+          <a class="mod" href="/gestion/heures"><div class="i">⏱</div><div class="t">Heures</div><div class="d">${user.role === 'admin' ? 'Saisie, totaux par semaine, paiements' : 'Saisir mes heures du jour'}</div></a>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
           ${user.role === 'admin' ? '<a class="mod" href="/panel" target="_blank" rel="noopener"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Panneau du bot WhatsApp</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
         </div></div>
@@ -282,6 +291,25 @@ ${view === 'accueil' ? `
         <button class="btn pink" id="ad-save-listes" style="padding:12px">💾 Enregistrer les listes</button>
         <div class="msg" id="a-msg"></div>
       </div>
+    </div>
+  </section>` : view === 'heures' ? `
+  <section id="v-heures">
+    <div class="tools"><h2 style="margin:0;font-size:20px">⏱ Heures</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="cols"${user.role === 'admin' ? ' style="grid-template-columns:minmax(280px,1fr) 2.2fr"' : ' style="grid-template-columns:minmax(0,520px)"'}>
+      <div class="stack">
+        <div class="card"><h3>${user.role === 'admin' ? 'Saisir des heures' : 'Saisir mes heures'}</h3>
+          <div class="hrform">
+            <div class="field"><label>Collaborateur</label><select id="hr-collab"></select></div>
+            <div class="field"><label>Date</label><input type="date" id="hr-jour"></div>
+            <div class="field"><label>Heures travaillées</label><input id="hr-duree" placeholder="ex. 04:30" inputmode="decimal" autocomplete="off"></div>
+            <div class="field"><label>Remarque (facultatif)</label><input id="hr-rem" placeholder="ex. livraison Jarry"></div>
+            <button class="btn pink" id="hr-ok" style="padding:12px">Enregistrer</button>
+            <div class="note">Une saisie par jour. Format : 04:30, 4h30 ou 4,5 pour 4 h 30.${user.role === 'admin' ? '' : ' En cas d’erreur, tu peux annuler dans les 15 minutes, sinon préviens Ismaël.'}</div>
+          </div>
+          <div class="msg" id="hr-msg"></div>
+        </div>
+      </div>
+      ${user.role === 'admin' ? '<div class="stack" id="hr-admin"><div class="card"><div class="skel"></div><div class="skel"></div></div></div>' : ''}
     </div>
   </section>` : view === 'caisse' ? `
   <section id="v-caisse">
@@ -406,6 +434,7 @@ async function charger(force){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
+    if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
       const j = await r.json(); if (j.error) throw new Error(j.error);
@@ -578,6 +607,109 @@ function csRender(){
   const max = Math.max(1, ...mois.map(m => m[1]));
   $('cs-mois').innerHTML = mois.length ? '<div class="flow">' + mois.map(([m,v]) => { const [y,mm] = m.split('-'); return '<div class="frow" style="cursor:default;grid-template-columns:90px 1fr 90px"><span>'+MOIS_FR[Number(mm)-1]+' '+y+'</span><span class="track"><span class="fill" style="display:block;width:'+(v/max*100)+'%;background:#0f766e"></span></span><b>'+eur(v)+'</b></div>'; }).join('') + '</div>' : '<div class="note">Pas encore de données.</div>';
   $('cs-annee').innerHTML = Object.keys(d.parAnnee).length ? Object.entries(d.parAnnee).sort((a,b)=>b[0]-a[0]).map(([y,v]) => '<div class="plrow"><span>'+y+'</span><b>'+eur(v)+'</b></div>').join('') : '<div class="note">Pas encore de données.</div>';
+}
+// ---------- Heures ----------
+let hrLundi = null, hrData = null;
+const fhm = m => Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
+const jourFr = s => new Date(s+'T12:00:00').toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'2-digit'});
+function hrMsg(t, k){ $('hr-msg').className = 'msg on ' + k; $('hr-msg').innerHTML = t; }
+function hrOptions(){
+  const sel = $('hr-collab'); const cur = sel.value;
+  sel.innerHTML = '<option value="">— Choisis ton nom —</option>' + EQUIPE.map(n => '<option>'+esc(n)+'</option>').join('');
+  let last = cur; try { last = cur || localStorage.getItem('igs_hr_nom'); } catch(e){}
+  if (last && EQUIPE.includes(last)) sel.value = last;
+}
+async function hrCharger(){
+  hrOptions();
+  if (!$('hr-jour').value) { $('hr-jour').value = isoLocal(new Date()); }
+  $('hr-jour').max = isoLocal(new Date());
+  if (!$('hr-admin')) return;
+  const r = await fetch('/gestion/api/heures/semaine' + (hrLundi ? '?lundi=' + hrLundi : ''));
+  if (r.status === 401) return location.href = '/gestion/auth/login';
+  const j = await r.json(); if (j.error) { $('hr-admin').innerHTML = '<div class="card warnbox">'+esc(j.error)+'</div>'; return; }
+  hrData = j; hrLundi = j.lundi; hrRender();
+}
+function hrRender(){
+  const d = hrData; if (!d) return;
+  const auj = isoLocal(new Date());
+  let h = '<div class="card"><div class="hrnav"><button class="btn" data-hr-nav="-7">◀</button><h3>Semaine '+d.numero+' · '+jourFr(d.lundi)+' → '+jourFr(d.dimanche)+'</h3>'
+    + (auj < d.lundi || auj > d.dimanche ? '<button class="btn" data-hr-nav="0">Cette semaine</button>' : '')
+    + '<button class="btn" data-hr-nav="7">▶</button></div>'
+    + '<div class="hrtot"><span>Total semaine : <b>'+fhm(d.total.minutes)+'</b></span><span>À payer : <b class="m">'+eur(d.total.montant)+'</b></span></div>'
+    + '<div class="btnrow" style="margin-top:10px"><button class="btn" id="hr-recap">📧 Envoyer le récap de cette semaine</button>'
+    + '<label class="note" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="hr-auto"'+(d.recapAuto?' checked':'')+'> Récap automatique le dimanche à 20h ('+esc((d.recapA||[]).join(', '))+')</label>'
+    + (d.importFait ? '' : '<button class="btn" id="hr-import" title="Reprend les lignes de l’onglet ⏱ Saisie Heures de l’Excel">⬇ Reprendre les heures de l’Excel</button>')
+    + '</div><div class="msg" id="a-msg"></div></div>';
+  if (!d.collaborateurs.length) h += '<div class="card note">Aucune heure saisie cette semaine.</div>';
+  d.collaborateurs.forEach(c => {
+    h += '<div class="card"><h3>'+esc(c.collaborateur)+(c.paiement?' <span class="paid">✅ Payé</span>':'')+'</h3>'
+      + (c.lignes.length ? '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Jour</th><th>Heures</th><th>Remarque</th><th>Saisi</th><th></th></tr></thead><tbody>'
+        + c.lignes.map(l => '<tr><td>'+jourFr(l.jour)+'</td><td><b>'+l.duree+'</b></td><td>'+esc(l.remarque||'')+'</td><td class="sub">'+esc(l.saisi_par||'')+' · '+new Date(l.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</td>'
+          + '<td style="white-space:nowrap">'+(l.paiement_id ? '' : '<button class="btn" data-hr-edit="'+l.id+'" title="Modifier">✏️</button> <button class="xdel" data-hr-del="'+l.id+'" title="Supprimer">×</button>')+'</td></tr>').join('')
+        + '</tbody></table></div>' : '<div class="note">Aucune heure cette semaine.</div>')
+      + '<div class="hrtot"><span>'+c.duree+' × '+(c.taux==null?'<span class="why r">taux à renseigner dans Admin</span>':eur(c.taux)+'/h')+'</span>'
+      + '<span>'+(c.montant==null?'':'<b class="m">'+eur(c.montant)+'</b>')+'</span>'
+      + (c.paiement ? '<span class="note">Payé le '+new Date(c.paiement.paye_le).toLocaleDateString('fr-FR')+' · '+eur(Number(c.paiement.montant))+(c.nonPayees?' · <b>'+c.nonPayees+' jour(s) ajouté(s) après le paiement</b>':'')+' · <a href="#" data-hr-unpay="'+c.paiement.id+'">annuler</a></span>' : '')
+      + (c.nonPayees && c.taux != null ? '<button class="btn pink" data-hr-pay="'+esc(c.collaborateur)+'">💶 Marquer payé</button>' : '')
+      + '</div></div>';
+  });
+  if (d.aPayer.length) h += '<div class="card"><h3>⚠️ Semaines précédentes non payées</h3>' + d.aPayer.map(x =>
+    '<div class="cand"><div><b>'+esc(x.collaborateur)+'</b> · semaine '+esc(x.semaine.split('-S')[1])+' ('+jourFr(x.lundi)+')<div class="sub">'+x.duree+(x.montant==null?'':' · '+eur(x.montant))+'</div></div><button class="btn" data-hr-goto="'+x.lundi+'">Voir</button></div>').join('') + '</div>';
+  if (d.historique.length) h += '<div class="card"><h3>Derniers paiements</h3><div style="overflow-x:auto"><table class="stk"><thead><tr><th>Payé le</th><th>Collaborateur</th><th>Semaine</th><th>Heures</th><th>Taux</th><th>Montant</th></tr></thead><tbody>'
+    + d.historique.map(p => '<tr><td>'+new Date(p.paye_le).toLocaleDateString('fr-FR')+'</td><td>'+esc(p.collaborateur)+'</td><td>'+esc(p.semaine.split('-S')[1])+' <span class="sub">('+jourFr(p.debut)+')</span></td><td>'+fhm(p.minutes)+'</td><td>'+eur(Number(p.taux))+'</td><td><b>'+eur(Number(p.montant))+'</b></td></tr>').join('')
+    + '</tbody></table></div></div>';
+  $('hr-admin').innerHTML = h;
+}
+function hrEvents(){
+  $('hr-ok').onclick = async () => {
+    const collaborateur = $('hr-collab').value, jour = $('hr-jour').value, duree = $('hr-duree').value.trim(), remarque = $('hr-rem').value.trim();
+    if (!collaborateur) return hrMsg('Choisis ton nom dans la liste', 'err');
+    if (!duree) return hrMsg('Indique tes heures (ex. 04:30)', 'err');
+    $('hr-ok').disabled = true;
+    try {
+      const j = await post('/gestion/api/heures', { collaborateur, jour, duree, remarque });
+      try { localStorage.setItem('igs_hr_nom', collaborateur); } catch(e){}
+      hrMsg('✅ <b>'+j.duree+'</b> enregistrées pour <b>'+esc(j.collaborateur)+'</b> le '+jourFr(j.jour)+' <button class="btn" data-hr-cancel="'+j.id+'" style="margin-left:8px">Annuler cette saisie</button>', 'ok');
+      $('hr-duree').value = ''; $('hr-rem').value = '';
+      if ($('hr-admin')) hrCharger();
+    } catch(e){ hrMsg('❌ ' + esc(e.message), 'err'); }
+    finally { $('hr-ok').disabled = false; }
+  };
+  $('hr-duree').addEventListener('keydown', e => { if (e.key === 'Enter') $('hr-ok').click(); });
+  $('hr-msg').addEventListener('click', async e => {
+    const b = e.target.closest('[data-hr-cancel]'); if (!b) return;
+    b.disabled = true;
+    try { await post('/gestion/api/heures/'+b.dataset.hrCancel+'/supprimer'); hrMsg('Saisie annulée', 'info'); if ($('hr-admin')) hrCharger(); }
+    catch(err){ hrMsg('❌ ' + esc(err.message), 'err'); }
+  });
+  if (!$('hr-admin')) return;
+  $('hr-admin').addEventListener('change', async e => {
+    if (e.target.id !== 'hr-auto') return;
+    try { await post('/gestion/api/heures/recap-auto', { active: e.target.checked }); } catch(err){ alert(err.message); e.target.checked = !e.target.checked; }
+  });
+  $('hr-admin').addEventListener('click', async e => {
+    const t = e.target.closest('button,a'); if (!t || !hrData) return;
+    const ds = t.dataset;
+    if (ds.hrNav !== undefined) { const n = Number(ds.hrNav); if (n === 0) hrLundi = null; else { const d0 = new Date(hrLundi+'T12:00:00'); d0.setDate(d0.getDate()+n); hrLundi = isoLocal(d0); } return hrCharger(); }
+    if (ds.hrGoto) { hrLundi = ds.hrGoto; return hrCharger(); }
+    try {
+      if (t.id === 'hr-recap') { t.disabled = true; const j = await post('/gestion/api/heures/recap', { lundi: hrData.lundi }); msg('✅ Récap envoyé à '+esc(j.a.join(', ')), 'ok'); t.disabled = false; return; }
+      if (t.id === 'hr-import') { if (!confirm('Reprendre les heures de l’onglet ⏱ Saisie Heures de l’Excel ? Les jours déjà saisis ici sont ignorés.')) return; const j = await post('/gestion/api/heures/importer'); alert(j.importees+' journée(s) reprise(s) de l’Excel'); return hrCharger(); }
+      if (ds.hrDel) { if (!confirm('Supprimer cette saisie ?')) return; await post('/gestion/api/heures/'+ds.hrDel+'/supprimer'); return hrCharger(); }
+      if (ds.hrEdit) {
+        const l = hrData.collaborateurs.flatMap(c => c.lignes).find(x => String(x.id) === ds.hrEdit); if (!l) return;
+        const duree = prompt('Heures travaillées le '+jourFr(l.jour)+' :', l.duree); if (duree === null) return;
+        const remarque = prompt('Remarque :', l.remarque || ''); if (remarque === null) return;
+        await post('/gestion/api/heures/'+l.id+'/modifier', { duree, remarque }); return hrCharger();
+      }
+      if (ds.hrPay) {
+        const c = hrData.collaborateurs.find(x => x.collaborateur === ds.hrPay);
+        if (!confirm('Marquer payée la semaine '+hrData.numero+' de '+ds.hrPay+(c && c.montant != null ? ' ('+eur(c.montant)+')' : '')+' ?')) return;
+        await post('/gestion/api/heures/payer', { collaborateur: ds.hrPay, lundi: hrData.lundi }); return hrCharger();
+      }
+      if (ds.hrUnpay) { e.preventDefault(); if (!confirm('Annuler ce paiement ? Les heures redeviennent « à payer ».')) return; await post('/gestion/api/heures/paiements/'+ds.hrUnpay+'/annuler'); return hrCharger(); }
+    } catch(err){ alert(err.message); t.disabled = false; }
+  });
 }
 function csEvents(){
   $('cs-enc').onclick = async () => {
@@ -1390,6 +1522,8 @@ if (VIEW === 'commandes') {
   adEvents();
 } else if (VIEW === 'caisse') {
   csEvents();
+} else if (VIEW === 'heures') {
+  hrEvents();
 } else if (VIEW === 'stock') {
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
   stEvents();

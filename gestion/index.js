@@ -13,6 +13,7 @@ const duplication = require('./duplication');
 const caisse = require('./caisse');
 const formulaire = require('./formulaire');
 const admin = require('./admin');
+const heures = require('./heures');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -71,6 +72,25 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/caisse/decaisser', auth.requireUser, actC(req => caisse.decaisser(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/relever', auth.requireUser, auth.requireAdmin, actC(req => caisse.relever(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/:id/supprimer', auth.requireUser, auth.requireAdmin, actC(req => caisse.supprimer(Number(req.params.id), quiC(req))));
+
+  // ---------- Heures des collaborateurs ----------
+  app.get('/gestion/heures', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'heures'));
+  });
+  const quiH = req => req.user.name || req.user.email;
+  const actH = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Gestion heures :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir(req.body || {}, quiH(req), req.user.role)));
+  app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role)));
+  app.get('/gestion/api/heures/semaine', auth.requireUser, auth.requireAdmin, actH(req => heures.semaine(String(req.query.lundi || ''))));
+  app.post('/gestion/api/heures/:id(\\d+)/modifier', auth.requireUser, auth.requireAdmin, actH(req => heures.modifier(Number(req.params.id), req.body || {}, quiH(req))));
+  app.post('/gestion/api/heures/payer', auth.requireUser, auth.requireAdmin, actH(req => heures.payer(String(req.body?.collaborateur || ''), String(req.body?.lundi || ''), quiH(req))));
+  app.post('/gestion/api/heures/paiements/:id(\\d+)/annuler', auth.requireUser, auth.requireAdmin, actH(req => heures.annulerPaiement(Number(req.params.id), quiH(req))));
+  app.post('/gestion/api/heures/recap', auth.requireUser, auth.requireAdmin, actH(req => heures.envoyerRecap(String(req.body?.lundi || ''), quiH(req))));
+  app.post('/gestion/api/heures/recap-auto', auth.requireUser, auth.requireAdmin, actH(async req => { await heures.setReglage('heures_recap_auto', req.body?.active ? 'on' : 'off'); return { ok: true }; }));
+  app.post('/gestion/api/heures/importer', auth.requireUser, auth.requireAdmin, actH(req => heures.importerExcel(quiH(req))));
 
   app.get('/gestion/stock', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
@@ -231,5 +251,6 @@ module.exports = function mountGestion(app) {
 
   commandes.startSync();
   planches.startSync();
+  heures.startRecap();
   console.log('Module Gestion IGS monté sur /gestion');
 };
