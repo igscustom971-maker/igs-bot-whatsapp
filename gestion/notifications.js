@@ -18,6 +18,8 @@ const commandes = require('./commandes');
 const planches = require('./planches');
 
 const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
+// Lien avis Google d'IGS (celui du flux Power Automate), modifiable dans Admin
+const LIEN_AVIS_DEFAUT = 'https://g.page/r/CWIVVFwaHQYBEBM/review';
 const HORAIRES = 'du lundi au vendredi de 14h30 à 17h30';
 const ADRESSE = '62 rue Louis Vatable, Pointe-à-Pitre';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -80,6 +82,12 @@ function textes(type, ctx, ton) {
     planche_expedition: ton.tu
       ? `Salut${p} ! Ta planche DTF est partie 📦 Numéro de suivi : ${ctx.suivi}\nSuivi : ${suiviLien(ctx.suivi)}`
       : `Bonjour${p} 👋 Votre planche DTF a été expédiée 📦 Numéro de suivi : ${ctx.suivi}\nSuivi : ${suiviLien(ctx.suivi)}`,
+    livree_colis: ton.tu
+      ? `Salut${p} ! Ton colis${ctx.suivi ? ' (' + ctx.suivi + ')' : ''} a bien été livré 📦 On espère que ta commande te plaît !${ctx.lienAvis ? `\nSi tu es content(e), un petit avis Google nous aiderait vraiment 🙏 ${ctx.lienAvis}` : ''}`
+      : `Bonjour${p} 👋 Votre colis${ctx.suivi ? ' (n° ' + ctx.suivi + ')' : ''} a bien été livré 📦 Nous espérons que votre commande vous plaît !${ctx.lienAvis ? `\nSi vous êtes satisfait(e), un petit avis Google nous aiderait beaucoup 🙏 ${ctx.lienAvis}` : ''}`,
+    planche_livree: ton.tu
+      ? `Salut${p} ! Ta planche DTF${ctx.suivi ? ' (' + ctx.suivi + ')' : ''} a bien été livrée 📦${ctx.lienAvis ? `\nSi tu es content(e), un petit avis Google nous aiderait vraiment 🙏 ${ctx.lienAvis}` : ''}`
+      : `Bonjour${p} 👋 Votre planche DTF${ctx.suivi ? ' (n° ' + ctx.suivi + ')' : ''} a bien été livrée 📦${ctx.lienAvis ? `\nSi vous êtes satisfait(e), un petit avis Google nous aiderait beaucoup 🙏 ${ctx.lienAvis}` : ''}`,
   };
   const sujetRef = ctx.devis ? ` ${ctx.devis}` : '';
   const S = {
@@ -88,16 +96,26 @@ function textes(type, ctx, ton) {
     avis: 'Votre avis compte pour nous - IGS CUSTOM BAR',
     planche_prete: 'Votre planche DTF est prête - IGS CUSTOM BAR',
     planche_expedition: 'Votre planche DTF a été expédiée - IGS CUSTOM BAR',
+    livree_colis: 'Votre commande IGS CUSTOM BAR est livrée 📦',
+    planche_livree: 'Votre planche DTF IGS CUSTOM BAR est livrée 📦',
   };
-  const bonjour = `<p>Bonjour${ton.prenom ? ' ' + esc(ton.prenom) : ''},</p>`;
+  const qui = ton.prenom || (ctx.nom ? String(ctx.nom).trim() : '');
+  const bonjour = `<p>Bonjour${qui ? ' ' + esc(qui) : ''},</p>`;
   const sig = '<p>Belle journée,<br>L\'équipe IGS CUSTOM BAR<br><span style="color:#6b7280;font-size:12px">' + ADRESSE + ' · 0690 69 18 63 · igscustom.fr</span></p>';
   const especesMail = ctx.especes ? `<p>Merci de prévoir <b>${esc(ctx.especes)}</b> en espèces lors du retrait.</p>` : '';
+  // Colis livré : texte repris du flux Power Automate « Colissimo livré + avis »
+  const livreMail = quoi => `${bonjour}<p>Bonne nouvelle : ${quoi}${ctx.suivi ? ` (n° de suivi ${esc(ctx.suivi)})` : ''} a bien été livré${quoi.includes('planche') ? 'e' : ''} !</p>`
+    + `<p>Nous espérons que votre commande vous plaît autant qu'on a aimé la réaliser. Si vous avez une question ou le moindre souci, répondez simplement à ce mail, on s'en occupe.</p>`
+    + (ctx.lienAvis ? `<p>Votre avis compte énormément pour nous : si vous êtes satisfait(e), pourriez-vous prendre une minute pour nous laisser un avis Google ?</p><p>👉 <a href="${esc(ctx.lienAvis)}">Votre avis ici</a></p>` : '')
+    + `<p>Merci pour votre confiance et à très bientôt,</p><p>L'équipe IGS CUSTOM BAR.</p>`;
   const M = {
     prete: `${bonjour}<p>Bonne nouvelle : votre commande${esc(sujetRef)} est <b>prête</b> !</p><p>Vous pouvez venir la récupérer ${HORAIRES}, au ${ADRESSE}.</p>${especesMail}${sig}`,
     expedition: `${bonjour}<p>Votre commande${esc(sujetRef)} a été <b>expédiée</b>.</p><p>Numéro de suivi : <b>${esc(ctx.suivi)}</b><br><a href="${suiviLien(ctx.suivi)}">Suivre mon colis sur La Poste</a></p>${sig}`,
     avis: `${bonjour}<p>Merci encore pour votre confiance !</p><p>Si vous êtes satisfait(e) de votre commande, un petit avis Google nous aiderait beaucoup :</p><p><a href="${esc(ctx.lienAvis)}" style="display:inline-block;padding:12px 18px;background:#e91e8c;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold">⭐ Laisser un avis</a></p>${sig}`,
     planche_prete: `${bonjour}<p>Votre <b>planche DTF</b> est prête !</p><p>Vous pouvez venir la récupérer ${HORAIRES}, au ${ADRESSE}.</p>${especesMail}${sig}`,
     planche_expedition: `${bonjour}<p>Votre <b>planche DTF</b> a été expédiée.</p><p>Numéro de suivi : <b>${esc(ctx.suivi)}</b><br><a href="${suiviLien(ctx.suivi)}">Suivre mon colis sur La Poste</a></p>${sig}`,
+    livree_colis: livreMail('votre colis'),
+    planche_livree: livreMail('votre planche DTF'),
   };
   return { whatsapp: W[type], sujet: S[type], mail: M[type] };
 }
@@ -175,7 +193,7 @@ async function aEnvoyer() {
     if (c.numero_suivi && libre(c.cle, 'expedition')) out.push({ ...base, type: 'expedition', suivi: c.numero_suivi });
   }
   // Avis : le lendemain à 10 h du passage en LIVRÉE (date relevée par le dashboard, après l'activation)
-  const lienAvis = await reglage('notif_avis_lien', '');
+  const lienAvis = await reglage('notif_avis_lien', LIEN_AVIS_DEFAUT);
   const active = await reglage('notif_active_le', null);
   if (supabase && lienAvis && active) {
     const { data } = await supabase.from('gestion_commandes').select('cle, n_devis, client, email, telephone, livree_vu_le').not('livree_vu_le', 'is', null).gte('livree_vu_le', active).limit(500);
@@ -230,7 +248,7 @@ async function etat() {
   const items = await aEnvoyer().catch(err => { throw new Error(err.message); });
   return {
     actives: (await reglage('notif_actives', 'off')) === 'on',
-    lienAvis: await reglage('notif_avis_lien', ''),
+    lienAvis: await reglage('notif_avis_lien', LIEN_AVIS_DEFAUT),
     activeLe: await reglage('notif_active_le', null),
     enAttente: items.map(i => ({ cle: i.cle, type: i.type, nom: i.nom, devis: i.devis, email: i.email, tel: i.tel })),
   };
@@ -265,4 +283,4 @@ function start() {
   setInterval(() => purger().catch(() => {}), 24 * 3600e3);
 }
 
-module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerTexteWhatsApp, profilClient, _test: { textes, aEnvoyer } };
+module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerTexteWhatsApp, profilClient, contactPlanche, reglage, journal, dejaTraites, _test: { textes, aEnvoyer } };

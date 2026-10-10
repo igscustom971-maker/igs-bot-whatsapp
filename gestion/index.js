@@ -344,5 +344,6 @@ module.exports = function mountGestion(app) {
   require('./telephones').start();
   require('./bat-reponses').start();
   notif.start();
+  require('./colissimo').start();
   console.log('Module Gestion IGS monté sur /gestion');
 };
