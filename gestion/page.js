@@ -253,17 +253,14 @@ ${view === 'accueil' ? `
     </div>
   </section>` : view === 'caisse' ? `
   <section id="v-caisse">
-    <div class="tools"><div style="flex:1"></div><button id="cs-enc" class="btn">＋ Encaissement espèces</button><button id="cs-rel" class="btn pink">💰 Récupérer les espèces</button><button id="refresh" class="btn primary">↻ Actualiser</button><span id="sync" class="sync"></span></div>
-    <div class="cols">
+    <div class="tools"><div style="flex:1"></div><button id="cs-enc" class="btn">＋ Encaisser</button><button id="cs-dec" class="btn">－ Décaisser</button>${user.role === 'admin' ? '<button id="cs-rel" class="btn pink">💰 Récupérer les espèces</button>' : ''}<button id="refresh" class="btn primary">↻ Actualiser</button><span id="sync" class="sync"></span></div>
+    <div class="cols"${user.role === 'admin' ? '' : ' style="grid-template-columns:1fr"'}>
       <div class="stack">
         <div class="card"><h3>Dans la caisse (théorique)</h3><div id="cs-solde"><div class="skel"></div></div></div>
-        <div class="card"><h3>Encaissements depuis le dernier relevé</h3><div id="cs-depuis"></div></div>
-        <div class="card"><h3>Historique de la caisse</h3><div id="cs-histo"></div></div>
+        <div class="card"><h3>Mouvements depuis le dernier relevé</h3><div id="cs-depuis"></div></div>
+        ${user.role === 'admin' ? '<div class="card"><h3>Historique de la caisse</h3><div id="cs-histo"></div></div>' : ''}
       </div>
-      <div class="stack">
-        <div class="card"><h3>Espèces encaissées par mois</h3><div id="cs-mois"></div></div>
-        <div class="card"><h3>Par année</h3><div id="cs-annee"></div></div>
-      </div>
+      ${user.role === 'admin' ? '<div class="stack"><div class="card"><h3>Espèces encaissées par mois</h3><div id="cs-mois"></div></div><div class="card"><h3>Par année</h3><div id="cs-annee"></div></div></div>' : ''}
     </div>
   </section>` : view === 'stock' ? `
   <section id="v-stock">
@@ -529,11 +526,12 @@ function csRender(){
     + (r ? 'Dernier relevé le '+new Date(r.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})+' par '+esc(r.utilisateur||'?')+' : '+eur(Number(r.montant))+' récupérés'+(Number(r.ecart)?' · <b style="color:var(--bad)">écart '+(r.ecart>0?'+':'')+eur(Number(r.ecart))+'</b>':' · aucun écart')
        : 'Aucun relevé pour l\\'instant')+'</div>';
   const ligne = l => '<div class="mvt"><span class="d">'+new Date(l.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</span><span style="flex:1">'
-    + (l.type === 'releve' ? '💰 <b>Relevé</b> : compté '+eur(Number(l.compte))+' (théorique '+eur(Number(l.theorique))+'), récupéré '+eur(Number(l.montant))+(Number(l.ecart)?' · <b style="color:var(--bad)">écart '+eur(Number(l.ecart))+'</b>':'')
+    + (l.type === 'sortie' ? '➖ <b>'+eur(Number(l.montant))+'</b> décaissé' : l.type === 'releve' ? '💰 <b>Relevé</b> : compté '+eur(Number(l.compte))+' (théorique '+eur(Number(l.theorique))+'), récupéré '+eur(Number(l.montant))+(Number(l.ecart)?' · <b style="color:var(--bad)">écart '+eur(Number(l.ecart))+'</b>':'')
        : '💵 <b>'+eur(Number(l.montant))+'</b> · '+esc(l.client||'—')+(l.ref?' · '+esc(l.ref):'')+' <span class="tag">'+esc(l.source||'autre')+'</span>')
     + (l.note?' · '+esc(l.note):'')+' <span class="sub">par '+esc(l.utilisateur||'?')+'</span></span>'
-    + (ADMIN && l.type === 'encaissement' ? '<button class="btn" style="padding:2px 7px" data-cs-del="'+l.id+'" title="Supprimer (erreur de saisie)">✕</button>' : '') + '</div>';
-  $('cs-depuis').innerHTML = d.depuisReleve.length ? d.depuisReleve.map(ligne).join('') : '<div class="note">Aucun encaissement depuis le dernier relevé.</div>';
+    + (ADMIN && (l.type === 'encaissement' || l.type === 'sortie') ? '<button class="btn" style="padding:2px 7px" data-cs-del="'+l.id+'" title="Supprimer (erreur de saisie)">✕</button>' : '') + '</div>';
+  $('cs-depuis').innerHTML = d.depuisReleve.length ? d.depuisReleve.map(ligne).join('') : '<div class="note">Aucun mouvement depuis le dernier relevé.</div>';
+  if (!ADMIN) return;
   $('cs-histo').innerHTML = d.historique.length ? d.historique.slice(0,60).map(ligne).join('') : '<div class="note">Aucun mouvement.</div>';
   const mois = Object.entries(d.parMois).sort((a,b) => b[0].localeCompare(a[0])).slice(0, 18);
   const max = Math.max(1, ...mois.map(m => m[1]));
@@ -549,7 +547,13 @@ function csEvents(){
     try { await post('/gestion/api/caisse/encaisser', { client, montant, ref, note, source: 'autre' }); } catch(e){ alert(e.message); }
     charger(false);
   };
-  $('cs-rel').onclick = async () => {
+  $('cs-dec').onclick = async () => {
+    const montant = prompt('Montant sorti de la caisse :'); if (!montant) return;
+    const note = prompt('Motif (obligatoire, ex. achat fournitures, monnaie) :'); if (!note) return;
+    try { await post('/gestion/api/caisse/decaisser', { montant, note }); } catch(e){ alert(e.message); }
+    charger(false);
+  };
+  if ($('cs-rel')) $('cs-rel').onclick = async () => {
     const th = caisseData ? caisseData.solde : 0;
     const compte = prompt('Montant compté dans la caisse (théorique : '+eur(th)+') :', String(th).replace('.',',')); if (compte === null) return;
     const recup = prompt('Montant récupéré (par défaut : tout) :', compte); if (recup === null) return;

@@ -143,9 +143,55 @@ async function copyItem(itemId, parentId, name, { attendre = false, o } = {}) {
   throw new Error('Copie SharePoint trop longue');
 }
 
+// ---------- Envoi de mail (permission Mail.Send de l'app) ----------
+async function gPost(path, body, method = 'POST') {
+  const res = await fetch(GRAPH + path, {
+    method,
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Graph ${res.status} ${path.slice(0, 80)} : ${(await res.text()).slice(0, 300)}`);
+  return res.status === 202 || res.status === 204 ? null : res.json();
+}
+
+// Mail avec pièces jointes de toute taille : brouillon -> pièces jointes (session d'envoi si > 3 Mo) -> envoi
+// attachments : [{ name, contentType, buffer }]
+async function sendMail(mailbox, { to, subject, html, replyTo, attachments = [] }) {
+  const box = `/users/${encodeURIComponent(mailbox)}`;
+  const draft = await gPost(`${box}/messages`, {
+    subject,
+    body: { contentType: 'HTML', content: html },
+    toRecipients: (Array.isArray(to) ? to : [to]).map(a => ({ emailAddress: { address: a } })),
+    ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
+  });
+  for (const a of attachments) {
+    if (a.buffer.length < 3 * 1024 * 1024) {
+      await gPost(`${box}/messages/${draft.id}/attachments`, {
+        '@odata.type': '#microsoft.graph.fileAttachment', name: a.name, contentType: a.contentType || 'application/octet-stream',
+        contentBytes: a.buffer.toString('base64'),
+      });
+    } else {
+      const session = await gPost(`${box}/messages/${draft.id}/attachments/createUploadSession`, {
+        AttachmentItem: { attachmentType: 'file', name: a.name, size: a.buffer.length, contentType: a.contentType || 'application/octet-stream' },
+      });
+      const CHUNK = 3 * 1024 * 1024; // multiple de 320 Ko
+      for (let start = 0; start < a.buffer.length; start += CHUNK) {
+        const end = Math.min(start + CHUNK, a.buffer.length);
+        const res = await fetch(session.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Length': String(end - start), 'Content-Range': `bytes ${start}-${end - 1}/${a.buffer.length}`, 'Content-Type': 'application/octet-stream' },
+          body: a.buffer.subarray(start, end),
+        });
+        if (!res.ok) throw new Error(`Pièce jointe « ${a.name} » refusée : ${res.status} ${(await res.text()).slice(0, 200)}`);
+      }
+    }
+  }
+  await gPost(`${box}/messages/${draft.id}/send`, undefined);
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

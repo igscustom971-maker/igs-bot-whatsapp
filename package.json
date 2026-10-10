@@ -10,7 +10,8 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
     "express": "^4.19.2",
-    "@supabase/supabase-js": "^2.45.0"
+    "multer": "^2.4.0"
   }
 }

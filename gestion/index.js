@@ -11,6 +11,7 @@ const planches = require('./planches');
 const stock = require('./stock');
 const duplication = require('./duplication');
 const caisse = require('./caisse');
+const formulaire = require('./formulaire');
 const page = require('./page');
 
 module.exports = function mountGestion(app) {
@@ -20,6 +21,9 @@ module.exports = function mountGestion(app) {
     if (host === cfg.DASHBOARD_HOST && req.path === '/') return res.redirect('/gestion');
     next();
   });
+
+  // Formulaire client public (igscustom.fr/formulaire) -> mail Microsoft 365
+  formulaire.mount(app);
 
   auth.mount(app);
 
@@ -42,9 +46,10 @@ module.exports = function mountGestion(app) {
     try { res.json((await fn(req)) || { ok: true }); }
     catch (err) { console.error('Gestion caisse :', err.message); res.status(400).json({ error: err.message }); }
   };
-  app.get('/gestion/api/caisse', auth.requireUser, actC(() => caisse.etat()));
+  app.get('/gestion/api/caisse', auth.requireUser, actC(req => caisse.etat(req.user.role)));
   app.post('/gestion/api/caisse/encaisser', auth.requireUser, actC(req => caisse.encaisser(req.body || {}, quiC(req))));
-  app.post('/gestion/api/caisse/relever', auth.requireUser, actC(req => caisse.relever(req.body || {}, quiC(req))));
+  app.post('/gestion/api/caisse/decaisser', auth.requireUser, actC(req => caisse.decaisser(req.body || {}, quiC(req))));
+  app.post('/gestion/api/caisse/relever', auth.requireUser, auth.requireAdmin, actC(req => caisse.relever(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/:id/supprimer', auth.requireUser, auth.requireAdmin, actC(req => caisse.supprimer(Number(req.params.id), quiC(req))));
 
   app.get('/gestion/stock', auth.requireUser, (req, res) => {

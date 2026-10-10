@@ -29,6 +29,18 @@ async function encaisser(data, user) {
   return ins;
 }
 
+// Décaissement : espèces sorties de la caisse (achat, monnaie, remise…) avec un motif obligatoire
+async function decaisser(data, user) {
+  needDb();
+  const montant = num(data.montant);
+  if (!(montant > 0)) throw new Error('Montant invalide');
+  const note = txt(data.note).slice(0, 300);
+  if (!note) throw new Error('Indique le motif du décaissement');
+  const { data: ins, error } = await supabase.from('gestion_caisse').insert({ type: 'sortie', montant, note, utilisateur: user, source: 'autre' }).select().single();
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  return ins;
+}
+
 async function lignes() {
   needDb();
   const { data, error } = await supabase.from('gestion_caisse').select('*').order('cree_le', { ascending: true }).limit(5000);
@@ -41,16 +53,18 @@ function solde(ls) {
   let s = 0, dernierReleve = null;
   for (const l of ls) {
     if (l.type === 'encaissement') s += Number(l.montant);
+    else if (l.type === 'sortie') s -= Number(l.montant);
     else if (l.type === 'releve') { s = Number(l.compte) - Number(l.montant); dernierReleve = l; }
   }
   return { solde: Math.round(s * 100) / 100, dernierReleve };
 }
 
-async function etat() {
+async function etat(role) {
   const ls = await lignes();
   const { solde: s, dernierReleve } = solde(ls);
   const enc = ls.filter(l => l.type === 'encaissement');
-  const depuis = dernierReleve ? enc.filter(l => l.cree_le > dernierReleve.cree_le) : enc;
+  const mvts = ls.filter(l => l.type !== 'releve');
+  const depuis = dernierReleve ? mvts.filter(l => l.cree_le > dernierReleve.cree_le) : mvts;
   const parMois = {}, parAnnee = {};
   enc.forEach(l => {
     const d = new Date(new Date(l.cree_le).toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
@@ -58,12 +72,14 @@ async function etat() {
     parMois[m] = Math.round(((parMois[m] || 0) + Number(l.montant)) * 100) / 100;
     parAnnee[d.getFullYear()] = Math.round(((parAnnee[d.getFullYear()] || 0) + Number(l.montant)) * 100) / 100;
   });
+  const admin = role === 'admin';
   return {
     solde: s,
     dernierReleve,
     depuisReleve: depuis.slice().reverse(),
-    historique: ls.slice().reverse().slice(0, 200),
-    parMois, parAnnee,
+    // Totaux et historique complet : réservés à l'administrateur
+    historique: admin ? ls.slice().reverse().slice(0, 200) : [],
+    parMois: admin ? parMois : null, parAnnee: admin ? parAnnee : null,
   };
 }
 
@@ -92,4 +108,4 @@ async function supprimer(id, user) {
   await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'caisse_ligne_supprimee', cle: String(id), details: l });
 }
 
-module.exports = { encaisser, etat, relever, supprimer };
+module.exports = { decaisser, encaisser, etat, relever, supprimer };
