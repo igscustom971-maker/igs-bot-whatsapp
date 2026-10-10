@@ -13,7 +13,8 @@ let charge = false;
 async function charger() {
   if (!supabase) return mode;
   try {
-    const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'source_donnees').maybeSingle();
+    const { data, error } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'source_donnees').maybeSingle();
+    if (error) throw new Error(error.message); // relu au prochain appel
     if (data?.valeur === 'base' || data?.valeur === 'excel') mode = data.valeur;
     charge = true;
   } catch (err) { console.error('Gestion source :', err.message); }

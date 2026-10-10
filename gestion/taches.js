@@ -8,6 +8,7 @@ const g = require('./graph');
 const { supabase } = require('./db');
 const planches = require('./planches');
 
+const lireJSON = (v, d) => { try { const x = JSON.parse(v); return x ?? d; } catch { return d; } };
 const heureGP = (d = Date.now()) => new Date(new Date(d).toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
 const statutKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -96,7 +97,7 @@ async function commandesPayees() {
   const odoo = require('./odoo');
   const commandes = require('./commandes');
   const liste = await odoo.commandesPayeesRecentes(48);
-  const vus = new Set(JSON.parse((await reglage('commandes_payees_vues', '[]')) || '[]'));
+  const vus = new Set(lireJSON(await reglage('commandes_payees_vues', '[]'), []));
   const { rows } = await commandes.listCommandes({ force: true });
   const ajoutees = [];
   for (const o of liste) {
@@ -187,7 +188,7 @@ async function tour() {
     const h = heureGP();
     for (const t of TACHES) {
       if ((await reglage(`tache_${t.id}`, 'off')) !== 'on') continue;
-      const dernier = JSON.parse((await reglage(`tache_${t.id}_dernier`, 'null')) || 'null');
+      const dernier = lireJSON(await reglage(`tache_${t.id}_dernier`, 'null'), null);
       const d = dernier ? Date.parse(dernier.le) : null;
       // « Vider dossier planches » : vers minuit seulement
       if (t.id === 'vider_racine_planches' && h.getHours() > 1) continue;
@@ -203,7 +204,7 @@ async function etat() {
   for (const t of TACHES) {
     out.push({ id: t.id, nom: t.nom, flux: t.flux, rythme: t.rythme, evenement: !!t.evenement,
       active: (await reglage(`tache_${t.id}`, 'off')) === 'on',
-      dernier: etatMemoire.get(t.id)?.le ? etatMemoire.get(t.id) : JSON.parse((await reglage(`tache_${t.id}_dernier`, 'null')) || 'null') });
+      dernier: etatMemoire.get(t.id)?.le ? etatMemoire.get(t.id) : lireJSON(await reglage(`tache_${t.id}_dernier`, 'null'), null) });
   }
   let sefi = null;
   try { sefi = await require('./sefi').etat(); } catch {}

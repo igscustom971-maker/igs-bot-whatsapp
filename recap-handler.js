@@ -96,7 +96,8 @@ async function handleProductionRecap(to, sendText) {
   try { recap = await construireRecap(); }
   catch (err) {
     console.error('Récap production (dashboard) : erreur', err.message);
-    try { recap = await recapViaFlux(); } catch (e) { console.error('Récap production (flux) : erreur', e.message); }
+    // L'ancien flux lit l'Excel archivé : jamais utilisé une fois le dashboard sur sa base
+    if (!require('./gestion/source').estBase()) { try { recap = await recapViaFlux(); } catch (e) { console.error('Récap production (flux) : erreur', e.message); } }
   }
   // WhatsApp limite un message à ~4 000 caractères : découpage par bloc si besoin
   const morceaux = [];

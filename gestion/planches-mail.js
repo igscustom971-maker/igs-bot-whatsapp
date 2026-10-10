@@ -127,13 +127,25 @@ async function relever() {
   if (!debut) { await setReglage('planches_mail_depuis', new Date().toISOString()); return 'démarrage : seuls les mails reçus à partir de maintenant seront traités'; }
   const id = await dossierMail();
   const { value = [] } = await g.graph(`/users/${encodeURIComponent(MAILBOX)}/mailFolders/${encodeURIComponent(id)}/messages?$filter=receivedDateTime ge ${new Date(debut).toISOString()}&$orderby=receivedDateTime asc&$top=30&$select=id,subject,from,receivedDateTime,body,bodyPreview,hasAttachments`);
-  const lus = new Set(JSON.parse((await reglage('planches_mails_lus', '[]')) || '[]'));
+  let l = []; try { l = JSON.parse((await reglage('planches_mails_lus', '[]')) || '[]'); } catch {}
+  const lus = new Set(Array.isArray(l) ? l : []);
+  let essais = {}; try { essais = JSON.parse((await reglage('planches_mails_essais', '{}')) || '{}') || {}; } catch {}
   const res = [];
   for (const m of value) {
     if (lus.has(m.id)) continue;
     if ((m.from?.emailAddress?.address || '').toLowerCase() === MAILBOX) { lus.add(m.id); continue; }
     try { res.push(await traiter(m)); lus.add(m.id); }
-    catch (err) { console.error(`Planche mail « ${m.subject} » :`, err.message); res.push(`erreur « ${m.subject || ''} » : ${err.message}`); }
+    catch (err) {
+      console.error(`Planche mail « ${m.subject} » :`, err.message);
+      essais[m.id] = (essais[m.id] || 0) + 1;
+      // Après 3 échecs : on arrête (évite de redéposer les fichiers en boucle) et on prévient
+      if (essais[m.id] >= 3) {
+        lus.add(m.id); delete essais[m.id];
+        await g.sendMail(MAILBOX, { to: MAILBOX, subject: `⚠️ Planche DTF non traitée : ${m.subject || '(sans objet)'}`, html: `<p>Le mail de planche de <b>${String(m.from?.emailAddress?.address || '').replace(/</g, '&lt;')}</b> n'a pas pu être traité automatiquement après 3 essais :</p><p>${String(err.message).replace(/</g, '&lt;')}</p><p>À traiter à la main (ligne planche et fichiers).</p>` }).catch(() => {});
+      }
+      await setReglage('planches_mails_essais', JSON.stringify(essais));
+      res.push(`erreur « ${m.subject || ''} » : ${err.message}`);
+    }
     await setReglage('planches_mails_lus', JSON.stringify([...lus].slice(-500)));
   }
   return res.length ? res.join(' ; ') : 'aucun nouveau mail';

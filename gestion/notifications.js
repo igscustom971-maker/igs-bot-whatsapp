@@ -132,7 +132,10 @@ async function envoyerTexteWhatsApp(tel, texte) {
   if (supabase) await supabase.from('conversations').insert({ phone_number: tel, role: 'assistant', content: texte });
 }
 
+// Envoyés pendant cette exécution du serveur (filet de sécurité si l'écriture du journal échoue)
+const envoyesMemoire = new Set();
 async function journal(o) {
+  if (o && o.cle && o.type && o.statut !== 'echec') envoyesMemoire.add(`${o.cle}|${o.type}`);
   if (!supabase) return;
   const { error } = await supabase.from('gestion_notifications').insert(o);
   if (error) console.error('Gestion notifications (journal) :', error.message);
@@ -161,14 +164,20 @@ async function envoyer(item, par = 'Automatique') {
 }
 
 // ---------- Ce qui est à envoyer maintenant ----------
-async function dejaTraites() {
-  if (!supabase) return { faits: new Set(), echecsRecents: new Set() };
-  const depuis = new Date(Date.now() - 6 * 3600e3).toISOString();
-  const { data } = await supabase.from('gestion_notifications').select('cle, type, statut, cree_le').gte('cree_le', new Date(Date.now() - 400 * 86400e3).toISOString()).limit(20000);
+// Déjà envoyé / ignoré pour ces clés ? Requête ciblée (jamais de lecture de tout le journal, limité à 1000 lignes par Supabase).
+// Une erreur Supabase arrête le cycle : on n'envoie rien plutôt que de renvoyer à tout le monde.
+async function dejaTraites(cles) {
   const faits = new Set(), echecsRecents = new Set();
-  for (const n of data || []) {
-    if (n.statut === 'envoye' || n.statut === 'ignore' || n.statut === 'sans_contact') faits.add(`${n.cle}|${n.type}`);
-    else if (n.statut === 'echec' && n.cree_le > depuis) echecsRecents.add(`${n.cle}|${n.type}`);
+  if (!supabase) return { faits, echecsRecents };
+  const liste = [...new Set((cles || []).filter(Boolean))];
+  const depuis = new Date(Date.now() - 6 * 3600e3).toISOString();
+  for (let i = 0; i < liste.length; i += 80) {
+    const { data, error } = await supabase.from('gestion_notifications').select('cle, type, statut, cree_le').in('cle', liste.slice(i, i + 80)).limit(5000);
+    if (error) throw new Error(`Journal des messages illisible : ${error.message}`);
+    for (const n of data || []) {
+      if (n.statut === 'envoye' || n.statut === 'ignore' || n.statut === 'sans_contact') faits.add(`${n.cle}|${n.type}`);
+      else if (n.statut === 'echec' && n.cree_le > depuis) echecsRecents.add(`${n.cle}|${n.type}`);
+    }
   }
   return { faits, echecsRecents };
 }
@@ -181,40 +190,59 @@ async function contactPlanche(client) {
   return { email: null, tel: null };
 }
 
+// Semaine ISO (planches hebdo : un message « prête » par semaine)
+function semaine(d = new Date()) {
+  const x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const j = x.getUTCDay() || 7; x.setUTCDate(x.getUTCDate() + 4 - j);
+  const an = x.getUTCFullYear(), s = Math.ceil(((x - Date.UTC(an, 0, 1)) / 86400e3 + 1) / 7);
+  return `${an}-S${String(s).padStart(2, '0')}`;
+}
+// Clé stable d'une planche (la clé change quand le N° de devis est ajouté) ; anciennes clés gardées pour la vérification
+function clesPlanche(p) {
+  const stable = p.excel_id ? `PL-${p.excel_id}` : p.cle;
+  const cle = p.hebdo ? `${stable}#${semaine(heureGuadeloupe())}` : stable;
+  const sansDevis = p.excel_id ? `SANS-DEVIS-${String(p.client || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${p.excel_id}` : null;
+  return { cle, alias: p.hebdo ? [] : [p.cle, sansDevis].filter(Boolean) };
+}
+
 async function aEnvoyer() {
-  const { faits, echecsRecents } = await dejaTraites();
-  const libre = (cle, type) => !faits.has(`${cle}|${type}`) && !echecsRecents.has(`${cle}|${type}`);
-  const out = [];
+  const cands = []; // { item, alias }
   const { rows } = await commandes.listCommandes();
   for (const c of rows) {
     const st = statutKey(c.statut);
     const base = { cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, especes: c.a_payer_especes ? (c.montant_especes != null && !isNaN(Number(c.montant_especes)) ? Number(c.montant_especes).toFixed(2).replace('.', ',') + ' €' : 'le montant') : null };
-    if (st === 'TERMINEE' && libre(c.cle, 'prete')) out.push({ ...base, type: 'prete' });
-    if (c.numero_suivi && libre(c.cle, 'expedition')) out.push({ ...base, type: 'expedition', suivi: c.numero_suivi });
+    if (st === 'TERMINEE') cands.push({ item: { ...base, type: 'prete' }, alias: [] });
+    if (c.numero_suivi) cands.push({ item: { ...base, type: 'expedition', suivi: c.numero_suivi }, alias: [] });
   }
   // Avis : le lendemain à 10 h du passage en LIVRÉE (date relevée par le dashboard, après l'activation)
   const lienAvis = await reglage('notif_avis_lien', LIEN_AVIS_DEFAUT);
   const active = await reglage('notif_active_le', null);
   if (supabase && lienAvis && active) {
-    const { data } = await supabase.from('gestion_commandes').select('cle, n_devis, client, email, telephone, livree_vu_le').not('livree_vu_le', 'is', null).gte('livree_vu_le', active).limit(500);
+    const { data, error } = await supabase.from('gestion_commandes').select('cle, n_devis, client, email, telephone, livree_vu_le').not('livree_vu_le', 'is', null).gte('livree_vu_le', active).order('livree_vu_le', { ascending: false }).limit(300);
+    if (error) throw new Error(error.message);
     const maintenant = heureGuadeloupe();
     for (const c of data || []) {
       const vu = new Date(new Date(c.livree_vu_le).toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
       const du = new Date(vu.getFullYear(), vu.getMonth(), vu.getDate() + 1, 10, 0, 0);
-      if (maintenant >= du && libre(c.cle, 'avis')) out.push({ cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, type: 'avis', lienAvis });
+      if (maintenant >= du) cands.push({ item: { cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, type: 'avis', lienAvis }, alias: [] });
     }
   }
   // Planches
   const pl = await planches.listPlanches();
+  const plCands = [];
   for (const p of pl.rows || []) {
     const st = statutKey(p.statut);
-    const veutPrete = st === 'ARECUPERER' && libre(p.cle, 'planche_prete');
-    const veutExp = st === 'EXPEDIEE' && p.numero_suivi && libre(p.cle, 'planche_expedition');
-    if (!veutPrete && !veutExp) continue;
-    const ct = await contactPlanche(p.client);
-    const base = { cle: p.cle, devis: p.n_devis, nom: p.client, email: ct.email, tel: ct.tel, planche: true, especes: null };
-    if (veutPrete) out.push({ ...base, type: 'planche_prete' });
-    if (veutExp) out.push({ ...base, type: 'planche_expedition', suivi: p.numero_suivi });
+    if (st !== 'ARECUPERER' && !(st === 'EXPEDIEE' && p.numero_suivi)) continue;
+    const { cle, alias } = clesPlanche(p);
+    plCands.push({ p, cle, alias, type: st === 'ARECUPERER' ? 'planche_prete' : 'planche_expedition' });
+  }
+  const { faits, echecsRecents } = await dejaTraites([...cands.flatMap(c => [c.item.cle, ...c.alias]), ...plCands.flatMap(c => [c.cle, ...c.alias])]);
+  const libre = (cles, type) => cles.every(k => !faits.has(`${k}|${type}`) && !echecsRecents.has(`${k}|${type}`) && !envoyesMemoire.has(`${k}|${type}`));
+  const out = cands.filter(c => libre([c.item.cle, ...c.alias], c.item.type)).map(c => c.item);
+  for (const c of plCands) {
+    if (!libre([c.cle, ...c.alias], c.type)) continue;
+    const ct = await contactPlanche(c.p.client);
+    out.push({ cle: c.cle, devis: c.p.n_devis, nom: c.p.client, email: ct.email, tel: ct.tel, planche: true, especes: null, type: c.type, ...(c.type === 'planche_expedition' ? { suivi: c.p.numero_suivi } : {}) });
   }
   return out;
 }
@@ -283,4 +311,4 @@ function start() {
   setInterval(() => purger().catch(() => {}), 24 * 3600e3);
 }
 
-module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerTexteWhatsApp, profilClient, contactPlanche, reglage, journal, dejaTraites, _test: { textes, aEnvoyer } };
+module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerTexteWhatsApp, profilClient, contactPlanche, reglage, journal, dejaTraites, _test: { textes, aEnvoyer, clesPlanche, semaine } };

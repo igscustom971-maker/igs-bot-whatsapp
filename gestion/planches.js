@@ -142,8 +142,9 @@ let cache = { rows: [], syncedAt: null, error: null };
 let excelItemId = null;
 let running = null;
 
+let encore = null;
 async function syncNow() {
-  if (running) return running;
+  if (running) { if (!encore) encore = running.catch(() => {}).then(() => { encore = null; return syncNow(); }); return encore; }
   running = (async () => {
     try {
       if (!source.etat().charge) await source.charger(); // jamais de synchro Excel avant de connaître la source
@@ -458,7 +459,7 @@ async function modifier(cle, champs, user) {
 }
 
 // Après une écriture, la clé peut changer (ex. N° de devis ajouté) : on retrouve la ligne par sa position
-const trouveApres = p => cache.rows.find(r => r._row === p._row) || null;
+const trouveApres = p => (p._row != null ? cache.rows.find(r => r._row === p._row) : null) || cache.rows.find(r => r.cle === p.cle) || (p.n_devis ? cache.rows.find(r => r.n_devis === p.n_devis) : null) || null;
 
 async function clientOdoo(p, partnerId, user) {
   if (partnerId) {

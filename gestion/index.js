@@ -179,7 +179,7 @@ module.exports = function mountGestion(app) {
     try { res.json(await fn(req)); }
     catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   };
-  app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req), { fichiers: req.body?.fichiers, devis: req.body?.devis !== false })));
+  app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req), { fichiers: req.body?.fichiers, devis: !!req.body?.devis })));
   app.post('/gestion/api/planches/ajouter', auth.requireUser, action(req => planches.ajouter(req.body || {}, qui(req))));
   app.get('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.clientPlanche(req.params.cle)));
   app.post('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.choisirClient(req.params.cle, req.body?.partnerId, qui(req))));
@@ -259,7 +259,7 @@ module.exports = function mountGestion(app) {
   });
 
   app.post('/gestion/api/commandes/:cle/supprimer', auth.requireUser, async (req, res) => {
-    try { res.json(await commandes.supprimer(req.params.cle, req.user.name || req.user.email, { dossier: !!req.body?.dossier, devis: req.body?.devis !== false })); }
+    try { res.json(await commandes.supprimer(req.params.cle, req.user.name || req.user.email, { dossier: !!req.body?.dossier, devis: !!req.body?.devis })); }
     catch (err) { console.error('Gestion suppression commande :', err.message); res.status(400).json({ error: err.message }); }
   });
 

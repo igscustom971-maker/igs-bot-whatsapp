@@ -26,7 +26,8 @@ const NUMEROS = /\b(?:\d[A-Z]\d{11}|[A-Z]{2}\d{9}[A-Z]{2})\b/g;
 async function lus() {
   if (!supabase) return new Set();
   const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'colissimo_mails_lus').maybeSingle();
-  return new Set(data ? JSON.parse(data.valeur) : []);
+  let l = []; try { l = data ? JSON.parse(data.valeur) || [] : []; } catch {}
+  return new Set(Array.isArray(l) ? l : []);
 }
 async function noterLus(set) {
   if (!supabase) return;
@@ -51,7 +52,7 @@ async function livrer(cible, recuLe) {
   console.log(`Gestion Colissimo : ${cible.planche ? 'planche' : 'commande'} ${l.n_devis || l.client} (${cible.suivi}) passée en LIVRÉE`);
 
   const type = cible.planche ? 'planche_livree' : 'livree_colis';
-  const { faits } = await notif.dejaTraites();
+  const { faits } = await notif.dejaTraites([cible.cle]);
   if (faits.has(`${cible.cle}|${type}`)) return;
   let email = l.email || null, tel = l.telephone || null;
   if (cible.planche) ({ email, tel } = await notif.contactPlanche(l.client));

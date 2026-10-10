@@ -62,6 +62,7 @@ En cas de doute, réponds AUTRE.`,
 async function traiter(c, { message, canal, le }) {
   if (!txt(message)) return null;
   if (c.bat_envoye_le && new Date(le) < new Date(c.bat_envoye_le)) return null; // réponse antérieure à l'envoi
+  if (c.bat_reponse && c.bat_reponse.verdict === 'valide') return null; // déjà validé : on ne revient pas en arrière
   const verdict = await lireReponse(message);
   const reponse = { message: txt(message).slice(0, 500), canal, le: new Date(le).toISOString(), verdict };
   if (supabase) {
@@ -76,7 +77,8 @@ async function traiter(c, { message, canal, le }) {
   return reponse;
 }
 
-const enAttente = rows => rows.filter(r => r.bat_envoye_le && commandes.avantBat(r.statut));
+// En attente de validation : BAT envoyé, pas encore validé (un « merci » après validation ne doit rien effacer)
+const enAttente = rows => rows.filter(r => r.bat_envoye_le && commandes.avantBat(r.statut) && !(r.bat_reponse && r.bat_reponse.verdict === 'valide'));
 
 // WhatsApp : appelé depuis le webhook (lecture seule) pour chaque message texte reçu
 async function messagesWhatsApp(msgs) {

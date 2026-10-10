@@ -133,16 +133,31 @@ async function ecrireBase(cle, fields) {
   if (error) throw new Error(`Supabase : ${error.message}`);
   if (!data.length) throw new Error('Commande introuvable : actualise et réessaie');
 }
+// Nouvelle ligne : jamais d'écrasement d'une commande existante (une commande sans devis a une clé unique).
+// Même N° de devis déjà dans l'historique (livrée, retirée) : la ligne est reprise et remise à zéro (BAT, suivi, envois…).
 async function insererBase(row) {
   const { data: mx } = await supabase.from('gestion_commandes').select('excel_id').order('excel_id', { ascending: false, nullsFirst: false }).limit(1);
-  const o = { ...row, ...parseContenuMail(row.contenu_mail), excel_id: ((mx && mx[0] && mx[0].excel_id) || 0) + 1, present: true, synced_at: new Date().toISOString() };
+  const excel_id = ((mx && mx[0] && mx[0].excel_id) || 0) + 1;
+  const o = { ...row, ...parseContenuMail(row.contenu_mail), excel_id, present: true, synced_at: new Date().toISOString() };
+  if (!o.n_devis) o.cle = `SANS-DEVIS-${key(o.client || '')}-${excel_id}`;
   if (!o.date_livraison) o.date_livraison = plus7(o.date_commande);
-  const { error } = await supabase.from('gestion_commandes').upsert(o, { onConflict: 'cle' });
+  const { data: ex } = await supabase.from('gestion_commandes').select('cle, present').eq('cle', o.cle).maybeSingle();
+  if (ex && ex.present) throw new Error(`La commande ${o.cle} existe déjà`);
+  if (ex) {
+    const remise = { numero_suivi: null, mail_envoye: null, mail_expedition_envoye: null, mail_avis_envoye: null, bat_envoye_le: null, bat_envoye_par: null, bat_reponse: null, bat_auto_le: null, bat_auto_erreur: null, bat_alertes: null, bordereaux: null, livree_vu_le: null, date_livraison_manuelle: null, date_livraison_modifiee_par: null, date_livraison_modifiee_le: null, a_payer_especes: false, montant_especes: null, especes_note_par: null, remarque: null, affectation: null, planche: null, infos: null, zone_flocage: null };
+    const { error } = await supabase.from('gestion_commandes').update({ ...remise, ...o }).eq('cle', o.cle);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+    return o.cle;
+  }
+  const { error } = await supabase.from('gestion_commandes').insert(o);
   if (error) throw new Error(`Supabase : ${error.message}`);
+  return o.cle;
 }
 
+let encore = null;
 async function syncNow() {
-  if (running) return running; // une seule synchro à la fois
+  // Synchro déjà en cours (lancée avant une écriture ?) : on attend sa fin puis on relit, pour rendre des données fraîches
+  if (running) { if (!encore) encore = running.catch(() => {}).then(() => { encore = null; return syncNow(); }); return encore; }
   running = (async () => {
     try {
       if (!source.etat().charge) await source.charger(); // jamais de synchro Excel avant de connaître la source
@@ -434,9 +449,10 @@ async function creerCommande(data, user) {
   const statut = STATUTS.find(s => key(s) === key(data.statut || 'PAYÉE')) || 'PAYÉE';
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  let cleCree = null;
   if (source.estBase()) {
-    await insererBase({
-      cle: n_devis || `SANS-DEVIS-${key(client)}`, n_devis: n_devis || null, client,
+    cleCree = await insererBase({
+      cle: n_devis || 'SANS-DEVIS', n_devis: n_devis || null, client,
       contenu_mail: t(data.contenu_mail) || [email, tel].filter(Boolean).join('\n') || null, infos: t(data.infos).slice(0, 500) || null,
       zone_flocage: t(data.zone_flocage).slice(0, 200) || null, statut, date_commande: today, remarque: t(data.remarque).slice(0, 500) || null,
       affectation: t(data.affectation) || null,
@@ -459,8 +475,8 @@ async function creerCommande(data, user) {
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_creee', cle: n_devis || client, details: { client, statut } });
   console.log(`Gestion : commande ${n_devis || '(sans devis)'} ${client} créée à la main (${user})`);
   await syncNow();
-  const r = cache.rows.find(x => (n_devis && x.n_devis === n_devis) || (!n_devis && x.client === client));
-  return { cle: r ? r.cle : null };
+  const r = cache.rows.find(x => (cleCree && x.cle === cleCree) || (n_devis && x.n_devis === n_devis)) || (!n_devis && !cleCree ? cache.rows.find(x => x.client === client) : null);
+  return { cle: r ? r.cle : cleCree };
 }
 
 // Formulaire client reçu (reprend le script Office du flux « Dépôt fichiers commande ») :
@@ -482,7 +498,13 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
       return `ligne créée pour ${cible}`;
     }
     const f = {};
-    if (contenu) f.contenu_mail = contenu;
+    // Sécurité (formulaire public) : le contact d'une commande qui en a déjà un n'est remplacé que si l'e-mail ou le
+    // téléphone saisi correspond ; sinon le nouveau contact est seulement noté en remarque, à vérifier
+    const telN = normalizePhone(tel), mailN = t(email).toLowerCase();
+    const contactConnu = r0.email || r0.telephone;
+    const memeClient = !contactConnu || (mailN && r0.email === mailN) || (telN && r0.telephone === telN);
+    if (contenu && memeClient) f.contenu_mail = contenu;
+    else if (contenu) f.remarque = [`⚠ Formulaire reçu avec un autre contact (${[mailN, t(tel)].filter(Boolean).join(' / ')}) : à vérifier`, r0.remarque].filter(Boolean).join(' | ').slice(0, 500);
     if (zoneF) f.zone_flocage = zoneF;
     if (!t(r0.planche)) f.planche = 'À FAIRE';
     if (Object.keys(f).length) await ecrireBase(r0.cle, f);
@@ -580,7 +602,8 @@ async function validerBat(cle, user, canal = 'manuel', message = 'Validé') {
   if (!row) throw new Error('Commande introuvable');
   const reponse = { message, canal, le: new Date().toISOString(), verdict: 'valide' };
   if (supabase) await supabase.from('gestion_commandes').update({ bat_reponse: reponse }).eq('cle', cle);
-  if (key(row.statut || '') !== 'encommande') return modifier(cle, { statut: 'VALIDÉE' }, user);
+  // VALIDÉE seulement si la commande n'est pas déjà plus loin (EN COMMANDE, production, terminée… gardent leur statut)
+  if (avantBat(row.statut) && key(row.statut || '') !== 'encommande') return modifier(cle, { statut: 'VALIDÉE' }, user);
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bat_valide', cle, details: { statut: row.statut } });
   const ov = await loadOverrides();
   return { ...applyOverride(row, ov.get(cle)), bat_info: batInfo.get(cle) || null };
@@ -822,7 +845,8 @@ async function modifier(cle, champs, user) {
     if (!row) { await syncNow(); row = cache.rows.find(r => r.cle === cle); }
     if (!row) throw new Error('Commande introuvable (supprimée entre-temps ?) : actualise et réessaie');
     row = { ...row };
-    await ecrireBase(cle, fields);
+    // Passage en LIVRÉE noté tout de suite (avis Google du lendemain, même si la ligne part à minuit)
+    await ecrireBase(cle, fields.statut === 'LIVRÉE' && key(row.statut || '') !== 'livree' ? { ...fields, livree_vu_le: new Date().toISOString() } : fields);
   } else {
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
   const range = await g.tableRange(excelItemId, cfg.TABLE_COMMANDES);
