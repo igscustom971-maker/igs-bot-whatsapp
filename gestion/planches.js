@@ -509,4 +509,10 @@ function startSync() {
 
 const drive = () => ({ drive: planchesDrive });
 
-module.exports = { supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+// Colonne « Mail Envoyé » / « Mail Expédition Envoyé » d'une planche (messages automatiques)
+async function ecrireDrapeau(cle, champ, valeur) {
+  if (!['mail_envoye', 'mail_expedition_envoye'].includes(champ)) throw new Error('Champ non autorisé');
+  await writeCells(cle, { [champ]: valeur });
+}
+
+module.exports = { ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

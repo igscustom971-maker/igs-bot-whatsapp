@@ -131,4 +131,4 @@ function mount(app) {
   });
 }
 
-module.exports = { noterMessagesEntrants, envoyer, mount, _test: { dernierMessageClient } };
+module.exports = { noterMessagesEntrants, envoyer, envoyerDocument: envoyerWhatsAppDocument, lienSigne, mount, _test: { dernierMessageClient } };

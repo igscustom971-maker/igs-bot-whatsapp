@@ -150,6 +150,7 @@ a.mod:hover{border-color:var(--pink)}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .btn.pink{background:var(--pink);border-color:var(--pink);color:#fff}
 .btn:disabled{opacity:.5;cursor:wait}
+.jr-list{display:flex;flex-direction:column;gap:6px}.jr-l{font-size:13px;padding:6px 8px;background:#f9fafb;border-radius:8px}.jr-conv{max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:8px;background:#f3f4f6;border-radius:8px;margin-top:6px}.jr-b{max-width:85%;padding:6px 10px;border-radius:10px;font-size:13px}.jr-b small{display:block;color:#6b7280;font-size:11px;margin-top:2px}.jr-b.cl{background:#fff;align-self:flex-start}.jr-b.igs{background:#dcfce7;align-self:flex-end}.jr-q{font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px}.jr-r{margin-top:4px;color:#5b21b6}
 .msg{margin-top:10px;font-size:13px;border-radius:8px;padding:8px 10px;display:none}
 .msg.ok{display:block;background:#dcfce7;color:#166534}
 .msg.err{display:block;background:#fee2e2;color:#991b1b}
@@ -283,6 +284,7 @@ ${view === 'accueil' ? `
   </section>` : view === 'admin' ? `
   <section id="v-admin">
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
+    <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <button class="btn" id="ad-col-add">＋ Collaborateur</button></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
       <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th>Connexion à distance</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -933,7 +935,40 @@ async function adCharger(){
     $('ad-coupes').value = (l.coupes || []).join(', ');
     document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
     $('sync').className = 'sync'; $('sync').textContent = '';
+    adNotif();
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
+}
+// Messages automatiques (prête / expédiée / avis, commandes et planches) : remplacent Power Automate
+const NOTIF_LIB = { prete: 'Commande prête', expedition: 'Commande expédiée', avis: 'Avis Google', planche_prete: 'Planche prête', planche_expedition: 'Planche expédiée' };
+async function adNotif(){
+  const box = $('ad-notif'); if (!box) return;
+  let e;
+  try { const r = await fetch('/gestion/api/notifications'); e = await r.json(); if (e.error) throw new Error(e.error); }
+  catch(err){ box.innerHTML = '<h3>📣 Messages automatiques aux clients</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
+  const n = e.enAttente.length;
+  let h = '<h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">📣 Messages automatiques aux clients <span class="esp" style="background:'+(e.actives ? '#dcfce7;color:#065f46' : '#f3f4f6;color:#374151')+'">'+(e.actives ? '● Activés' : '○ Désactivés')+'</span></h3>';
+  h += '<div class="note" style="margin-bottom:8px">Vérification toutes les 3 minutes : <b>prête</b> (TERMINÉE / planche A RECUPERER), <b>expédiée</b> (dès que le N° de suivi est saisi), <b>avis</b> le lendemain à 10 h du passage en LIVRÉE. Mail générique + WhatsApp personnalisé si le client a écrit dans les dernières 24 h (sinon mail seulement). La colonne « Mail Envoyé » de l’Excel est mise à « Oui » comme avant. <b>Coupe les flux Power Automate correspondants avant d’activer.</b></div>';
+  h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="font-size:13px;font-weight:600">Lien avis Google</label><input id="nt-lien" value="'+esc(e.lienAvis || '')+'" placeholder="https://g.page/r/…/review" style="flex:1;min-width:220px;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><button class="btn" id="nt-lien-ok">Enregistrer</button></div>';
+  if (!e.lienAvis) h += '<div class="note" style="margin:-4px 0 10px">Sans lien, la demande d’avis n’est pas envoyée.</div>';
+  h += '<div style="font-size:13px;font-weight:600;margin-bottom:4px">'+(n ? n+' message(s) '+(e.actives ? 'en cours d’envoi' : 'en attente') : 'Rien en attente')+'</div>';
+  if (n) h += '<div style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:10px">' + e.enAttente.map(i => '<div style="padding:6px 10px;border-bottom:1px solid var(--line);font-size:13px"><b>'+esc(NOTIF_LIB[i.type] || i.type)+'</b> · '+esc(i.nom || '')+(i.devis ? ' · '+esc(i.devis) : '')+' <span class="note">'+esc([i.email, i.tel ? fphone(i.tel) : ''].filter(Boolean).join(' · ') || '⚠️ aucun contact')+'</span></div>').join('') + '</div>';
+  h += '<div class="btnrow">' + (e.actives
+    ? '<button class="btn" id="nt-off">⏸ Désactiver</button>'
+    : (n ? '<button class="btn pink" id="nt-on-ign">▶ Activer (ignorer les '+n+' en attente, déjà prévenus)</button><button class="btn" id="nt-on">▶ Activer et envoyer les '+n+'</button>' : '<button class="btn pink" id="nt-on">▶ Activer</button>')) + '</div><div class="msg" id="nt-msg"></div>';
+  box.innerHTML = h;
+  const nm = (t, k) => { $('nt-msg').className = 'msg on ' + k; $('nt-msg').innerHTML = t; };
+  const act = async (actif, ignorerAttente) => {
+    if (actif && !ignorerAttente && n && !confirm(n + ' message(s) vont partir aux clients maintenant. Continuer ?')) return;
+    try { await post('/gestion/api/notifications/activer', { actif, ignorerAttente }); await adNotif(); }
+    catch(err){ nm('❌ ' + esc(err.message), 'err'); }
+  };
+  if ($('nt-off')) $('nt-off').onclick = () => act(false, false);
+  if ($('nt-on')) $('nt-on').onclick = () => act(true, false);
+  if ($('nt-on-ign')) $('nt-on-ign').onclick = () => act(true, true);
+  $('nt-lien-ok').onclick = async () => {
+    try { await post('/gestion/api/notifications/lien-avis', { lien: $('nt-lien').value }); await adNotif(); nm('✅ Lien enregistré', 'ok'); }
+    catch(err){ nm('❌ ' + esc(err.message), 'err'); }
+  };
 }
 function adEvents(){
   $('ad-test-mail').onclick = async () => {
@@ -1773,8 +1808,10 @@ async function ouvrir(cle){
     + (c.remarque ? '<div class="kv" style="margin-top:10px"><div class="k">Remarque</div><div class="v pre">'+esc(c.remarque)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : prête '+(c.mail_envoye?'✅':'—')+' · expédition '+(c.mail_expedition_envoye?'✅':'—')+' · avis '+(c.mail_avis_envoye?'✅':'—')+'</div></div>'
     + cmdActionsHtml(c)
+    + '<div id="journal"></div>'
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherCmd(c);
+  jrCharger(c);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   if (!c.n_devis) { $('dossier').innerHTML = '<div class="card note">Pas de N° de devis : impossible de retrouver le dossier SharePoint.</div>'; return; }
 
@@ -1829,6 +1866,45 @@ async function ouvrir(cle){
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';
   }
+}
+// ---------- Journal de la commande : messages envoyés, conversation WhatsApp, questions internes à Leïla ----------
+const jrHeure = d => new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+async function jrCharger(c){
+  const box = $('journal'); if (!box) return;
+  box.innerHTML = '<div class="card"><h3>💬 Messages & journal</h3><div class="skel"></div></div>';
+  try {
+    const r = await fetch('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/journal');
+    const j = await r.json(); if (j.error) throw new Error(j.error);
+    if (c.cle !== panelCle) return;
+    jrAfficher(c, j);
+  } catch(e){ if (c.cle === panelCle) box.innerHTML = '<div class="card"><h3>💬 Messages & journal</h3><div class="note">Journal indisponible : '+esc(e.message)+'</div></div>'; }
+}
+function jrAfficher(c, j){
+  const st = { envoye: ['✅','#065f46'], echec: ['⚠️','#991b1b'], sans_contact: ['⚠️','#991b1b'], ignore: ['⏭','#6b7280'], valide: ['✅','#065f46'], modification: ['✏️','#991b1b'] };
+  let h = '<div class="card"><h3>💬 Messages & journal</h3>';
+  h += '<div class="k" style="font-size:12px;color:var(--muted);margin-bottom:4px">Messages envoyés par le dashboard</div>';
+  h += j.messages.length ? '<div class="jr-list">' + j.messages.map(m => { const s2 = st[m.statut] || ['•','#374151'];
+    return '<div class="jr-l"><span style="color:'+s2[1]+'">'+s2[0]+' <b>'+esc(m.titre)+'</b></span> <span class="note">'+jrHeure(m.le)+(m.canal ? ' · '+esc(m.canal) : '')+(m.statut === 'ignore' ? ' · ignoré' : '')+'</span>'+(m.detail ? '<div class="note pre" style="margin-top:2px">'+esc(String(m.detail).slice(0, 300))+'</div>' : '')+'</div>'; }).join('') + '</div>'
+    : '<div class="note">Aucun message envoyé par le dashboard pour l’instant.</div>';
+  h += '<details style="margin-top:10px"'+(j.conversation.length ? '' : ' disabled')+'><summary style="cursor:pointer;font-size:13px;font-weight:600">Conversation WhatsApp '+(j.telephone ? '('+esc(fphone(j.telephone))+')' : '')+' · '+j.conversation.length+' message(s)</summary>';
+  h += j.conversation.length ? '<div class="jr-conv">' + j.conversation.map(m => '<div class="jr-b '+(m.role === 'user' ? 'cl' : 'igs')+'"><div class="pre">'+esc(m.texte)+'</div><small>'+(m.role === 'user' ? 'Client' : 'IGS')+' · '+jrHeure(m.le)+'</small></div>').join('') + '</div>'
+    : '<div class="note">'+(j.telephone ? 'Aucun message WhatsApp avec ce numéro.' : 'Pas de téléphone sur la commande.')+'</div>';
+  h += '</details>';
+  h += '<div class="k" style="font-size:12px;color:var(--muted);margin:12px 0 4px">Demander à Leïla (interne, le client ne voit rien)</div>';
+  h += j.questions.slice().reverse().map(q => '<div class="jr-q"><div><b>'+esc(q.par || '')+'</b> : '+esc(q.question)+'</div><div class="jr-r pre">🤖 '+esc(q.reponse)+'</div><small class="note">'+jrHeure(q.le)+'</small></div>').join('');
+  h += '<div style="display:flex;gap:6px;margin-top:6px"><input id="jr-q" placeholder="Ex. : tu lui as dit quelle heure pour la récupération ?" style="flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px"><button class="btn primary" id="jr-go">Demander</button></div><div class="msg" id="jr-msg"></div>';
+  h += '</div>';
+  $('journal').innerHTML = h;
+  const conv = document.querySelector('#journal .jr-conv'); const det = document.querySelector('#journal details');
+  if (det && conv) det.addEventListener('toggle', () => { conv.scrollTop = conv.scrollHeight; });
+  const go = async () => {
+    const q = $('jr-q').value.trim(); if (!q) return;
+    $('jr-go').disabled = true; $('jr-go').textContent = '…';
+    try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/question', { question: q }); await jrCharger(c); }
+    catch(e){ const m = $('jr-msg'); if (m) { m.style.display = 'block'; m.className = 'msg err'; m.textContent = e.message; } $('jr-go').disabled = false; $('jr-go').textContent = 'Demander'; }
+  };
+  $('jr-go').onclick = go;
+  $('jr-q').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
 }
 // ---------- Liste des BAT (commandes PAYÉE) ----------
 let modeBat = false;

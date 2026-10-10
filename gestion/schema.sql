@@ -232,3 +232,24 @@ alter table gestion_commandes add column if not exists bat_auto_erreur text;
 
 -- Commandes : alertes du BAT automatique (visuel trop grand pour la plus petite taille commandée)
 alter table gestion_commandes add column if not exists bat_alertes jsonb;
+
+-- Messages automatiques aux clients (prête / expédiée / avis, commandes et planches) + renvois de BAT par Leïla
+create table if not exists gestion_notifications (
+  id           bigserial primary key,
+  cle          text,
+  type         text,
+  canal        text,
+  statut       text,
+  destinataire text,
+  sujet        text,
+  message      text,
+  erreur       text,
+  par          text,
+  cree_le      timestamptz default now()
+);
+alter table gestion_notifications enable row level security;
+create index if not exists gestion_notifications_cle_idx on gestion_notifications (cle);
+create index if not exists gestion_notifications_cree_le_idx on gestion_notifications (cree_le desc);
+
+-- Commandes : date à laquelle le dashboard a vu la commande en LIVRÉE (avis Google le lendemain à 10 h)
+alter table gestion_commandes add column if not exists livree_vu_le timestamptz;

@@ -537,7 +537,10 @@ async function buildSystemPrompt(isKnownClient, from) {
     ? `⚠️⚠️ NOTE SPÉCIFIQUE À CE CLIENT, PRIORITÉ ABSOLUE ⚠️⚠️\nCette note prime sur TOUTES les règles générales ci-dessous en cas de contradiction (ex: si elle dit de ne pas demander l'email, tu ne le demandes pas, même si une règle générale plus bas dit le contraire) :\n${clientNote}\n\n---\n\n`
     : '';
 
-  return clientSpecificBlock + SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote;
+  // Commandes du client (statut, suivi, BAT) : module gestion
+  let commandesNote = '';
+  try { commandesNote = await require('./gestion/leila').contexteCommandes(from); } catch (e) { console.error('Contexte commandes :', e.message); }
+  return clientSpecificBlock + SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote + commandesNote;
 }
 
 // ============================================
@@ -876,7 +879,9 @@ async function handleIncomingText(from, rawText) {
   // Urgence = marqueur du modèle OU mots-clés évidents (relance, paiement annoncé, annulation, plainte...)
   const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(realText);
   const { clean: replyNoRecap, note: recapNote } = extractRecapNote(rawReply);
-  const reply = replyNoRecap.replace(URGENT_MARKER, '').trim();
+  // Renvoi du BAT demandé par le client : marqueur ###BAT:N°DEVIS### retiré (module gestion)
+  const { clean: replySansBat, devis: batDemande } = require('./gestion/leila').extraireBat(replyNoRecap);
+  const reply = replySansBat.replace(URGENT_MARKER, '').trim();
 
   // Note libre demandée par Leïla (ex: nuancier à envoyer) : ajoutée au récap quoi qu'il arrive
   if (recapNote) {
@@ -912,6 +917,7 @@ async function handleIncomingText(from, rawText) {
 
   // Envoyer la réponse via WhatsApp
   await sendWhatsAppMessage(from, reply);
+  if (batDemande) await require('./gestion/leila').renvoyerBat(from, batDemande);
 
   // Logger un résumé court pour le récap groupé, uniquement au moment clé
   // (bot vraiment bloqué OU devis/commande à préparer), pas à chaque message
@@ -1523,7 +1529,7 @@ app.post('/admin/simuler', async (req, res) => {
     }
 
     const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(message);
-    const reply = rawReply.replace(URGENT_MARKER, '').trim();
+    const reply = require('./gestion/leila').extraireBat(rawReply).clean.replace(URGENT_MARKER, '').trim();
 
     res.send(
       `🧪 SIMULATION (rien envoyé, rien enregistré)\n\n` +

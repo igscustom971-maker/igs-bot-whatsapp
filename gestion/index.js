@@ -320,6 +320,21 @@ module.exports = function mountGestion(app) {
     }
   });
 
+  // ---------- Messages automatiques aux clients (remplacent Power Automate) ----------
+  const notif = require('./notifications');
+  const actN = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Gestion notifications :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.get('/gestion/api/notifications', auth.requireUser, auth.requireAdmin, actN(() => notif.etat()));
+  app.post('/gestion/api/notifications/activer', auth.requireUser, auth.requireAdmin, actN(req => notif.activer({ actif: !!req.body?.actif, ignorerAttente: !!req.body?.ignorerAttente }, req.user.name || req.user.email)));
+  app.post('/gestion/api/notifications/lien-avis', auth.requireUser, auth.requireAdmin, actN(req => notif.definirLienAvis(req.body?.lien)));
+
+  // ---------- Journal d'une commande + question interne à Leïla ----------
+  const leila = require('./leila');
+  app.get('/gestion/api/commandes/:cle/journal', auth.requireUser, actN(req => leila.journalCommande(req.params.cle)));
+  app.post('/gestion/api/commandes/:cle/question', auth.requireUser, actN(req => leila.question(req.params.cle, req.body?.question, req.user.name || req.user.email)));
+
   // Générateur de BAT
   require('./bat-generateur').mount(app);
 
@@ -328,5 +343,6 @@ module.exports = function mountGestion(app) {
   heures.startRecap();
   require('./telephones').start();
   require('./bat-reponses').start();
+  notif.start();
   console.log('Module Gestion IGS monté sur /gestion');
 };
