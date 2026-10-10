@@ -182,21 +182,87 @@ async function fichierAutorise(itemId) {
 const colLetter = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 const colIndex = l => l.split('').reduce((t, c) => t * 26 + c.charCodeAt(0) - 64, 0) - 1;
 
-async function writeCells(cle, fields) {
+async function lireTableau() {
   if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
-  const range = await g.tableRange(excelItemId, cfg.TABLE_PLANCHES); // lecture fraîche : on retrouve la ligne par sa clé
+  const range = await g.tableRange(excelItemId, cfg.TABLE_PLANCHES); // lecture fraîche
   const rows = rowsFromRange(range);
-  const row = rows.find(r => r.cle === cle);
-  if (!row) throw new Error('Ligne introuvable dans l\'Excel (elle a peut-être été modifiée entre-temps) : actualise et réessaie');
   const m = String(range.address || '').match(/^'?(.+?)'?!\$?([A-Z]+)\$?(\d+)/);
   if (!m) throw new Error(`Adresse du tableau illisible : ${range.address}`);
-  const [, sheet, startCol, startRow] = m;
+  return { range, rows, sheet: m[1], startCol: m[2], startRow: Number(m[3]) };
+}
+
+async function ecrireLigne(t, rowIndex, fields) {
   for (const [field, value] of Object.entries(fields)) {
-    if (rows.idx[field] === undefined) throw new Error(`Colonne « ${field} » absente du tableau`);
-    const address = colLetter(colIndex(startCol) + rows.idx[field]) + (Number(startRow) + 1 + row._row);
-    await g.patchRange(excelItemId, sheet, address, [[value]]);
+    if (t.rows.idx[field] === undefined) throw new Error(`Colonne « ${field} » absente du tableau`);
+    const address = colLetter(colIndex(t.startCol) + t.rows.idx[field]) + (t.startRow + 1 + rowIndex);
+    await g.patchRange(excelItemId, t.sheet, address, [[value]]);
+  }
+}
+
+async function writeCells(cle, fields) {
+  const t = await lireTableau(); // on retrouve la ligne par sa clé juste avant d'écrire
+  const row = t.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Ligne introuvable dans l\'Excel (elle a peut-être été modifiée entre-temps) : actualise et réessaie');
+  await ecrireLigne(t, row._row, fields);
+  await syncNow();
+}
+
+// Nouvelle planche saisie à la main : réutilise une ligne vide du tableau (formules conservées), sinon ajoute une ligne.
+// Client hebdo qui a déjà sa ligne : on ajoute le métrage à son compteur.
+async function ajouter(data, user) {
+  const client = String(data.client || '').trim().slice(0, 80);
+  if (!client) throw new Error('Nom du client obligatoire');
+  const mv = String(data.metres ?? '').trim().toUpperCase().replace(',', '.');
+  const format = mv === 'A3' || mv === 'A4' ? mv : null;
+  const metres = format ? null : Number(mv);
+  if (!format && !(metres > 0 && metres < 1000)) throw new Error('Métrage invalide (nombre, A3 ou A4)');
+  const hebdo = !!data.hebdo;
+  const t = await lireTableau();
+
+  if (hebdo) {
+    const ligne = t.rows.find(r => r.hebdo && key(r.client) === key(client));
+    if (ligne) {
+      if (format || ligne.format) throw new Error('Client hebdo : le compteur se fait en mètres (pas en A3/A4)');
+      const total = Math.round(((ligne.metres || 0) + metres) * 100) / 100;
+      await ecrireLigne(t, ligne._row, { metres: total });
+      await syncNow();
+      await journal(user, 'compteur_hebdo_ajoute', ligne.cle, { client: ligne.client, ajout: metres, total });
+      return { planche: cache.rows.find(r => r._row === ligne._row) || null, compteur: { avant: ligne.metres || 0, ajout: metres, total } };
+    }
+  }
+
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
+  const date = data.date && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date
+    : `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const fields = {
+    date_commande: date,
+    client,
+    metres: format || Math.round(metres * 100) / 100,
+    frequence: hebdo ? 'Hebdomadaire (lundi)' : 'Ponctuel',
+    remarques: String(data.remarques || '').trim().slice(0, 500) || `Ajoutée à la main par ${user}`,
+  };
+  if (!hebdo) { fields.paiement = 'NON PAYÉE'; fields.statut = String(data.statut || 'A PREPARER').toUpperCase(); }
+
+  // Première ligne vide (client vide) du tableau
+  const [, ...valeurs] = t.range.values;
+  const iClient = t.rows.idx.client;
+  const vide = valeurs.findIndex(r => !String(r[iClient] ?? '').trim());
+  let rowIndex;
+  if (vide >= 0) {
+    rowIndex = vide;
+    await ecrireLigne(t, rowIndex, fields);
+  } else {
+    // Ajout en bas du tableau : les colonnes calculées (Réduction, Montant, ID) se remplissent seules
+    const header = t.range.values[0];
+    const ligne = header.map(() => null);
+    for (const [f, v] of Object.entries(fields)) ligne[t.rows.idx[f]] = v;
+    await g.addTableRow(excelItemId, cfg.TABLE_PLANCHES, ligne);
+    rowIndex = valeurs.length;
   }
   await syncNow();
+  const p = cache.rows.find(r => r._row === rowIndex) || null;
+  await journal(user, 'planche_ajoutee', p?.cle || client, { ...fields });
+  return { planche: p };
 }
 
 async function journal(user, action, cle, details) {
@@ -362,4 +428,4 @@ function startSync() {
 
 const drive = () => ({ drive: planchesDrive });
 
-module.exports = { modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

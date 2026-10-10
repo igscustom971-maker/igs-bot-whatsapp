@@ -41,6 +41,7 @@ module.exports = function mountGestion(app) {
     try { res.json(await fn(req)); }
     catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   };
+  app.post('/gestion/api/planches/ajouter', auth.requireUser, action(req => planches.ajouter(req.body || {}, qui(req))));
   app.post('/gestion/api/planches/:cle/modifier', auth.requireUser, action(req => planches.modifier(req.params.cle, req.body || {}, qui(req)).then(planche => ({ planche }))));
   app.post('/gestion/api/planches/:cle/devis', auth.requireUser, action(req => planches.devis(req.params.cle, qui(req), req.body || {})));
   app.post('/gestion/api/planches/:cle/facturer', auth.requireUser, auth.requireAdmin, action(req => planches.facturer(req.params.cle, qui(req), req.body || {})));

@@ -77,7 +77,7 @@ async function setAlias(nom, partnerId, partnerName, user) {
   if (error) throw new Error(`Supabase : ${error.message}`);
 }
 
-const PARTNER_FIELDS = ['id', 'name', 'email', 'zip', 'state_id', 'country_id', 'phone', 'mobile'];
+const PARTNER_FIELDS = ['id', 'name', 'email', 'zip', 'state_id', 'country_id', 'phone']; // (pas de 'mobile' : supprimé dans Odoo 19)
 
 // Retourne { partner } ou { candidats } si le client n'est pas identifié avec certitude
 async function findPartner(nom) {

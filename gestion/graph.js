@@ -100,9 +100,21 @@ async function patchRange(itemId, sheet, address, values, o) {
   return res.json();
 }
 
+// Ajout d'une ligne en bas d'un tableau Excel (null = colonne calculée laissée à Excel)
+async function addTableRow(itemId, table, values, o) {
+  const url = `${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}/workbook/tables/${encodeURIComponent(table)}/rows/add`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [values] }),
+  });
+  if (!res.ok) throw new Error(`Ajout de ligne Excel refusé : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
 }
 
-module.exports = { graph, patchRange, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { graph, patchRange, addTableRow, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };

@@ -231,6 +231,7 @@ ${view === 'accueil' ? `
   <section id="v-planches">
   <div class="tools">
     <input id="q" class="search" type="search" placeholder="Rechercher un client, un devis, une remarque…">
+    <button id="nouvelle" class="btn pink">＋ Nouvelle planche</button>
     <button id="refresh" class="btn primary">↻ Actualiser</button>
     <span id="sync" class="sync"></span>
   </div>
@@ -392,6 +393,34 @@ function plListe(){
 }
 
 let autoEtat = null;
+function nouvellePlanche(){
+  panelCle = '__nouvelle__';
+  const clients = [...new Set(planches.map(p => p.client))].sort((a,b) => a.localeCompare(b,'fr'));
+  $('ptitle').textContent = 'Nouvelle planche';
+  $('psub').textContent = 'Ajoutée dans l\\'Excel (ligne vide réutilisée)';
+  $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="actions">'
+    + '<div class="field" style="grid-column:1/-1"><label>Client</label><input id="n-client" list="n-clients" placeholder="Nom du client (comme dans l\\'Excel)"><datalist id="n-clients">'+clients.map(c => '<option value="'+esc(c)+'">').join('')+'</datalist></div>'
+    + '<div class="field"><label>Métrage (m, A3 ou A4)</label><input id="n-metres" placeholder="ex. 2,5"></div>'
+    + '<div class="field"><label>Date</label><input id="n-date" type="date" value="'+today+'"></div>'
+    + '<div class="field"><label>Statut</label><select id="n-statut">'+PL_STATUTS.filter(s => s !== 'LIVREE').map(s => '<option>'+s+'</option>').join('')+'</select></div>'
+    + '<div class="field" style="grid-column:1/-1"><label>Remarques</label><input id="n-rem" placeholder="ex. fichier reçu par WhatsApp, 2 exemplaires"></div>'
+    + '</div><label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:600"><input type="checkbox" id="n-hebdo"> Client hebdo (ajouter au compteur de la semaine)</label>'
+    + '<div class="btnrow"><button class="btn primary" id="n-ok">Ajouter la planche</button></div><div class="msg" id="a-msg"></div></div>';
+  $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
+  $('n-client').oninput = e => { const h = planches.find(p => p.hebdo && norm(p.client) === norm(e.target.value)); $('n-hebdo').checked = !!h; };
+  $('n-ok').onclick = async () => {
+    const body = { client: $('n-client').value, metres: $('n-metres').value, date: $('n-date').value, statut: $('n-statut').value, remarques: $('n-rem').value, hebdo: $('n-hebdo').checked };
+    if (!body.client.trim()) return msg('Indique le client', 'err');
+    $('n-ok').disabled = true; msg('Écriture dans l\\'Excel…', 'info');
+    try {
+      const j = await post('/gestion/api/planches/ajouter', body);
+      const texte = j.compteur ? '✅ Compteur hebdo : '+String(j.compteur.avant).replace('.',',')+' + '+String(j.compteur.ajout).replace('.',',')+' = '+String(j.compteur.total).replace('.',',')+' m' : '✅ Planche ajoutée dans l\\'Excel';
+      await apresAction(j.planche, texte);
+      if (!j.planche) msg(texte, 'ok');
+    } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('n-ok').disabled = false; }
+  };
+  $('n-client').focus();
+}
 function plActionsHtml(p){
   const opts = PL_STATUTS.map(s => '<option'+(plKey(p.statut)===s?' selected':'')+'>'+s+'</option>').join('');
   let h = '<div class="card"><h3>Actions</h3><div class="actions">'
@@ -674,6 +703,7 @@ if (VIEW === 'commandes') {
   $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });
   $('q').addEventListener('input', e => { recherche = e.target.value; afficher(); });
   chargerAuto();
+  $('nouvelle').addEventListener('click', nouvellePlanche);
 } else {
   $('prios').addEventListener('click', e => { const p = e.target.closest('.prio'); if (p){ panelCle = p.dataset.k; ouvrir(panelCle); } });
 }
