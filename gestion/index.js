@@ -218,6 +218,11 @@ module.exports = function mountGestion(app) {
     try { res.json(await require('./factures-fournisseurs').envoyer({ fichiers: req.files, description: req.body?.description }, req.user.name || req.user.email)); }
     catch (err) { console.error('Factures fournisseurs :', err.message); res.status(400).json({ error: err.message }); }
   });
+  // Règlement au comptoir (TPE et/ou espèces) d'une commande ou d'une planche : facture Odoo + note pour le rapprochement
+  app.post('/gestion/api/reglement-comptoir', auth.requireUser, atelierOuCom, async (req, res) => {
+    try { res.json(await require('./reglement-comptoir').enregistrer(req.body || {}, req.user.name || req.user.email)); }
+    catch (err) { console.error('Règlement comptoir :', err.message); res.status(400).json({ error: err.message }); }
+  });
   app.get('/gestion/api/factures-fournisseurs', auth.requireUser, atelierOuCom, async (req, res) => {
     try { res.json({ envois: await require('./factures-fournisseurs').recents(req.user.name || req.user.email, req.user.role === 'admin') }); }
     catch (err) { res.status(400).json({ error: err.message }); }

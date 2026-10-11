@@ -1271,10 +1271,28 @@ async function encaisserEspeces(source, ref, client, defaut){
   try { await post('/gestion/api/caisse/encaisser', { montant: v, source, ref, client }); return true; }
   catch(e){ alert('Espèces non enregistrées : ' + e.message); return false; }
 }
+// Règlement au comptoir : TPE (carte), éventuellement une partie en espèces -> facture Odoo + note pour le rapprochement
+async function payerTpe(type, cle, client){
+  const t = prompt('💳 Paiement par TPE — '+client+'\\n\\nMontant payé par carte (TTC).\\nLaisse vide = tout le reste à payer.', '');
+  if (t === null) return null;
+  const e = prompt('Une partie a été payée en espèces ?\\nMontant en espèces (TTC), sinon laisse vide.', '');
+  if (e === null) return null;
+  if (!confirm('Valider le règlement de '+client+' ?\\n• TPE : '+(t.trim() ? t.trim()+' €' : 'tout le reste à payer')+(e.trim() ? '\\n• Espèces : '+e.trim()+' €' : '')+'\\n\\nLe devis passe en facture dans Odoo avec la note « Règlement par TPE ».')) return null;
+  try { return await post('/gestion/api/reglement-comptoir', { type, cle, tpe: t, especes: e }); }
+  catch(err){ alert('Règlement non enregistré : ' + err.message); return null; }
+}
 async function saveInline(sel){
   const kind = sel.dataset.kind, cle = sel.dataset.k, f = sel.dataset.f, v = sel.value, old = sel.dataset.old;
   if (v === old) return;
   if (kind === 'cmd' && f === 'statut' && v === 'LIVRÉE' && !confirm('Passer en LIVRÉE ? Elle passera dans l\\'historique cette nuit.')) { sel.value = old; return; }
+  if (kind === 'pl' && f === 'paiement' && norm(v) === 'CB') {
+    const p = planches.find(x => x.cle === cle);
+    sel.disabled = true;
+    const j = await payerTpe('planche', cle, p ? p.client : '');
+    if (!j) { sel.value = old; sel.disabled = false; return; }
+    alert(j.etapes.join('\\n'));
+    await charger(false); return;
+  }
   if (kind === 'pl' && f === 'paiement' && norm(v) === 'ESPECE') {
     const p = planches.find(x => x.cle === cle);
     if (!(await encaisserEspeces('planche', p && (p.n_devis || p.cle), p ? p.client : '', p ? ttc(p.montant_ht) : ''))) { sel.value = old; return; }
@@ -2764,7 +2782,7 @@ function cmdActionsHtml(c){
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(['PAYÉE','EN DEVIS','SANS STATUT'].includes(statutKey(c.statut)) ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn" id="ajout-btn" title="Le client rajoute des articles : devis, tableau et commande SEFI mis à jour">➕ Ajouter des articles…</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button><button class="btn" id="tpe-btn" title="Le client a payé par carte au comptoir (éventuellement une partie en espèces) : facture Odoo + note pour le rapprochement">💳 Payé par TPE</button>'+(['PAYÉE','EN DEVIS','SANS STATUT'].includes(statutKey(c.statut)) ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn" id="ajout-btn" title="Le client rajoute des articles : devis, tableau et commande SEFI mis à jour">➕ Ajouter des articles…</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -2790,6 +2808,12 @@ function brancherCmd(c){
   };
   if ($('esp-on')) $('esp-on').onclick = () => espMaj(true, $('esp-montant').value);
   if ($('esp-off')) $('esp-off').onclick = () => espMaj(false);
+  $('tpe-btn').onclick = async () => {
+    const j = await payerTpe('commande', c.cle, c.client);
+    if (!j) return;
+    msg(j.etapes.map(esc).join('<br>') + (j.lien ? '<br><a href="'+esc(j.lien)+'" target="_blank" rel="noopener">↗ Ouvrir la facture dans Odoo</a>' : ''), 'ok');
+    await charger(false);
+  };
   $('cash-btn').onclick = async () => {
     if (!(await encaisserEspeces('commande', c.n_devis || c.cle, c.client, c.montant_especes != null ? montantFr(c.montant_especes).replace(' €','') : ''))) return;
     if (c.a_payer_especes) { try { await setEspecesCmd(c, false); afficher(); } catch(e){} }

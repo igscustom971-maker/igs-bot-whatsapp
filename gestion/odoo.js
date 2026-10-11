@@ -519,6 +519,65 @@ async function importerFactureFournisseur({ nom, mimetype, buffer, note }) {
   return { id, numero: m && m.name && m.name !== '/' ? m.name : null, fournisseur: m?.partner_id ? m.partner_id[1] : null, montant_ttc: m?.amount_total || null, journal: journal.name, lien: lienOdoo('account.move', id) };
 }
 
+// ---------- Règlement au comptoir : TPE (carte) et/ou espèces ----------
+// Le devis est confirmé si besoin et basculé en facture (validée, sans envoi au client). La part espèces est enregistrée
+// comme paiement dans le journal de caisse (s'il existe) ; la part TPE reste à rapprocher avec les remises TPE qui arrivent
+// en banque : une note « Règlement par TPE » est posée sur la facture pour faciliter ce rapprochement.
+async function reglementComptoir(numero, { tpe = null, especes = 0, par = 'IGS Dashboard' } = {}) {
+  const arr = n => Math.round(Number(n || 0) * 100) / 100;
+  let so = await devisParNumero(String(numero || '').trim().toUpperCase());
+  if (!so) throw new Error(`Devis ${numero} introuvable dans Odoo`);
+  if (so.state === 'cancel') throw new Error(`Le devis ${numero} est annulé dans Odoo`);
+  if (so.state !== 'sale') { await kw('sale.order', 'action_confirm', [[so.id]]); so = await devisParNumero(so.name); }
+  const lire = async ids => (ids.length ? kw('account.move', 'read', [ids], { fields: ['id', 'name', 'state', 'move_type', 'amount_residual', 'amount_total', 'payment_state'] }) : []);
+  let factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state !== 'cancel');
+  // Brouillon existant : validé ; rien à facturer en attente : nouvelle facture (reste du devis, acomptes déduits)
+  for (const f of factures.filter(x => x.state === 'draft')) await kw('account.move', 'action_post', [[f.id]]);
+  if (so.invoice_status === 'to invoice') {
+    const ctx = { active_model: 'sale.order', active_ids: [so.id], active_id: so.id };
+    const wid = await kw('sale.advance.payment.inv', 'create', [{ advance_payment_method: 'delivered' }], { context: ctx });
+    await kw('sale.advance.payment.inv', 'create_invoices', [[wid]], { context: ctx });
+    const [apres] = await kw('sale.order', 'read', [[so.id]], { fields: ['invoice_ids'] });
+    for (const f of (await lire(apres.invoice_ids || [])).filter(x => x.state === 'draft')) await kw('account.move', 'action_post', [[f.id]]);
+    so.invoice_ids = apres.invoice_ids;
+  }
+  factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state === 'posted');
+  const ouvertes = factures.filter(f => arr(f.amount_residual) > 0);
+  if (!ouvertes.length) throw new Error(`Rien à régler sur ${so.name} : les factures sont déjà payées`);
+  const du = arr(ouvertes.reduce((t, f) => t + f.amount_residual, 0));
+  const esp = arr(especes);
+  if (esp < 0 || esp > du) throw new Error(`Montant espèces incohérent (reste à payer : ${du.toFixed(2)} €)`);
+  const carte = tpe === null || tpe === '' || tpe === undefined ? arr(du - esp) : arr(tpe);
+  if (carte < 0) throw new Error('Montant TPE incohérent');
+  const ecart = arr(du - esp - carte);
+  // Part espèces : paiement dans le journal de caisse, sur la première facture ouverte
+  let especesEnregistrees = false, journalCaisse = null;
+  if (esp > 0) {
+    const [jc] = await kw('account.journal', 'search_read', [[...(await igsSeulement()), ['type', '=', 'cash']]], { fields: ['id', 'name'], limit: 1 });
+    if (jc) {
+      journalCaisse = jc.name;
+      const cible = ouvertes.find(f => f.amount_residual >= esp) || ouvertes[0];
+      const ctx = { active_model: 'account.move', active_ids: [cible.id], active_id: cible.id };
+      const vals = { journal_id: jc.id, amount: esp, payment_date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guadeloupe' }) };
+      let wid;
+      try { wid = await kw('account.payment.register', 'create', [{ ...vals, communication: `${cible.name} - règlement en espèces` }], { context: ctx }); }
+      catch { wid = await kw('account.payment.register', 'create', [vals], { context: ctx }); }
+      await kw('account.payment.register', 'action_create_payments', [[wid]], { context: ctx });
+      especesEnregistrees = true;
+    }
+  }
+  const date = new Date().toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', dateStyle: 'short', timeStyle: 'short' });
+  const eur = n => `${n.toFixed(2).replace('.', ',')} €`;
+  const note = [
+    carte > 0 ? `💳 <b>Règlement par TPE : ${eur(carte)} TTC</b> le ${date} (saisi par ${par}) — à rapprocher avec la remise TPE en banque.` : '',
+    esp > 0 ? `💵 Règlement en espèces : ${eur(esp)} TTC${especesEnregistrees ? ` (enregistré dans le journal ${journalCaisse})` : ' (journal de caisse introuvable : à enregistrer à la main)'}.` : '',
+    Math.abs(ecart) >= 0.01 ? `⚠️ Écart de ${eur(ecart)} entre le reste à payer (${eur(du)}) et les montants saisis.` : '',
+  ].filter(Boolean).join('<br>');
+  for (const f of ouvertes) { try { await kw('account.move', 'message_post', [[f.id]], { body: note, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note TPE :', err.message); } }
+  await noteDevis(so.id, note);
+  return { devis: so.name, factures: ouvertes.map(f => f.name), du, tpe: carte, especes: esp, especes_enregistrees: especesEnregistrees, ecart, lien: lienOdoo('account.move', ouvertes[0].id) };
+}
+
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
 async function devisEnvoyesDepuis(iso) {
   const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
@@ -697,7 +756,7 @@ async function telephonesOdoo() {
 }
 
 module.exports = {
-  lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur,
+  lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };
