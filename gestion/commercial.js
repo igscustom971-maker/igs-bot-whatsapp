@@ -82,7 +82,7 @@ async function tableauDeBord({ force = false } = {}) {
     demandes: await demandes(),
     impayes: await impayes().catch(err => { console.error('Commercial impayés :', err.message); return null; }),
   };
-  if (data.impayes) data.kpi.impayes = { n: data.impayes.length, a_relancer: data.impayes.filter(x => x.a_relancer).length, ttc: Math.round(data.impayes.reduce((t, x) => t + (x.reste_ttc || 0), 0) * 100) / 100 };
+  if (data.impayes) data.kpi.impayes = { n: data.impayes.reduce((t, c) => t + c.n, 0), clients: data.impayes.length, a_relancer: data.impayes.filter(x => x.a_relancer).length, ttc: Math.round(data.impayes.reduce((t, x) => t + (x.reste_ttc || 0), 0) * 100) / 100 };
   cache = { le: Date.now(), data };
   return data;
 }
@@ -181,15 +181,27 @@ const NIVEAUX = [
 ];
 const eurFr = n => Number(n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 const dateFr = d => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00Z').toLocaleDateString('fr-FR') : '');
-function texteRelance(niveau, f, retard) {
-  const ech = f.invoice_date_due ? ` (échéance le ${dateFr(f.invoice_date_due)})` : '';
-  const montant = eurFr(f.amount_residual);
-  const fin = '\n\nVous trouverez la facture en pièce jointe ainsi qu\'un lien pour la régler en ligne par carte bancaire. Le virement reste bien sûr possible.\n\nCordialement,\nService comptabilité - IGS CUSTOM BAR';
-  if (niveau === 1) return `Bonjour,\n\nSauf erreur de notre part, la facture ${f.name}${ech} d'un montant de ${montant} reste à régler à ce jour.\n\nSi le règlement a été effectué entre-temps, merci de ne pas tenir compte de ce message.` + fin;
-  if (niveau === 2) return `Bonjour,\n\nMalgré notre précédent rappel, la facture ${f.name}${ech} d'un montant de ${montant} demeure impayée${retard ? `, avec ${retard} jours de retard` : ''}.\n\nNous vous remercions de bien vouloir procéder à son règlement sous 8 jours, ou de nous contacter si une difficulté se présente.` + fin;
-  return `Bonjour,\n\nNous constatons que la facture ${f.name}${ech} d'un montant de ${montant} n'est toujours pas réglée${retard ? ` (${retard} jours de retard)` : ''}, malgré nos relances.\n\nCe message constitue un dernier rappel amiable : sans règlement ou prise de contact de votre part sous 8 jours, nous serons contraints d'engager une procédure de recouvrement.` + fin;
+// Texte d'une relance pour UN client : une ou plusieurs factures, montant total (le ton suit le niveau)
+function texteRelance(niveau, fs) {
+  const total = eurFr(fs.reduce((t, f) => t + (f.amount_residual || 0), 0));
+  const ligne = f => `- ${f.name}${f.invoice_date ? ' du ' + dateFr(f.invoice_date) : ''}${f.invoice_date_due ? ', échéance le ' + dateFr(f.invoice_date_due) : ''} : ${eurFr(f.amount_residual)}`;
+  const une = fs.length === 1, f0 = fs[0];
+  const quoi = une
+    ? `la facture ${f0.name}${f0.invoice_date_due ? ` (échéance le ${dateFr(f0.invoice_date_due)})` : ''} d'un montant de ${total}`
+    : `les ${fs.length} factures suivantes (total ${total})`;
+  const liste = une ? '' : `\n\n${fs.map(ligne).join('\n')}\n\nTotal restant dû : ${total}`;
+  const pj = une ? 'la facture en pièce jointe ainsi qu\'un lien pour la régler' : 'les factures en pièce jointe ainsi qu\'un lien pour régler chacune d\'elles';
+  const fin = `\n\nVous trouverez ${pj} en ligne par carte bancaire. Le virement reste bien sûr possible.\n\nCordialement,\nService comptabilité - IGS CUSTOM BAR`;
+  const reste = une ? 'reste à régler à ce jour.' : 'restent à régler à ce jour :';
+  if (niveau === 1) return `Bonjour,\n\nSauf erreur de notre part, ${quoi} ${reste}${liste}\n\nSi le règlement a été effectué entre-temps, merci de ne pas tenir compte de ce message.` + fin;
+  if (niveau === 2) return `Bonjour,\n\nMalgré notre précédent rappel, ${quoi} ${une ? 'demeure impayée.' : 'demeurent impayées :'}${liste}\n\nNous vous remercions de bien vouloir procéder au règlement sous 8 jours, ou de nous contacter si une difficulté se présente.` + fin;
+  return `Bonjour,\n\nMalgré nos relances, ${quoi} ${une ? "n'est toujours pas réglée." : "ne sont toujours pas réglées :"}${liste}\n\nCe message constitue un dernier rappel amiable : sans règlement ou prise de contact de votre part sous 8 jours, nous serons contraints d'engager une procédure de recouvrement.` + fin;
 }
-const SUJETS = { 1: n => `Rappel : facture ${n} à régler - IGS CUSTOM BAR`, 2: n => `2e relance : facture ${n} impayée - IGS CUSTOM BAR`, 3: n => `Dernier rappel : facture ${n} - IGS CUSTOM BAR` };
+const SUJETS = {
+  1: (n, k) => k > 1 ? `Rappel : ${k} factures à régler - IGS CUSTOM BAR` : `Rappel : facture ${n} à régler - IGS CUSTOM BAR`,
+  2: (n, k) => k > 1 ? `2e relance : ${k} factures impayées - IGS CUSTOM BAR` : `2e relance : facture ${n} impayée - IGS CUSTOM BAR`,
+  3: (n, k) => k > 1 ? `Dernier rappel : ${k} factures impayées - IGS CUSTOM BAR` : `Dernier rappel : facture ${n} - IGS CUSTOM BAR`,
+};
 
 async function relancesFactures(noms) {
   const out = {};
@@ -204,49 +216,83 @@ async function relancesFactures(noms) {
   }
   return out;
 }
+// Une carte par CLIENT : toutes ses factures impayées, le total, et UNE relance pour l'ensemble.
+// Niveau de chaque facture : J+7 amiable, J+15 ferme, J+30 dernier rappel ; le ton du mail suit la facture la plus avancée.
 async function impayes() {
   const fs = await odoo.facturesImpayees();
   const rel = await relancesFactures(fs.map(f => f.name));
-  const liste = fs.map(f => {
+  const parClient = new Map();
+  for (const f of fs) {
     const retard = f.invoice_date_due ? jours(f.invoice_date_due) : null;
     const r = rel[f.name] || { niveau: 0, n: 0, derniere: null };
     const du = NIVEAUX.filter(x => (retard ?? -1) >= x.jours).reduce((m, x) => Math.max(m, x.n), 0);
-    const propose = Math.min(3, Math.max(1, r.niveau + 1));
-    return {
-      id: f.id, numero: f.name, client: f.partner_id ? f.partner_id[1] : '—', origine: f.invoice_origin || null,
-      date: f.invoice_date, echeance: f.invoice_date_due, total_ttc: f.amount_total, reste_ttc: f.amount_residual, partiel: f.payment_state === 'partial',
-      retard, niveau_fait: r.niveau, relances: r.n, derniere_relance: r.derniere,
-      a_relancer: du > r.niveau && r.niveau < 3, niveau_propose: propose, nom_niveau: NIVEAUX.at(propose - 1).nom,
-      texte: texteRelance(propose, f, retard), textes: { 1: texteRelance(1, f, retard), 2: texteRelance(2, f, retard), 3: texteRelance(3, f, retard) }, lien: odoo.lienOdoo ? odoo.lienOdoo('account.move', f.id) : null,
+    const x = { id: f.id, numero: f.name, date: f.invoice_date, echeance: f.invoice_date_due, total_ttc: f.amount_total, reste_ttc: f.amount_residual, partiel: f.payment_state === 'partial', origine: f.invoice_origin || null,
+      retard, niveau_fait: r.niveau, relances: r.n, derniere_relance: r.derniere, a_relancer: du > r.niveau && r.niveau < 3, _f: f };
+    const k = f.partner_id ? f.partner_id[0] : 0;
+    if (!parClient.has(k)) parClient.set(k, { partner_id: k, client: f.partner_id ? f.partner_id[1] : '—', factures: [] });
+    parClient.get(k).factures.push(x);
+  }
+  const clients = [...parClient.values()].map(c => {
+    const fx = c.factures.sort((a, b) => (b.retard ?? -999) - (a.retard ?? -999));
+    // Factures mises dans la relance : celles déjà échues (toutes si aucune ne l'est encore)
+    const echues = fx.filter(x => (x.retard ?? -1) >= 0);
+    const dans = echues.length ? echues : fx;
+    const fait = Math.max(0, ...dans.map(x => x.niveau_fait));
+    const propose = Math.min(3, Math.max(1, fait + 1));
+    const brut = dans.map(x => x._f);
+    const out = {
+      partner_id: c.partner_id, client: c.client, n: fx.length,
+      reste_ttc: Math.round(fx.reduce((t, x) => t + (x.reste_ttc || 0), 0) * 100) / 100,
+      retard: fx[0].retard, niveau_fait: fait, relances: Math.max(0, ...fx.map(x => x.relances)),
+      derniere_relance: fx.map(x => x.derniere_relance).filter(Boolean).sort().pop() || null,
+      a_relancer: fx.some(x => x.a_relancer), niveau_propose: propose, nom_niveau: NIVEAUX.at(propose - 1).nom,
+      ids: dans.map(x => x.id),
+      textes: { 1: texteRelance(1, brut), 2: texteRelance(2, brut), 3: texteRelance(3, brut) },
+      factures: fx.map(({ _f, ...x }) => ({ ...x, lien: odoo.lienOdoo('account.move', x.id) })),
     };
+    out.texte = out.textes[propose];
+    return out;
   });
-  return liste.sort((a, b) => (b.a_relancer - a.a_relancer) || ((b.retard ?? -999) - (a.retard ?? -999)));
+  return clients.sort((a, b) => (b.a_relancer - a.a_relancer) || ((b.retard ?? -999) - (a.retard ?? -999)));
 }
-async function relancerFacture(id, user, { niveau, message } = {}) {
-  const f = await odoo.factureRelance(Number(id));
-  if (!(f.amount_residual > 0.5) || f.payment_state === 'paid' || f.payment_state === 'in_payment') throw new Error(`La facture ${f.name} est déjà réglée`);
-  if (!f.email) throw new Error(`Pas d'e-mail sur la fiche Odoo de ${f.client} : ajoute-le dans Odoo puis réessaie`);
+// Relance d'un client : un seul mail pour toutes les factures choisies (ids), total, PDF de chacune, un lien de paiement par facture
+async function relancerClientImpayes(ids, user, { niveau, message } = {}) {
+  const liste = [...new Set((Array.isArray(ids) ? ids : [ids]).map(Number).filter(Boolean))].slice(0, 20);
+  if (!liste.length) throw new Error('Aucune facture choisie');
+  const fs = [];
+  for (const id of liste) fs.push(await odoo.factureRelance(id));
+  const aRelancer = fs.filter(f => f.amount_residual > 0.5 && !['paid', 'in_payment'].includes(f.payment_state));
+  if (!aRelancer.length) throw new Error(fs.length > 1 ? 'Ces factures sont déjà réglées' : `La facture ${fs[0].name} est déjà réglée`);
+  const partenaires = new Set(aRelancer.map(f => f.partner_id && f.partner_id[0]));
+  if (partenaires.size > 1) throw new Error('Une relance ne peut regrouper que les factures d\'un même client');
+  const f0 = aRelancer[0];
+  if (!f0.email) throw new Error(`Pas d'e-mail sur la fiche Odoo de ${f0.client} : ajoute-le dans Odoo puis réessaie`);
   const n = [1, 2, 3].includes(Number(niveau)) ? Number(niveau) : 1;
-  const retard = f.invoice_date_due ? jours(f.invoice_date_due) : null;
-  const texte = String(message || '').trim() || texteRelance(n, f, retard);
-  const pdf = await odoo.pdfFacture(f.id);
+  const texte = String(message || '').trim() || texteRelance(n, aRelancer);
+  const total = aRelancer.reduce((t, f) => t + (f.amount_residual || 0), 0);
+  const pieces = [];
+  for (const f of aRelancer) { const pdf = await odoo.pdfFacture(f.id); if (pdf) pieces.push({ name: `${f.name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`, contentType: 'application/pdf', buffer: pdf }); }
+  const boutons = aRelancer.filter(f => f.lien).map(f => `<a href="${esc(f.lien)}" style="display:inline-block;margin:0 8px 8px 0;background:#FF1E8E;color:#fff;padding:10px 18px;border-radius:10px;text-decoration:none;font-weight:bold">Payer ${esc(f.name)} · ${esc(eurFr(f.amount_residual))}</a>`).join('');
   const html = `<div style="font:14px/1.6 Arial,sans-serif;color:#1E1E4B">${esc(texte).replace(/\n/g, '<br>')}`
-    + (f.lien ? `<p style="margin:22px 0"><a href="${esc(f.lien)}" style="background:#FF1E8E;color:#fff;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Payer la facture ${esc(f.name)} en ligne</a></p>` : '')
-    + `<p style="font-size:12px;color:#68677D">Reste à payer : ${esc(eurFr(f.amount_residual))}${f.invoice_date_due ? ' · échéance ' + esc(dateFr(f.invoice_date_due)) : ''}</p></div>`;
-  const mail = { to: f.email, subject: SUJETS[n](f.name), html, replyTo: RELANCE_MAILBOX, attachments: pdf ? [{ name: `${f.name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`, contentType: 'application/pdf', buffer: pdf }] : [] };
+    + (boutons ? `<p style="margin:22px 0 14px">${boutons}</p>` : '')
+    + `<p style="font-size:12px;color:#68677D">Total restant dû : ${esc(eurFr(total))}</p></div>`;
+  const mail = { to: f0.email, subject: SUJETS[n](f0.name, aRelancer.length), html, replyTo: RELANCE_MAILBOX, attachments: pieces };
   let depuis = RELANCE_MAILBOX;
   try { await g.sendMail(RELANCE_MAILBOX, mail); }
   catch (err) {
     // Boîte comptabilité inaccessible à l'application : envoi depuis contact@, réponses toujours vers comptabilite@
     if (RELANCE_MAILBOX === MAILBOX || !/^Graph (4\d\d)\b/.test(err.message)) throw err;
-    console.error(`Commercial : relance ${f.name} depuis ${RELANCE_MAILBOX} refusée (${err.message.slice(0, 80)}), envoi depuis ${MAILBOX}`);
+    console.error(`Commercial : relance ${f0.client} depuis ${RELANCE_MAILBOX} refusée (${err.message.slice(0, 80)}), envoi depuis ${MAILBOX}`);
     await g.sendMail(MAILBOX, mail); depuis = MAILBOX;
   }
-  await odoo.noteFacture(f.id, `${NIVEAUX.at(n - 1).nom} envoyée par mail à ${esc(f.email)} depuis le dashboard (${esc(user)})${pdf ? ', facture en pièce jointe' : ''}.`);
-  await journal(user, 'facture_relance', f.name, { niveau: n, email: f.email, client: f.client, reste_ttc: f.amount_residual, depuis, pdf: !!pdf });
+  const noms = aRelancer.map(f => f.name);
+  for (const f of aRelancer) {
+    await odoo.noteFacture(f.id, `${NIVEAUX.at(n - 1).nom} envoyée par mail à ${esc(f0.email)} depuis le dashboard (${esc(user)})${noms.length > 1 ? ` avec ${noms.length - 1} autre(s) facture(s) : ${esc(noms.filter(x => x !== f.name).join(', '))}` : ''}.`);
+    await journal(user, 'facture_relance', f.name, { niveau: n, email: f0.email, client: f0.client, reste_ttc: f.amount_residual, groupe: noms, depuis, pdf: pieces.length });
+  }
   cache.le = 0;
-  console.log(`Commercial : ${NIVEAUX.at(n - 1).nom.toLowerCase()} de la facture ${f.name} envoyée à ${f.email} par ${user}`);
-  return { ok: true, email: f.email, niveau: n, pdf: !!pdf, lien: !!f.lien, depuis };
+  console.log(`Commercial : ${NIVEAUX.at(n - 1).nom.toLowerCase()} envoyée à ${f0.email} (${noms.join(', ')}) par ${user}`);
+  return { ok: true, email: f0.email, niveau: n, factures: noms.length, pdf: pieces.length, total: Math.round(total * 100) / 100, liens: aRelancer.filter(f => f.lien).length, depuis };
 }
 
 // ---------- Facture du solde ----------
@@ -364,4 +410,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, impayes, relancerFacture, RELANCE_JOURS };
+module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, RELANCE_JOURS };

@@ -76,7 +76,7 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/commercial', auth.requireUser, com, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commercial')));
   app.get('/gestion/api/commercial', auth.requireUser, com, actCom(req => commercial.tableauDeBord({ force: req.query.force === '1' })));
   app.post('/gestion/api/commercial/relance/:numero', auth.requireUser, com, actCom(req => commercial.relancer(String(req.params.numero), quiCom(req), req.body?.message)));
-  app.post('/gestion/api/commercial/factures/:id/relance', auth.requireUser, com, actCom(req => commercial.relancerFacture(Number(req.params.id), quiCom(req), { niveau: req.body?.niveau, message: req.body?.message })));
+  app.post('/gestion/api/commercial/impayes/relance', auth.requireUser, com, actCom(req => commercial.relancerClientImpayes(req.body?.ids, quiCom(req), { niveau: req.body?.niveau, message: req.body?.message })));
   app.post('/gestion/api/commercial/solde/:numero', auth.requireUser, com, actCom(req => commercial.facturerSolde(String(req.params.numero), quiCom(req))));
   app.post('/gestion/api/commercial/demandes/:id/brouillon', auth.requireUser, com, actCom(req => commercial.preparerBrouillon(Number(req.params.id), quiCom(req), req.body?.nom)));
   app.post('/gestion/api/commercial/demandes/:id/envoyer', auth.requireUser, com, actCom(req => commercial.envoyerDemande(Number(req.params.id), quiCom(req))));

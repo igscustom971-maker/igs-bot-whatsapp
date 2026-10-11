@@ -358,7 +358,7 @@ a.brand:hover h1{color:#FF1E8E}
 .field .lei-j,.lei-j{flex-direction:row;text-transform:none;letter-spacing:0;margin:0;color:#1E1E4B;display:inline-flex;align-items:center;gap:5px;border:1px solid #E3D8C4;border-radius:10px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;background:#fff}
 .lei-j:has(input:checked){border-color:#FF1E8E;background:#FFF0F7;color:#1E1E4B}
 #co-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
-.imp-ed{margin-top:10px;display:grid;gap:8px}.imp-ed[hidden]{display:none}.imp-ed textarea{width:100%;font:inherit;font-size:13px;padding:10px;border:1px solid var(--line);border-radius:10px;resize:vertical;box-sizing:border-box}.imp-ed select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px}
+.imp-ed{margin-top:10px;display:grid;gap:8px}.imp-ed[hidden]{display:none}.imp-f{display:grid;gap:6px;margin:8px 0}.imp-l{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.35;padding:6px 8px;border:1px solid var(--line);border-radius:10px}.imp-l input{margin-top:3px}.imp-l>span{flex:1;min-width:0}.imp-l a{text-decoration:none;color:#68677D}.imp-ed textarea{width:100%;font:inherit;font-size:13px;padding:10px;border:1px solid var(--line);border-radius:10px;resize:vertical;box-sizing:border-box}.imp-ed select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px}
 .co-tuiles .kpi{cursor:pointer;text-decoration:none;color:inherit;transition:.15s}
 .co-tuiles .kpi:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(30,30,75,.10);border-color:#FF1E8E}
 .co-onglets{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px;border-bottom:1px solid var(--line);padding-bottom:0}
@@ -865,18 +865,18 @@ function coAfficher(){
     + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à facturer (TTC)</span></div>'
     + '<div class="mt">Total '+eur2(x.montant_ttc)+' TTC · '+(x.factures.length ? 'déjà : '+x.factures.map(f => esc(f.numero || 'brouillon')+(f.paiement === 'paid' ? ' ✓' : '')).join(', ') : 'aucune facture')+'</div>'
     + '<div class="ac"><button class="btn pink" data-co="solde">Facturer le solde</button><a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('reste', reste.length);
-  // Impayés : relances J+7 / J+15 / J+30
+  // Impayés : une carte par client (toutes ses factures, le total), une seule relance pour l'ensemble
   const imp = d.impayes, NIV = ['', '1 · Relance amiable (J+7)', '2 · Relance ferme (J+15)', '3 · Dernier rappel (J+30)'];
   const jour = v => v ? new Date(String(v).slice(0, 10) + 'T12:00:00').toLocaleDateString('fr-FR') : '';
+  const pRetard = r => r == null ? '' : r > 0 ? pastille(r + ' j de retard', r >= 30 ? '#fee2e2;color:#991b1b' : r >= 15 ? '#ffedd5;color:#9a3412' : '#fef3c7;color:#92400e') : pastille('pas encore échue', '#f3f4f6;color:#374151');
   if ($('co-imp')) $('co-imp').innerHTML = imp == null ? coVide('Factures Odoo indisponibles pour le moment : réessaie avec « Actualiser ».') : !imp.length ? coVide('✅ Aucune facture impayée.') : '<div class="co-grid">' + imp.slice(0, pl('imp')).map(x =>
-    '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-imp="'+x.id+'"><div class="t"><b>'+esc(x.numero)+'</b>'
-    + (x.retard == null ? '' : x.retard > 0 ? pastille(x.retard + ' j de retard', x.retard >= 30 ? '#fee2e2;color:#991b1b' : x.retard >= 15 ? '#ffedd5;color:#9a3412' : '#fef3c7;color:#92400e') : pastille('pas encore échue', '#f3f4f6;color:#374151'))+'</div>'
-    + '<div class="cl">'+esc(x.client)+'</div><div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à payer (TTC)</span></div>'
-    + '<div class="mt">'+(x.echeance ? 'échéance ' + jour(x.echeance) : '')+(x.partiel ? ' · paiement partiel' : '')+(x.origine ? ' · ' + esc(x.origine) : '')+'</div>'
-    + '<div class="mt">'+(x.relances ? 'Relancée ' + x.relances + ' fois (niveau ' + x.niveau_fait + ', le ' + jour(x.derniere_relance) + ')' : 'Jamais relancée')+(x.a_relancer ? ' · <b style="color:#9a3412">' + esc(x.nom_niveau.toLowerCase()) + ' à envoyer</b>' : '')+'</div>'
-    + '<div class="ac">'+(x.niveau_fait < 3 ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-imp-ouvrir>✉️ '+esc(x.nom_niveau)+'</button>' : '<span class="mt">3 relances faites : décision d’Ismaël</span>')+(x.lien ? '<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a>' : '')+'</div>'
+    '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-imp="'+x.partner_id+'"><div class="t"><b>'+esc(x.client)+'</b>'+pRetard(x.retard)+'</div>'
+    + '<div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à payer (TTC)'+(x.n > 1 ? ' · '+x.n+' factures' : '')+'</span></div>'
+    + '<div class="imp-f">'+x.factures.map(f => '<label class="imp-l"><input type="checkbox" class="imp-ck" value="'+f.id+'"'+(x.ids.includes(f.id) ? ' checked' : '')+'><span><b>'+esc(f.numero)+'</b> · '+eur2(f.reste_ttc)+(f.partiel ? ' (reste)' : '')+'<br><span class="mt">'+(f.echeance ? 'échéance '+jour(f.echeance) : '')+(f.retard > 0 ? ' · '+f.retard+' j de retard' : f.retard != null ? ' · pas encore échue' : '')+(f.relances ? ' · relancée '+f.relances+'×' : '')+'</span></span><a href="'+esc(f.lien)+'" target="_blank" rel="noopener" title="Ouvrir dans Odoo">↗</a></label>').join('')+'</div>'
+    + '<div class="mt">'+(x.relances ? 'Dernière relance : niveau ' + x.niveau_fait + ', le ' + jour(x.derniere_relance) : 'Jamais relancé')+(x.a_relancer ? ' · <b style="color:#9a3412">' + esc(x.nom_niveau.toLowerCase()) + ' à envoyer</b>' : '')+'</div>'
+    + '<div class="ac">'+(x.niveau_fait < 3 ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-imp-ouvrir>✉️ '+esc(x.nom_niveau)+(x.n > 1 ? ' groupée' : '')+'</button>' : '<span class="mt">3 relances faites : décision d’Ismaël</span>')+'</div>'
     + '<div class="imp-ed" hidden><select class="imp-niv">'+[1, 2, 3].map(n => '<option value="'+n+'"'+(n === x.niveau_propose ? ' selected' : '')+'>'+NIV[n]+'</option>').join('')+'</select>'
-    + '<textarea class="imp-txt" rows="10">'+esc(x.texte)+'</textarea><div class="note">La facture en PDF et le bouton « Payer en ligne » sont ajoutés au mail.</div>'
+    + '<textarea class="imp-txt" rows="11">'+esc(x.texte)+'</textarea><div class="note">Un seul mail pour les factures cochées : total, chaque facture en PDF et un bouton « Payer » par facture. Si tu changes les cases sans toucher au texte, il est recalculé à l’envoi.</div>'
     + '<div class="ac"><button class="btn pink" data-imp-envoyer>Envoyer la relance</button><button class="btn" data-imp-fermer>Annuler</button></div></div></div>').join('') + '</div>' + coPlus('imp', imp.length);
   // Signés
   $('co-signes').innerHTML = !d.signes.length ? coVide('Aucun devis signé récemment.') : '<div class="co-grid">' + d.signes.slice(0, pl('signes')).map(x =>
@@ -1037,7 +1037,7 @@ function coEvents(){
   // Impayés : ouvrir l'éditeur de relance, changer de niveau, envoyer
   document.getElementById('v-commercial').addEventListener('change', e => {
     const s = e.target.closest('.imp-niv'); if (!s) return;
-    const c = s.closest('[data-imp]'), x = ((coData && coData.impayes) || []).find(y => String(y.id) === c.dataset.imp);
+    const c = s.closest('[data-imp]'), x = ((coData && coData.impayes) || []).find(y => String(y.partner_id) === c.dataset.imp);
     if (x && x.textes) c.querySelector('.imp-txt').value = x.textes[s.value] || '';
   });
   document.getElementById('v-commercial').addEventListener('click', async e => {
@@ -1047,11 +1047,17 @@ function coEvents(){
     if (e.target.closest('[data-imp-fermer]')) { ed.hidden = true; return; }
     const b = e.target.closest('[data-imp-envoyer]'); if (!b || b.disabled) return;
     const niveau = Number(c.querySelector('.imp-niv').value);
+    const ids = [...c.querySelectorAll('.imp-ck:checked')].map(i => Number(i.value));
+    if (!ids.length) { msg('❌ Coche au moins une facture', 'err'); return; }
     if (niveau === 3 && !confirm('Dernier rappel avant procédure de recouvrement : Ismaël est d’accord ?')) return;
+    const x = ((coData && coData.impayes) || []).find(y => String(y.partner_id) === c.dataset.imp);
+    const txt = c.querySelector('.imp-txt').value;
+    // Texte non retouché : le serveur le recalcule pour les factures cochées
+    const message = x && x.textes && txt.trim() === String(x.textes[niveau] || '').trim() ? '' : txt;
     b.disabled = true; coEnCours++;
     try {
-      const j = await post('/gestion/api/commercial/factures/' + c.dataset.imp + '/relance', { niveau, message: c.querySelector('.imp-txt').value });
-      msg('✅ Relance envoyée à ' + esc(j.email) + (j.pdf ? ' avec la facture en PDF' : ' (PDF indisponible : facture non jointe)') + (j.lien ? '' : ', sans lien de paiement'), 'ok');
+      const j = await post('/gestion/api/commercial/impayes/relance', { ids, niveau, message });
+      msg('✅ Relance envoyée à ' + esc(j.email) + ' : ' + j.factures + ' facture(s), ' + eur2(j.total) + ' TTC' + (j.pdf === j.factures ? ', PDF joints' : ' (' + j.pdf + ' PDF joint(s) sur ' + j.factures + ')') + (j.liens ? '' : ', sans lien de paiement'), 'ok');
       ed.hidden = true; coEnCours--; await coCharger(true);
     } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   });
