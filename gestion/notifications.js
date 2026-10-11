@@ -205,10 +205,11 @@ function semaine(d = new Date()) {
 // Clé stable d'une planche (la clé change quand le N° de devis est ajouté) ; anciennes clés gardées pour la vérification
 function clesPlanche(p) {
   const stable = p.excel_id ? `PL-${p.excel_id}` : p.cle;
-  // Hebdo : un message à chaque passage en « prête » (date du changement de statut), à défaut un par semaine
+  // Hebdo : un message à chaque passage en « prête » (date du changement de statut), à défaut un seul (clé « init » ;
+  // l'ancienne clé de la semaine en cours reste reconnue, pour ne pas renvoyer un message déjà parti avant la mise à jour)
   const cle = p.hebdo ? `${stable}#${p.statut_le ? new Date(p.statut_le).getTime() : 'init'}` : stable;
   const sansDevis = p.excel_id ? `SANS-DEVIS-${String(p.client || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${p.excel_id}` : null;
-  return { cle, alias: p.hebdo ? [] : [p.cle, sansDevis].filter(Boolean) };
+  return { cle, alias: p.hebdo ? (p.statut_le ? [] : [`${stable}#${semaine(heureGuadeloupe())}`]) : [p.cle, sansDevis].filter(Boolean) };
 }
 
 async function aEnvoyer() {

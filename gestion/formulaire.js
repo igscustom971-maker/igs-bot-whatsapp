@@ -33,7 +33,7 @@ function tropDEnvois(ip) {
 // Purge horaire des adresses inactives (la table ne grossit pas indéfiniment)
 setInterval(() => { const now = Date.now(); for (const [ip, l] of envois) if (!l.some(t => now - t < 3600e3)) envois.delete(ip); }, 3600e3).unref();
 // Adresse du client : la DERNIÈRE de X-Forwarded-For (ajoutée par le proxy Render), la première pouvant être inventée
-const ipClient = req => { const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
+const ipClient = req => { if (req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']); const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
 
 function cors(req, res) {
   const o = req.headers.origin;

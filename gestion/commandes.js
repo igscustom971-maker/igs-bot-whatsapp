@@ -509,7 +509,7 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
         const odoo = require('./odoo');
         if (odoo.configured && odoo.configured()) {
           const etat = await odoo.etatDevis(cible);
-          if (etat !== 'sale') { statut = 'EN DEVIS'; note = `⚠ Formulaire reçu mais devis ${etat ? 'non confirmé dans Odoo (' + etat + ')' : 'introuvable dans Odoo'} : passer en PAYÉE une fois le paiement reçu`; }
+          if (etat !== 'sale') { statut = 'EN DEVIS'; note = `⚠ Formulaire reçu mais devis ${etat ? 'non confirmé dans Odoo (' + etat + ')' : 'introuvable dans Odoo'} : passera en PAYÉE (et BDC SEFI rempli) dès la confirmation du devis dans Odoo`; }
         }
       } catch (e) { console.error('Formulaire : état du devis Odoo indisponible', e.message); }
       await insererBase({ cle: cible, n_devis: cible, client: t(client).slice(0, 100), contenu_mail: contenu || null, zone_flocage: zoneF || null, planche: 'À FAIRE', statut, remarque: note, date_commande: aujourdhui() });

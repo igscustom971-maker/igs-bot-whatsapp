@@ -717,12 +717,13 @@ app.post('/webhook', async (req, res) => {
 
 // Écho WhatsApp Coexistence : message envoyé par l'équipe DEPUIS L'APP (champ "message_echoes")
 async function traiterEcho(echo) {
+  // Une réaction 👍 (ou un événement système) n'est pas une réponse : Leïla répond quand même
+  if (['reaction', 'unsupported', 'system'].includes(echo.type)) return;
   const clientNumber = echo.to;
   lastIsmaelReplyAt[clientNumber] = Date.now();
   urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
   loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
   // Le CONTENU de la réponse manuelle est enregistré dans l'historique (Leïla et les récaps ont toute la conversation)
-  if (['reaction', 'unsupported', 'system'].includes(echo.type)) return; // une réaction 👍 n'est pas une réponse
   const echoText = echo.text?.body || echo.image?.caption || echo.document?.caption || (['image', 'video', 'document', 'audio', 'sticker'].includes(echo.type) ? '[Image ou fichier envoyé par l\'équipe]' : '');
   if (echoText) await db.appendMessage(clientNumber, 'assistant', echoText);
   console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);

@@ -143,7 +143,12 @@ async function nettoyerBase() {
   let retirees = 0, hebdo = 0;
   for (const p of rows) {
     if (n(p.statut) !== 'LIVREE') continue;
-    if (p.hebdo) { await supabase.from('gestion_planches').update({ statut: null, numero_suivi: null, mail_envoye: null, mail_expedition_envoye: null, statut_le: new Date().toISOString() }).eq('cle', p.cle); hebdo++; } // nouvelle semaine : suivi et mails remis à zéro
+    if (p.hebdo) { // nouvelle semaine : statut, suivi et mails remis à zéro (sans statut_le si la colonne manque)
+      const raz = { statut: null, numero_suivi: null, mail_envoye: null, mail_expedition_envoye: null, statut_le: new Date().toISOString() };
+      let { error } = await supabase.from('gestion_planches').update(raz).eq('cle', p.cle);
+      if (error && /statut_le/.test(error.message)) { delete raz.statut_le; ({ error } = await supabase.from('gestion_planches').update(raz).eq('cle', p.cle)); }
+      if (error) console.error(`Planche hebdo ${p.client} non remise à zéro :`, error.message); else hebdo++;
+    }
     else if (n(p.paiement) === 'PAYEE') { await supabase.from('gestion_planches').update({ present: false, synced_at: new Date().toISOString() }).eq('cle', p.cle); retirees++; }
   }
   await syncNow();

@@ -290,11 +290,19 @@ async function envoyer(par = 'Envoi automatique') {
 
     // Verrou posé AVANT l'envoi : si la suite échoue (Graph indisponible…), le même lot ne repart jamais une 2e fois
     await setReglage('sefi_verrou', `ENVOI EN COURS - lot ${lot} : si ce message reste, vérifie que SEFI a bien reçu la commande puis vide le BDC et débloque`);
-    await g.sendMail(MAILBOX, {
-      to: SEFI_EMAIL, subject: `[IGS CUSTOM BAR] - Bon de commande ${dateHeure.slice(0, 10)}`,
-      html: '<p>Bonjour,<br><br>Veuillez trouver ci-joint la commande du jour.<br><br>Bien Cordialement,</p><p><br>IGS CUSTOM BAR</p>',
-      attachments: [{ name: `Commande_${lot}.pdf`, contentType: 'application/pdf', buffer: pdf }],
-    });
+    try {
+      await g.sendMail(MAILBOX, {
+        to: SEFI_EMAIL, subject: `[IGS CUSTOM BAR] - Bon de commande ${dateHeure.slice(0, 10)}`,
+        html: '<p>Bonjour,<br><br>Veuillez trouver ci-joint la commande du jour.<br><br>Bien Cordialement,</p><p><br>IGS CUSTOM BAR</p>',
+        attachments: [{ name: `Commande_${lot}.pdf`, contentType: 'application/pdf', buffer: pdf }],
+      });
+    } catch (err) {
+      // Refus net de Microsoft (code HTTP) : rien n'est parti, le verrou est levé et le prochain passage réessaie.
+      // Autre erreur (coupure réseau) : on ne sait pas si SEFI l'a reçu -> verrou MANUEL, à vérifier avant de débloquer.
+      const refuse = /^Graph (4\d\d|500|503)\b/.test(err.message); // 502/504 : délai dépassé, envoi peut-être parti
+      await setReglage('sefi_verrou', refuse ? '' : `MANUEL - lot ${lot} : envoi à SEFI incertain (${String(err.message).slice(0, 120)}). Vérifie dans « Éléments envoyés » de contact@ puis débloque.`).catch(() => {});
+      throw err;
+    }
     await g.sendMail(MAILBOX, { to: RECAP_EMAIL, subject: `Récap commande SEFI du ${dateHeure.slice(0, 10)}`, html: recapHtml }).catch(err => console.error('SEFI : récap non envoyé', err.message));
 
     // 3_ConfirmerEnvoi : on vide le BDC seulement si rien n'a changé pendant l'envoi

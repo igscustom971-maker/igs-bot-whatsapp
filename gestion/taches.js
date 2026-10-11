@@ -107,8 +107,16 @@ async function commandesPayees() {
     if (ex) {
       // Ligne créée « EN DEVIS » par le formulaire avant le paiement : elle passe en PAYÉE dès la confirmation Odoo
       if (statutKey(ex.statut) === 'ENDEVIS') {
-        try { await commandes.modifier(ex.cle, { statut: 'PAYÉE', ...(ex.infos || !o.infos ? {} : { infos: o.infos }) }, 'Odoo (commande payée)'); ajoutees.push(`${o.name} ${o.client} (EN DEVIS → PAYÉE)`); }
-        catch (err) { console.error(`Gestion commande payée ${o.name} :`, err.message); continue; }
+        try {
+          const note = /^⚠ Formulaire reçu mais devis/.test(ex.remarque || '') ? { remarque: '' } : {};
+          await commandes.modifier(ex.cle, { statut: 'PAYÉE', ...note, ...(ex.infos || !o.infos ? {} : { infos: o.infos }) }, 'Odoo (commande payée)');
+          ajoutees.push(`${o.name} ${o.client} (EN DEVIS → PAYÉE)`);
+        } catch (err) { console.error(`Gestion commande payée ${o.name} :`, err.message); continue; }
+        // Le formulaire était arrivé avant le paiement : BDC SEFI rempli maintenant (si le dépôt automatique est actif)
+        if (await require('./depot').actif().catch(() => false)) {
+          try { const b = await require('./depot').remplirApresPaiement(ex.n_devis, ex.client); console.log(`Gestion ${o.name} : BDC ${b.ok ? (b.deja ? 'déjà rempli' : (b.lignes || 0) + ' ligne(s)') : b.raison}`); }
+          catch (err) { console.error(`Gestion ${o.name} : BDC SEFI non rempli`, err.message); }
+        }
       }
       vus.add(o.name); continue;
     }

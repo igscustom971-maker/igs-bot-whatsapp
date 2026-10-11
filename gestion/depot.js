@@ -26,12 +26,23 @@ async function deposer({ devis, client, email, tel, zone, instructions, attachme
   const nomDossier = sansCaracteresInterdits(`${devis} - ${client}`).slice(0, 120);
   const dossier = await commandes.dossierCommande(nomDossier, devis);
   const sousDossiers = new Map((await g.children(dossier.id)).filter(i => i.folder).map(i => [i.name.toLowerCase(), i]));
+  const contenus = new Map(); // sous-dossier -> fichiers déjà présents
   let tailles = null;
   for (const a of attachments) {
     const nomSous = sansCaracteresInterdits(a.name.replace(/_Avant|_Arriere/g, '').replace(/\.[^.]+$/, '')) || 'Fichiers';
     let sd = sousDossiers.get(nomSous.toLowerCase());
-    if (!sd) { sd = await g.createFolder(dossier.id, nomSous); sousDossiers.set(nomSous.toLowerCase(), sd); }
-    const it = await g.uploadFile(sd.id, a.name, a.buffer, a.contentType, undefined, 'rename'); // renvoi du formulaire : l'ancien fichier est gardé
+    if (!sd) { sd = await g.createFolder(dossier.id, nomSous); sousDossiers.set(nomSous.toLowerCase(), sd); contenus.set(sd.id, []); }
+    // Formulaire renvoyé : l'ancien fichier est rangé dans « Ancien » (gardé, mais plus lu), le nouveau prend sa place
+    if (!contenus.has(sd.id)) contenus.set(sd.id, await g.children(sd.id).catch(() => []));
+    const ancien = contenus.get(sd.id).find(i => i.file && i.name.toLowerCase() === a.name.toLowerCase());
+    if (ancien) {
+      try {
+        let rangement = contenus.get(sd.id).find(i => i.folder && i.name === 'Ancien');
+        if (!rangement) { rangement = await g.createFolder(sd.id, 'Ancien'); contenus.get(sd.id).push({ ...rangement, folder: {} }); }
+        await g.moveItem(ancien.id, rangement.id);
+      } catch (err) { console.error(`Dépôt ${devis} : ancien ${a.name} non rangé`, err.message); }
+    }
+    const it = await g.uploadFile(sd.id, a.name, a.buffer, a.contentType, undefined, 'replace');
     if (/^tailles\.xlsx$/i.test(a.name)) tailles = it;
   }
   const ligne = await commandes.majFormulaire({ devis, client, email, tel, instructions, zone });
@@ -48,4 +59,15 @@ async function deposer({ devis, client, email, tel, zone, instructions, attachme
   return { dossier: dossier.name, ligne, bdc };
 }
 
-module.exports = { actif, deposer };
+// Commande passée EN DEVIS -> PAYÉE (paiement confirmé dans Odoo après le formulaire) : le BDC SEFI est rempli à ce
+// moment-là avec le Tailles.xlsx déjà déposé dans le dossier
+async function remplirApresPaiement(devis, client) {
+  const dossier = await commandes.dossierCommande(sansCaracteresInterdits(`${devis} - ${client}`).slice(0, 120), devis);
+  const sd = (await g.children(dossier.id)).find(i => i.folder && /^tailles?$/i.test(i.name.trim()));
+  if (!sd) return { ok: false, raison: 'pas de dossier Tailles' };
+  const f = (await g.children(sd.id)).find(i => i.file && /^tailles\.xlsx$/i.test(i.name));
+  if (!f) return { ok: false, raison: 'pas de Tailles.xlsx' };
+  return require('./sefi').remplirDepuisTailles(devis, client, f.id);
+}
+
+module.exports = { actif, deposer, remplirApresPaiement };
