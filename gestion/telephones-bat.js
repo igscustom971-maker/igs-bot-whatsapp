@@ -28,12 +28,14 @@ function telValide(brut) {
   d = d.replace(/^(590|596|594|262|33)0/, '$1');                 // +590 0690… -> +590 690…
   let m;
   if ((m = d.match(/^0?6?(69[0-7]\d{6})$/))) d = m[1];          // 0690…, 06696… (6 doublé), 690…
-  else if ((m = d.match(/^0(5(90|96|94)\d{6})$/))) d = m[1];   // fixe 0590 / 0596
-  else if ((m = d.match(/^(?:590|596|33)(69[0-7]\d{6}|59[06]\d{6})$/))) d = m[1];
+  else if ((m = d.match(/^0(5(90|96|94)\d{6}|262\d{6})$/))) d = m[1];   // fixe 0590 / 0596 / 0594 / 0262
+  else if ((m = d.match(/^(?:590|596|594|262|33)(69[0-7]\d{6}|59[046]\d{6}|262\d{6})$/))) d = m[1];
   else if ((m = d.match(/^0([1-79]\d{8})$/))) d = '33' + m[1];
-  if (/^69[0-4]\d{6}$/.test(d) || /^590\d{6}$/.test(d)) d = '590' + d;  // Guadeloupe
+  if (/^69[01]\d{6}$/.test(d) || /^590\d{6}$/.test(d)) d = '590' + d;  // Guadeloupe (0690 / 0691)
   else if (/^69[67]\d{6}$/.test(d) || /^596\d{6}$/.test(d)) d = '596' + d; // Martinique
-  if (/^(590(590|690|691|694)|596(596|696|697)|594(594|694)|262(262|692|693))\d{6}$/.test(d)) return d;
+  else if (/^694\d{6}$/.test(d) || /^594\d{6}$/.test(d)) d = '594' + d;    // Guyane
+  else if (/^69[23]\d{6}$/.test(d) || /^262\d{6}$/.test(d)) d = '262' + d; // Réunion / Mayotte
+  if (/^(590(590|690|691)|596(596|696|697)|594(594|694)|262(262|269|639|692|693))\d{6}$/.test(d)) return d;
   if (/^33[1-79]\d{8}$/.test(d)) return d;
   return null;
 }
@@ -242,6 +244,8 @@ async function appliquer(choix, user) {
       const p = await odoo.readPartner(l.partnerId);
       if (!p) { out.ignores++; out.details.push(`${l.client} : fiche introuvable`); continue; }
       if (p.phone && String(p.phone).trim() && !(manuel && c.remplacer)) { out.ignores++; l.statut = norm(p.phone) === c.numero ? 'deja_ok' : 'different'; l.telephoneOdoo = p.phone; continue; }
+      const autre = await odoo.partnerParTelephone(c.numero).catch(() => null);
+      if (autre && autre.id !== l.partnerId) { out.ignores++; out.details.push(`${l.client} : le ${c.numero} est déjà sur la fiche de ${autre.name}`); continue; }
       const phone = odoo.formatTel(c.numero);
       await odoo.ecrirePartner(l.partnerId, { phone });
       l.statut = 'ajoute'; l.telephoneOdoo = phone;
@@ -333,6 +337,9 @@ async function rattacherWhatsapp(numero, partnerId, remplacer, user) {
   const p = await odoo.readPartner(Number(partnerId));
   if (!p) throw new Error('Client Odoo introuvable');
   if (p.phone && String(p.phone).trim() && !remplacer) throw new Error(`${p.name} a déjà le numéro ${p.phone} dans Odoo : confirme le remplacement`);
+  // Un même numéro sur deux fiches fausserait l'identification des clients (Leïla, BAT, planches)
+  const autre = await odoo.partnerParTelephone(n).catch(() => null);
+  if (autre && autre.id !== p.id) throw new Error(`Ce numéro est déjà sur la fiche Odoo de ${autre.name} : retire-le d'abord de cette fiche`);
   const phone = odoo.formatTel(n);
   await odoo.ecrirePartner(p.id, { phone });
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'odoo_telephone_ajoute', cle: `partner-${p.id}`, details: { client: p.name, partner_id: p.id, telephone: phone, ancien: p.phone || null, source: 'WhatsApp' } });

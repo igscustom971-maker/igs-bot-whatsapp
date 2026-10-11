@@ -138,18 +138,18 @@ async function contexteCommandes(tel) {
       return '\n\nCOMMANDES DU CLIENT : aucune commande ni planche en cours retrouvée pour ce numéro, ce nom ou ce contact. Si le client demande où en est sa commande, demande-lui simplement à quel nom (ou quelle entreprise) la commande a été passée, ou son adresse e-mail. Le numéro de devis (il commence par DE) aide aussi s\'il l\'a, mais il ne le connaît pas forcément.';
     }
     const lignes = liste.slice(0, 8).map(({ type, par, c }) => {
-      const sur = par === 'nom' ? 'IDENTIFIÉE PAR LE NOM SEULEMENT (à confirmer)' : par === 'email' ? 'identifiée par l\'e-mail' : par === 'devis' ? 'identifiée par le N° de devis cité' : 'identifiée par le numéro de téléphone';
-      const fort = par === 'telephone' || par === 'email';
+      const sur = par === 'nom' ? 'IDENTIFIÉE PAR LE NOM SEULEMENT (à confirmer)' : par === 'email' ? 'IDENTIFIÉE PAR L\'E-MAIL SEULEMENT (à confirmer)' : par === 'devis' ? 'identifiée par le N° de devis cité' : 'identifiée par le numéro de téléphone';
+      const fort = par === 'telephone'; // e-mail ou nom tapés par n'importe qui : pas de N° de suivi ni de détail
       if (type === 'planche') {
         return `- Planche DTF ${c.n_devis || ''} au nom de ${c.client}${c.format ? ' (' + c.format + ')' : c.metres ? ' (' + String(c.metres).replace('.', ',') + ' m)' : ''} [${sur}] : ${statutPlanche(c)}${c.numero_suivi && fort ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}`;
       }
-      return `- Commande ${c.n_devis || 'sans devis'} au nom de ${c.client || '?'}${c.infos ? ' (' + String(c.infos).replace(/\s+/g, ' ').slice(0, 80) + ')' : ''} [${sur}] : ${statutClair(c)}${c.numero_suivi && fort ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}${(c.bat_envoye_le || (c.bat_info && c.bat_info.bat)) ? (tel && c.telephone === tel ? ' ; BAT disponible' : ' ; BAT existant mais ce numéro n\'est pas celui de la commande : ne le renvoie pas, propose que l\'équipe le renvoie au numéro ou à l\'e-mail de la commande') : ''}`;
+      return `- Commande ${c.n_devis || 'sans devis'} au nom de ${c.client || '?'}${c.infos && fort ? ' (' + String(c.infos).replace(/\s+/g, ' ').slice(0, 80) + ')' : ''} [${sur}] : ${statutClair(c)}${c.numero_suivi && fort ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}${(c.bat_envoye_le || (c.bat_info && c.bat_info.bat)) ? (tel && c.telephone === tel ? ' ; BAT disponible' : ' ; BAT existant mais ce numéro n\'est pas celui de la commande : ne le renvoie pas, propose que l\'équipe le renvoie au numéro ou à l\'e-mail de la commande') : ''}`;
     });
     return `\n\nCOMMANDES DU CLIENT (informations internes À JOUR EN TEMPS RÉEL, seule source fiable sur l'état des commandes ; à utiliser UNIQUEMENT si le client demande où en est sa commande, sa planche, son BAT ou son colis) :
 ${lignes.join('\n')}
 RÈGLES COMMANDES :
 - Le client ne connaît pas forcément son numéro de devis : identifie sa commande par son nom, le nom de son entreprise, son e-mail ou son numéro. Ne lui demande le N° de devis qu'en dernier recours.
-- Une ligne « IDENTIFIÉE PAR LE NOM SEULEMENT » peut être celle d'un homonyme : avant de donner le statut, vérifie avec une question simple que c'est bien sa commande (ex : « C'est bien pour la commande au nom de … ? » en reprenant le nom qu'il t'a donné lui-même, ou ce qu'il avait commandé). Ne donne jamais de N° de suivi ni de BAT sur une ligne identifiée par le nom seulement.
+- Une ligne « IDENTIFIÉE PAR LE NOM SEULEMENT » ou « PAR L'E-MAIL SEULEMENT » peut être celle d'un homonyme ou d'une autre personne : avant de donner le statut, vérifie avec une question simple que c'est bien sa commande (ex : « C'est bien pour la commande au nom de … ? » en reprenant le nom qu'il t'a donné lui-même, ou ce qu'il avait commandé). Ne donne jamais de N° de suivi ni de BAT sur ces lignes.
 - Donne le statut en phrase simple et naturelle, jamais tel quel et jamais de jargon interne. Tu peux donner le N° de suivi avec le lien quand il est indiqué. Ne donne JAMAIS de date de livraison, de délai précis ni de prix. S'il y a plusieurs commandes et que ce n'est pas clair, demande laquelle (ce qu'il a commandé ou à quel nom).
 - Si le client demande à recevoir (à nouveau) son BAT et que « BAT disponible » est indiqué, dis-lui que tu le lui renvoies tout de suite et ajoute À LA FIN de ton message le marqueur interne ###BAT:N°DEVIS### (ex: ###BAT:DE2601069###), le client ne le voit jamais. Si le BAT n'est pas encore disponible, dis qu'il est en préparation.`;
   } catch (err) {
@@ -167,8 +167,8 @@ function extraireBat(texte) {
 // ###DEVIS:produit=T-shirt;qte=6;zone=avant;nom=Marie Dupont;email=marie@x.fr;details=photo### retiré de la réponse
 function extraireDevis(texte) {
   const t = String(texte || '');
-  const m = t.match(/###DEVIS:([^#]*)###/i);
-  const clean = t.replace(/###DEVIS:[^#]*###/gi, '').trim();
+  const m = t.match(/###DEVIS:([\s\S]*?)###\s*$/im) || t.match(/###DEVIS:([^\n]*?)###/i);
+  const clean = t.replace(/###DEVIS:[\s\S]*?###\s*$/gim, '').replace(/###DEVIS:[^\n]*?###/gi, '').trim();
   if (!m) return { clean, devis: null };
   const o = {};
   for (const part of m[1].split(';')) {
@@ -187,8 +187,8 @@ async function enregistrerDemandeDevis(tel, d) {
 // ###PLANCHE:2|pages 3 et 4 du Canva### retiré de la réponse
 function extrairePlanche(texte) {
   const t = String(texte || '');
-  const m = t.match(/###PLANCHE:([^|#]+)\|?([^#]*)###/i);
-  const clean = t.replace(/###PLANCHE:[^#]*###/gi, '').trim();
+  const m = t.match(/###PLANCHE:([^|#\n]+)\|?([^\n]*?)###/i);
+  const clean = t.replace(/###PLANCHE:[^\n]*?###/gi, '').trim();
   if (!m) return { clean, planche: null };
   const v = m[1].trim().toUpperCase().replace(',', '.');
   const metres = /^A[34]$/.test(v) ? v : Number(v) > 0 && Number(v) < 100 ? String(Math.round(Number(v) * 100) / 100) : null;

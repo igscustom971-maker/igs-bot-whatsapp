@@ -31,11 +31,15 @@ async function deposer({ devis, client, email, tel, zone, instructions, attachme
     const nomSous = sansCaracteresInterdits(a.name.replace(/_Avant|_Arriere/g, '').replace(/\.[^.]+$/, '')) || 'Fichiers';
     let sd = sousDossiers.get(nomSous.toLowerCase());
     if (!sd) { sd = await g.createFolder(dossier.id, nomSous); sousDossiers.set(nomSous.toLowerCase(), sd); }
-    const it = await g.uploadFile(sd.id, a.name, a.buffer, a.contentType, undefined, 'replace');
+    const it = await g.uploadFile(sd.id, a.name, a.buffer, a.contentType, undefined, 'rename'); // renvoi du formulaire : l'ancien fichier est gardé
     if (/^tailles\.xlsx$/i.test(a.name)) tailles = it;
   }
   const ligne = await commandes.majFormulaire({ devis, client, email, tel, instructions, zone });
   let bdc = null;
+  // BDC SEFI rempli seulement tant que la commande n'est pas passée chez SEFI (PAYÉE / VALIDÉE) : un nouvel envoi du
+  // formulaire après la commande ne remet rien dans le bon de commande
+  const st = String(commandes.statutDuDevis(devis) || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (tailles && !/^(PAYEE|VALIDEE)$/.test(st)) { bdc = { ok: false, raison: `commande ${st || 'introuvable'} : BDC non rempli (Tailles.xlsx déposé dans le dossier)` }; tailles = null; }
   if (tailles) {
     try { bdc = await require('./sefi').remplirDepuisTailles(devis, client, tailles.id); }
     catch (err) { console.error(`Dépôt ${devis} : BDC SEFI non rempli`, err.message); bdc = { ok: false, raison: err.message }; }

@@ -36,6 +36,8 @@ function normalizePhone(raw) {
     const p = d.slice(0, 4);
     if (['0690', '0691', '0590'].includes(p)) d = '590' + d.slice(1);
     else if (['0696', '0697', '0596'].includes(p)) d = '596' + d.slice(1);
+    else if (['0694', '0594'].includes(p)) d = '594' + d.slice(1);
+    else if (['0692', '0693', '0262', '0639', '0269'].includes(p)) d = '262' + d.slice(1);
     else d = '33' + d.slice(1);
   }
   return d.length >= 11 ? d : null;
@@ -121,8 +123,13 @@ const plus7 = d => { if (!d) return null; const x = new Date(d + 'T12:00:00Z'); 
 const aujourdhui = () => { const n = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' })); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; };
 // Base du dashboard : lignes présentes (date de livraison = date de commande + 7 jours, comme la formule Excel)
 async function lireBase() {
-  const { data, error } = await supabase.from('gestion_commandes').select(CHAMPS_LIGNE.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
-  if (error) throw new Error(`Supabase : ${error.message}`);
+  const data = [];
+  for (let from = 0; ; from += 1000) { // paginé (plafond Supabase de 1000 lignes par lecture)
+    const r = await supabase.from('gestion_commandes').select(CHAMPS_LIGNE.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).order('cle').range(from, from + 999);
+    if (r.error) throw new Error(`Supabase : ${r.error.message}`);
+    data.push(...r.data);
+    if (r.data.length < 1000) break;
+  }
   return data.map(o => ({ ...o, date_livraison: o.date_livraison || plus7(o.date_commande), date_dynamique: false }));
 }
 // Écriture dans la base ; « Contenu mail » modifié -> e-mail / téléphone / instructions recalculés
@@ -493,9 +500,21 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
     await syncNow();
     const r0 = cache.rows.find(r => t(r.n_devis).toUpperCase() === cible);
     if (!r0) {
-      await insererBase({ cle: cible, n_devis: cible, client: t(client).slice(0, 100), contenu_mail: contenu || null, zone_flocage: zoneF || null, planche: 'À FAIRE', statut: 'PAYÉE', date_commande: aujourdhui() });
+      // Formulaire public : une commande déjà livrée / retirée (ligne archivée) n'est jamais reprise ni remise à zéro
+      const { data: arch } = await supabase.from('gestion_commandes').select('cle, statut').eq('present', false).ilike('n_devis', cible).limit(1);
+      if (arch && arch.length) return `commande ${cible} archivée (${arch[0].statut || 'livrée'}) : non modifiée, à vérifier`;
+      // Devis pas encore confirmé dans Odoo : ligne créée « EN DEVIS » (pas de BDC SEFI) ; Odoo injoignable -> PAYÉE comme avant
+      let statut = 'PAYÉE', note = null;
+      try {
+        const odoo = require('./odoo');
+        if (odoo.configured && odoo.configured()) {
+          const etat = await odoo.etatDevis(cible);
+          if (etat !== 'sale') { statut = 'EN DEVIS'; note = `⚠ Formulaire reçu mais devis ${etat ? 'non confirmé dans Odoo (' + etat + ')' : 'introuvable dans Odoo'} : passer en PAYÉE une fois le paiement reçu`; }
+        }
+      } catch (e) { console.error('Formulaire : état du devis Odoo indisponible', e.message); }
+      await insererBase({ cle: cible, n_devis: cible, client: t(client).slice(0, 100), contenu_mail: contenu || null, zone_flocage: zoneF || null, planche: 'À FAIRE', statut, remarque: note, date_commande: aujourdhui() });
       await syncNow();
-      return `ligne créée pour ${cible}`;
+      return `ligne créée pour ${cible}${statut !== 'PAYÉE' ? ' (EN DEVIS : devis non confirmé)' : ''}`;
     }
     const f = {};
     // Sécurité (formulaire public) : le contact d'une commande qui en a déjà un n'est remplacé que si l'e-mail ou le
@@ -1004,4 +1023,7 @@ const avantBat = statut => !APRES_BAT.includes(key(statut || ''));
 // VALIDÉE est aussi relue : une commande validée sans fichier BAT reste « BAT à faire »
 const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee';
 
-module.exports = { supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+// Statut actuel de la commande d'un devis (cache), null si aucune ligne
+function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
+
+module.exports = { statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

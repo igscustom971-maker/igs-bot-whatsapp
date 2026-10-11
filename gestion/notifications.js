@@ -129,7 +129,8 @@ async function envoyerTexteWhatsApp(tel, texte) {
     body: JSON.stringify({ messaging_product: 'whatsapp', to: tel, type: 'text', text: { body: texte } }),
   });
   if (!res.ok) throw new Error(`WhatsApp refusé (${res.status}) : ${(await res.text()).slice(0, 150)}`);
-  if (supabase) await supabase.from('conversations').insert({ phone_number: tel, role: 'assistant', content: texte });
+  // Marqué « message automatique » : Leïla ne le prend pas pour une réponse de l'équipe à une question du client
+  if (supabase) await supabase.from('conversations').insert({ phone_number: tel, role: 'assistant', content: `[Message automatique] ${texte}` });
 }
 
 // Envoyés pendant cette exécution du serveur (filet de sécurité si l'écriture du journal échoue)
@@ -172,11 +173,15 @@ async function dejaTraites(cles) {
   const liste = [...new Set((cles || []).filter(Boolean))];
   const depuis = new Date(Date.now() - 6 * 3600e3).toISOString();
   for (let i = 0; i < liste.length; i += 80) {
-    const { data, error } = await supabase.from('gestion_notifications').select('cle, type, statut, cree_le').in('cle', liste.slice(i, i + 80)).limit(5000);
-    if (error) throw new Error(`Journal des messages illisible : ${error.message}`);
-    for (const n of data || []) {
-      if (n.statut === 'envoye' || n.statut === 'ignore' || n.statut === 'sans_contact') faits.add(`${n.cle}|${n.type}`);
-      else if (n.statut === 'echec' && n.cree_le > depuis) echecsRecents.add(`${n.cle}|${n.type}`);
+    // Deux lectures séparées et paginées (Supabase plafonne à 1000 lignes) : les échecs accumulés ne masquent jamais un envoi
+    const lot = liste.slice(i, i + 80);
+    for (const [filtre, cible] of [[q => q.in('statut', ['envoye', 'ignore', 'sans_contact']), faits], [q => q.eq('statut', 'echec').gt('cree_le', depuis), echecsRecents]]) {
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await filtre(supabase.from('gestion_notifications').select('cle, type').in('cle', lot)).order('id', { ascending: true }).range(from, from + 999);
+        if (error) throw new Error(`Journal des messages illisible : ${error.message}`);
+        for (const n of data || []) cible.add(`${n.cle}|${n.type}`);
+        if (!data || data.length < 1000) break;
+      }
     }
   }
   return { faits, echecsRecents };
@@ -201,7 +206,7 @@ function semaine(d = new Date()) {
 function clesPlanche(p) {
   const stable = p.excel_id ? `PL-${p.excel_id}` : p.cle;
   // Hebdo : un message à chaque passage en « prête » (date du changement de statut), à défaut un par semaine
-  const cle = p.hebdo ? `${stable}#${p.statut_le ? new Date(p.statut_le).getTime() : semaine(heureGuadeloupe())}` : stable;
+  const cle = p.hebdo ? `${stable}#${p.statut_le ? new Date(p.statut_le).getTime() : 'init'}` : stable;
   const sansDevis = p.excel_id ? `SANS-DEVIS-${String(p.client || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')}-${p.excel_id}` : null;
   return { cle, alias: p.hebdo ? [] : [p.cle, sansDevis].filter(Boolean) };
 }

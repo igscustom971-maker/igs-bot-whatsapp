@@ -74,7 +74,7 @@ const aProfil = (u, p) => !!u && (u.role === 'admin' || (u.profils || []).includ
 function requireProfil(p) {
   return (req, res, next) => {
     if (aProfil(req.user, p)) return next();
-    if (req.path.startsWith('/gestion/api/')) return res.status(403).json({ error: 'Accès réservé (profil ' + p + ')' });
+    if ((req.originalUrl || req.path).startsWith('/gestion/api/')) return res.status(403).json({ error: 'Accès réservé (profil ' + p + ')' });
     return res.redirect('/gestion');
   };
 }
@@ -84,7 +84,7 @@ function requireProfil(p) {
 function requireUser(req, res, next) {
   const user = getUser(req);
   const refuser = () => {
-    if (req.path.startsWith('/gestion/api/')) return res.status(401).json({ error: 'Non connecté' });
+    if ((req.originalUrl || req.path).startsWith('/gestion/api/')) return res.status(401).json({ error: 'Non connecté' });
     return res.redirect('/gestion/auth/login');
   };
   if (!user) return refuser();
@@ -92,12 +92,17 @@ function requireUser(req, res, next) {
   comptes().sessionValide(user).then(v => {
     if (!v) { setCookie(res, COOKIE, '', 0); return refuser(); }
     if (v.provisoire) {
-      if (req.path.startsWith('/gestion/api/')) return res.status(403).json({ error: 'Change ton mot de passe provisoire avant de continuer' });
+      if ((req.originalUrl || req.path).startsWith('/gestion/api/')) return res.status(403).json({ error: 'Change ton mot de passe provisoire avant de continuer' });
       return res.redirect('/gestion/auth/mot-de-passe');
     }
     req.user = { ...user, name: v.affichage, collab: v.affichage, profils: v.profils, role: v.profils.includes('admin') ? 'admin' : 'equipe' };
     next();
-  }).catch(err => { console.error('Gestion auth : contrôle de session', err.message); refuser(); });
+  }).catch(err => {
+    // Panne passagère : la session n'est pas effacée, on demande juste de réessayer
+    console.error('Gestion auth : contrôle de session', err.message);
+    if ((req.originalUrl || req.path).startsWith('/gestion/api/')) return res.status(503).json({ error: 'Base momentanément indisponible, réessaie dans un instant' });
+    res.status(503).send('Base momentanément indisponible, réessaie dans un instant.');
+  });
 }
 const comptes = () => require('./comptes');
 const ouvrirSession = (res, s) => setCookie(res, COOKIE, sign({ ...s, exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
@@ -185,8 +190,8 @@ function requireAdmin(req, res, next) {
 
 function mount(app) {
   // Logo IGS (public : page de connexion, icône d'onglet)
-  app.get('/gestion/fond-igs.jpg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').sendFile(require('path').join(__dirname, 'static', 'fond-igs.jpg')));
-  app.get('/gestion/logo-igs.png', (req, res) => res.set('Cache-Control', 'public, max-age=86400').sendFile(require('path').join(__dirname, 'static', 'logo-igs.png')));
+  app.get('/gestion/fond-igs.jpg', (req, res) => res.set('Cache-Control', 'public, max-age=604800').sendFile(require('path').join(__dirname, 'static', 'fond-igs.jpg')));
+  app.get('/gestion/logo-igs.png', (req, res) => res.set('Cache-Control', 'public, max-age=604800').sendFile(require('path').join(__dirname, 'static', 'logo-igs.png')));
   app.get('/gestion/auth/login', (req, res) => {
     if (getUser(req)) return res.redirect('/gestion');
     res.set('Cache-Control', 'no-store').send(pageAuth('Connexion', `<h1>Bon retour 👋</h1><p class="sub">Connecte-toi à ton espace IGS DASHBOARD.</p>
@@ -282,7 +287,7 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
   app.get('/gestion/auth/callback', async (req, res) => {
     try {
       const { code, state, error, error_description } = req.query;
-      if (error) return res.status(400).send(`Connexion refusée : ${error_description || error}`);
+      if (error) return res.status(400).type("text/plain").send(`Connexion refusée : ${String(error_description || error).slice(0, 300)}`);
       const expected = parseCookies(req)[STATE_COOKIE];
       if (!state || !expected || state !== expected) return res.status(400).send('Session de connexion expirée, réessaie.');
       setCookie(res, STATE_COOKIE, '', 0);
@@ -311,7 +316,7 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
       const role = roleFor(email);
       if (!role) {
         console.warn('Gestion auth : compte non autorisé', email);
-        return res.status(403).send(`Le compte ${email} n'a pas accès à l'interface de gestion IGS.`);
+        return res.status(403).type('text/plain').send(`Le compte ${email} n'a pas accès à l'interface de gestion IGS.`);
       }
       setCookie(res, COOKIE, sign({ email, name: claims.name || email, role, profils: role === 'admin' ? ['admin'] : ['technique'], exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
       console.log(`Gestion : connexion ${email} (${role})`);

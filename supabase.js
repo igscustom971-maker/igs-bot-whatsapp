@@ -200,6 +200,14 @@ async function getSetting(key) {
   return data?.value ?? null;
 }
 
+// Même chose, mais lève une erreur si la base ne répond pas (au lieu de renvoyer null comme « pas de valeur »)
+async function getSettingStrict(key) {
+  if (!supabase) return null;
+  const { data, error } = await supabase.from('bot_settings').select('value').eq('key', key).maybeSingle();
+  if (error) throw new Error(`Supabase getSetting ${key} : ${error.message}`);
+  return data?.value ?? null;
+}
+
 // Écrit un réglage général (depuis le panel)
 async function setSetting(key, value) {
   if (!supabase) return;
@@ -235,6 +243,7 @@ module.exports = {
   getClientNote,
   upsertClientNote,
   getSetting,
+  getSettingStrict,
   setSetting,
   getHistoryLimit,
   setHistoryLimit,

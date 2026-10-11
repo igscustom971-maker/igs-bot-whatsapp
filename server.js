@@ -6,6 +6,8 @@
 
 const express = require('express');
 const app = express();
+// Réponses compressées (gzip) : la page du dashboard (~400 Ko) arrive 5 à 8 fois plus légère sur mobile
+app.use(require('compression')({ threshold: 1024 }));
 app.use(express.json({ limit: '10mb' })); // limite augmentée pour accepter les longs historiques importés
 
 // Récap production (Excel via Power Automate), déclenché quand Ismaël écrit "récap"/"planning"
@@ -80,6 +82,7 @@ const DEBOUNCE_MS = 20000; // attend 20 sec de silence avant de traiter les mess
 const backlogMessages = {}; // { [from]: [{ text, at }, ...] }
 let sauvegardeAttente = Promise.resolve();
 function sauverAttente() {
+  if (typeof etatCharge !== 'undefined' && !etatCharge) return sauvegardeAttente; // ne jamais écraser la file avant de l'avoir relue
   sauvegardeAttente = sauvegardeAttente.then(() => db.setSetting('leila_attente', JSON.stringify(backlogMessages))).catch(e => console.error('Leïla attente (sauvegarde) :', e.message));
   return sauvegardeAttente;
 }
@@ -123,6 +126,19 @@ const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !"
 // Marqueur invisible que Claude ajoute en fin de réponse pour signaler une urgence réelle
 // (jamais montré au client, détecté puis retiré avant l'envoi WhatsApp)
 const URGENT_MARKER = '###URGENT###';
+const URGENT_RE = /#{2,}\s*URGENT\s*#{2,}/i;
+// Dernier nettoyage avant tout envoi au client : aucun marqueur interne ne doit jamais partir
+function nettoyerPourClient(texte) {
+  let t = String(texte || '')
+    .replace(/#{2,}\s*URGENT\s*#{2,}/gi, '')
+    .replace(/#{2,}\s*(RECAP|BAT|PLANCHE|DEVIS)\s*:[^\n]*$/gim, '')   // marqueur restant en fin de ligne (ex. « # » dans les valeurs)
+    .replace(/^\s*PLAINTE\s*:\s*/i, '')
+    .replace(/\[\[(AUDIO|MEDIA)_SANS_TEXTE\]\]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return t;
+}
+const resteMarqueur = t => /#{2,}|\[\[|PLAINTE\s*:/i.test(t);
 
 // Marqueur signalant un message totalement hors-sujet/incompréhensible après clarification :
 // aucune réponse n'est envoyée au client, juste noté au récap pour qu'Ismaël gère lui-même
@@ -222,7 +238,7 @@ function isBotDayActive(weekday) {
 // Est-on dans la fenêtre "après-midi, équipe présente, bot en veille" (lundi/jeudi après 13h) ?
 function isHumanHandoffWindow(weekday, hour) {
   if (manualOverride !== null) return false; // une activation manuelle ignore cette coupure
-  return planning.coupureHeure != null && (planning.coupureJours || []).includes(weekday) && hour >= planning.coupureHeure;
+  return planning.coupureHeure != null && (planning.coupureJours || []).includes(weekday) && hour >= planning.coupureHeure && hour * 60 <= minutesDe(planning.fermeture);
 }
 
 // Fermeture prolongée réglable depuis le panel (en mémoire, se réinitialise à chaque redéploiement,
@@ -231,17 +247,26 @@ let closureOverrideUntil = null;
 
 // État de Leïla enregistré dans Supabase (bot_settings « leila_etat ») : survit aux redémarrages et mises en ligne
 async function sauverEtatLeila() {
+  if (!etatCharge) { console.error('Leïla : état pas encore relu, sauvegarde ignorée'); return; }
   try { await db.setSetting('leila_etat', JSON.stringify({ manualOverride, closureOverrideUntil, ignoreBusinessHours })); }
   catch (e) { console.error('Leïla état (sauvegarde) :', e.message); }
 }
+let etatCharge = false;
 async function chargerEtatLeila() {
-  try {
-    const [etat, plan, attente] = await Promise.all([db.getSetting('leila_etat'), db.getSetting('leila_planning'), db.getSetting('leila_attente')]);
+  for (let essai = 1; essai <= 5; essai++) {
+    try { await chargerEtatLeila1(); etatCharge = true; return; }
+    catch (e) { console.error(`Leïla état (chargement, essai ${essai}/5) :`, e.message); await sleep(essai * 3000); }
+  }
+  console.error('Leïla : état NON relu après 5 essais, aucune sauvegarde tant qu\'il n\'est pas relu');
+}
+async function chargerEtatLeila1() {
+  {
+    const [etat, plan, attente] = await Promise.all([db.getSettingStrict('leila_etat'), db.getSettingStrict('leila_planning'), db.getSettingStrict('leila_attente')]);
     if (etat) { const e = JSON.parse(etat); manualOverride = e.manualOverride ?? null; closureOverrideUntil = e.closureOverrideUntil || null; ignoreBusinessHours = !!e.ignoreBusinessHours; }
     if (plan) planning = { ...PLANNING_DEFAUT, ...JSON.parse(plan) };
     if (attente) { const a = JSON.parse(attente) || {}; for (const [k, v] of Object.entries(a)) if (Array.isArray(v) && v.length) backlogMessages[k] = [...v, ...(backlogMessages[k] || [])]; }
     console.log(`Leïla : état restauré (mode ${manualOverride === null ? 'auto' : manualOverride ? 'forcé actif' : 'forcé inactif'}${closureOverrideUntil ? ', fermée jusqu\'au ' + closureOverrideUntil : ''}, ${Object.keys(backlogMessages).length} conversation(s) en attente)`);
-  } catch (e) { console.error('Leïla état (chargement) :', e.message); }
+  }
 }
 
 // Est-ce qu'on est en période de fermeture prolongée (congés) ? Prioritaire sur tout le reste
@@ -575,7 +600,7 @@ En dehors du bloc « COMMANDES DU CLIENT », tu n'as aucune visibilité sur l'é
 - insiste pour une remise SUPÉRIEURE à 15 %, ou insiste pour une remise hors des cas prévus (moins de 20 pièces, planches) : c'est une décision humaine (jusqu'à 15 % sur 20 pièces et plus, voir CAS PARTICULIERS, tu gères toi-même)
 - exprime une plainte (mauvaise qualité, erreur de commande, insatisfaction ; un simple "c'est long" sur une commande bien en cours n'en est pas une)
 - demande à annuler une commande en cours (toujours une urgence, impact sur la prod/le stock)
-Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante SANS RIEN AFFIRMER sur le fond (ex: "Je fais le point avec le responsable et je reviens vers vous", ou "Je vérifie ça tout de suite avec l'équipe"). Si le client a donné des détails précis sur une modification ou un problème (ex: "il fallait changer le visuel pour X"), reprends ces détails pour qu'ils soient bien transmis ; s'il n'a rien précisé, ne lui redemande pas de détail, contente-toi d'escalader tel quel. Dans tous les cas, ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client). Si c'est une plainte, précise "PLAINTE :" au tout début de ta réponse interne pour que ce soit identifiable dans le résumé.
+Alors la situation nécessite une intervention humaine rapide que toi tu ne peux pas garantir. Réponds normalement au client de façon rassurante SANS RIEN AFFIRMER sur le fond (ex: "Je fais le point avec le responsable et je reviens vers vous", ou "Je vérifie ça tout de suite avec l'équipe"). Si le client a donné des détails précis sur une modification ou un problème (ex: "il fallait changer le visuel pour X"), reprends ces détails pour qu'ils soient bien transmis ; s'il n'a rien précisé, ne lui redemande pas de détail, contente-toi d'escalader tel quel. Dans tous les cas, ajoute EXACTEMENT ce marqueur tout seul sur la toute dernière ligne de ta réponse : ###URGENT### (ce marqueur est invisible pour le client, il sera retiré avant l'envoi, ne l'explique jamais au client). Si c'est une plainte, ajoute aussi en fin de message ###RECAP:PLAINTE - résumé en quelques mots### (jamais le mot « PLAINTE » dans le texte destiné au client).
 
 NOTE : promettre qu'un devis ou un lien de paiement "arrive par mail sous peu" n'est PAS une urgence, c'est le fonctionnement normal (l'équipe traite ça à son retour). N'ajoute PAS ###URGENT### juste pour ça.
 
@@ -697,7 +722,8 @@ async function traiterEcho(echo) {
   urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
   loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
   // Le CONTENU de la réponse manuelle est enregistré dans l'historique (Leïla et les récaps ont toute la conversation)
-  const echoText = echo.text?.body || echo.image?.caption || echo.document?.caption || (echo.type && echo.type !== 'text' ? '[Image ou fichier envoyé par l\'équipe]' : '');
+  if (['reaction', 'unsupported', 'system'].includes(echo.type)) return; // une réaction 👍 n'est pas une réponse
+  const echoText = echo.text?.body || echo.image?.caption || echo.document?.caption || (['image', 'video', 'document', 'audio', 'sticker'].includes(echo.type) ? '[Image ou fichier envoyé par l\'équipe]' : '');
   if (echoText) await db.appendMessage(clientNumber, 'assistant', echoText);
   console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
 }
@@ -816,11 +842,12 @@ async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = f
   let sent = false;
 
   if (canSendUrgentNow()) {
+    urgentCountToday++; // réservé avant l'envoi (plusieurs alertes simultanées ne dépassent pas le plafond)
     sent = await envoyerAIsmael(`🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`, 'Alerte Leïla');
     if (sent) {
-      urgentCountToday++;
       console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
     } else {
+      urgentCountToday--;
       console.error(`ALERTE URGENTE NON DÉLIVRÉE pour ${from} (voir l'erreur d'envoi juste au-dessus), repli dans le récap`);
     }
   } else {
@@ -880,6 +907,9 @@ async function handleAfternoonHandoff(from, rawText) {
 // Traite un message (ou un lot de messages regroupés) : gère l'attente horaires ouvrés puis répond
 async function processMessageNow(from, text, recuLe = Date.now()) {
   const nowCheck = getGuadeloupeTime(new Date());
+  // État revérifié au moment du traitement (désactivation ou fermeture pendant l'attente)
+  if (isClosedForBreak(new Date())) { console.log(`Fermeture en cours : pas de réponse pour ${from}`); return 'ferme'; }
+  if (!isBotDayActive(nowCheck.weekday)) { await mettreEnAttente(from, text, recuLe); return 'attente'; }
 
   // Coupure de l'après-midi (mode auto uniquement) : priorité sur tout le reste
   if (!ignoreBusinessHours && isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
@@ -892,7 +922,7 @@ async function processMessageNow(from, text, recuLe = Date.now()) {
   if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
     console.log(`Hors horaires — message de ${from} mis en attente jusqu'à l'ouverture`);
     await mettreEnAttente(from, text, recuLe);
-    return;
+    return 'attente';
   }
 
   await handleIncomingText(from, text, recuLe);
@@ -905,11 +935,12 @@ function noterEnvoiLeila(from, texte) {
   envoisLeila[from].add(texte);
   if (envoisLeila[from].size > 30) envoisLeila[from].delete(envoisLeila[from].values().next().value);
 }
+// Messages automatiques (commande prête, BAT…) : ce ne sont pas des réponses à la question du client
+const estAutomatique = t => /^\[(Message automatique|BAT envoyé)/i.test(String(t || ''));
 async function dejaRepondu(from, depuis) {
   if ((lastIsmaelReplyAt[from] || 0) > depuis) return true;
   const apres = await db.getAssistantSince(from, depuis);
-  const miens = envoisLeila[from] || new Set();
-  return apres.some(t => !miens.has(t));
+  return apres.some(t => !estAutomatique(t));
 }
 
 // Traitement effectif : appelle Claude, applique le délai naturel, envoie la réponse, logge le récap
@@ -931,12 +962,18 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   // Historique persistant (Supabase) : le message du client y est déjà, enregistré à la réception
   const customLimit = await db.getHistoryLimit(from);
   const fullHistory = await db.getHistory(from, customLimit || undefined);
-  if (!fullHistory.length || fullHistory[fullHistory.length - 1].role !== 'user') fullHistory.push({ role: 'user', content: text }); // filet si la base n'a pas répondu
+  if (!fullHistory.length) fullHistory.push({ role: 'user', content: text }); // filet si la base n'a pas répondu
+  else if (fullHistory[fullHistory.length - 1].role !== 'user') {
+    if (!estAutomatique(fullHistory[fullHistory.length - 1].content)) { console.log(`Pas de réponse de Leïla pour ${from} : la conversation a déjà une réponse`); return; }
+    fullHistory.push({ role: 'user', content: text });
+  }
   const isKnownClient = fullHistory.length > 1; // déjà de vrais échanges avant ce message = client connu
+  // Dernier tour complet du client (ses messages regroupés) : une question suivie d'une photo reste une question
+  const lastUserText = String(fullHistory[fullHistory.length - 1].content || '').replace(/\[Message vocal reçu\]|\[Image ou fichier reçu, sans texte\]/g, '').trim();
 
   // Aucun vrai texte (seulement un vocal et/ou une image/un fichier sans légende) :
   // réponse "bateau" humaine (pas d'appel Claude) + note dans le récap pour que l'équipe regarde/écoute
-  if (!realText) {
+  if (!lastUserText) {
     const ack = pickAck(fullHistory, hasAudio);
     const needAck = !lastAckAt[from] || Date.now() - lastAckAt[from] > ACK_COOLDOWN_MS;
     if (needAck) {
@@ -970,8 +1007,13 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
 
   // Appeler Claude API (avec le contexte "client connu ou non")
   const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
+  if (rawReply === null) {
+    console.error(`Leïla : pas de réponse de l'IA pour ${from}, message remis en attente`);
+    await mettreEnAttente(from, rawText, recuLe);
+    return;
+  }
 
-  // Cas "message hors-sujet, on arrête de répondre" : rien à envoyer, juste noter au récap
+  // Cas "message hors-sujet", on arrête de répondre" : rien à envoyer, juste noter au récap
   if (rawReply.includes(IGNORE_MARKER)) {
     console.log(`Message hors-sujet détecté pour ${from}, aucune réponse envoyée`);
     if (shouldTrigger(loggedForRecapAt, from)) {
@@ -991,7 +1033,7 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
 
   // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
   // Urgence = marqueur du modèle OU mots-clés évidents (relance, paiement annoncé, annulation, plainte...)
-  const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(realText);
+  const isUrgent = URGENT_RE.test(rawReply) || /^\s*PLAINTE\s*:/i.test(rawReply) || looksUrgent(lastUserText);
   const { clean: replyNoRecap, note: recapNote } = extractRecapNote(rawReply);
   // Renvoi du BAT demandé par le client : marqueur ###BAT:N°DEVIS### retiré (module gestion)
   const { clean: replySansBat, devis: batDemande } = require('./gestion/leila').extraireBat(replyNoRecap);
@@ -999,11 +1041,16 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   const { clean: replySansPlanche, planche: plancheDemandee } = require('./gestion/leila').extrairePlanche(replySansBat);
   // Demande de devis complète : marqueur ###DEVIS:…### retiré, notée dans le module Commercial (brouillon Odoo pré-fait)
   const { clean: replySansDevis, devis: devisDemande } = require('./gestion/leila').extraireDevis(replySansPlanche);
-  const reply = replySansDevis.replace(URGENT_MARKER, '').trim();
+  const reply = nettoyerPourClient(replySansDevis);
+  if (!reply || resteMarqueur(reply)) {
+    console.error(`Réponse de Leïla bloquée pour ${from} (marqueur interne restant ou vide) : ${JSON.stringify(replySansDevis).slice(0, 200)}`);
+    await triggerUrgentAlert(from, fullHistory, { label: ' (réponse de Leïla bloquée, à reprendre)' }).catch(() => {});
+    return;
+  }
 
   // Note libre demandée par Leïla (ex: nuancier à envoyer) : ajoutée au récap quoi qu'il arrive
   if (recapNote) {
-    const displayN = await resolveClientDisplay(from, fullHistory);
+    const displayN = await resolveClientDisplay(from, fullHistory).catch(() => from);
     const entryN = { from, display: displayN, summary: recapNote, urgent: false };
     if (manualOverride === true) {
       manualLog.push(entryN);
@@ -1018,7 +1065,7 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   fullHistory.push({ role: 'assistant', content: reply });
 
   // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
-  if (isUrgent) await triggerUrgentAlert(from, fullHistory);
+  if (isUrgent) triggerUrgentAlert(from, fullHistory).catch(e => console.error('Alerte urgente :', e.message));
 
   // Délai artificiel (15-45 sec) pour simuler quelqu'un qui tape, pas une réponse robotique instantanée
   const delayMs = randomDelay(15000, 45000);
@@ -1087,11 +1134,11 @@ async function flushBacklogIfActive() {
     const items = backlogMessages[from] || [];
     if (!items.length) { delete backlogMessages[from]; continue; }
     rattrapageEnCours.add(from);
-    const jusqua = Math.max(...items.map(it => it.at));
+    const traites = new Set(items);
     // Retiré de la file une fois traité (si le serveur redémarre en plein milieu, il est repris :
     // la réponse déjà envoyée est alors vue comme « déjà répondu » et rien n'est renvoyé)
     const retirer = async () => {
-      const reste = (backlogMessages[from] || []).filter(it => it.at > jusqua);
+      const reste = (backlogMessages[from] || []).filter(it => !traites.has(it));
       if (reste.length) backlogMessages[from] = reste; else delete backlogMessages[from];
       await sauverAttente();
       rattrapageEnCours.delete(from);
@@ -1103,6 +1150,14 @@ async function flushBacklogIfActive() {
       // Seulement les messages arrivés APRÈS la dernière réponse, pas trop vieux, et pas de simples « merci / ok »
       const now = Date.now();
       const fresh = items.filter(it => it.at > lastReplyAt && now - it.at < MAX_BACKLOG_AGE_MS && !isPureAcknowledgment(it.text));
+      const tropVieux = items.filter(it => it.at > lastReplyAt && now - it.at >= MAX_BACKLOG_AGE_MS && !isPureAcknowledgment(it.text));
+      if (tropVieux.length && !fresh.length) {
+        const dk = getGuadeloupeDateKey(new Date());
+        if (!dailyLogs[dk]) dailyLogs[dk] = [];
+        const nomConnu = await db.getClientName(from).catch(() => null);
+        const display = nomConnu ? `${nomConnu} - ${from}` : from;
+        dailyLogs[dk].push({ from, display, summary: `Message du ${new Date(tropVieux[0].at).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'long', hour: '2-digit', minute: '2-digit' })} resté sans réponse (trop ancien pour Leïla) : « ${normalizeIncoming(tropVieux.map(it => it.text).join(' / ')).displayText.slice(0, 160)} »`, urgent: true });
+      }
       if (fresh.length === 0) {
         console.log(`Rattrapage ignoré pour ${from} : déjà traité par l'équipe, trop ancien ou sans objet (${items.length} msg écartés)`);
         await retirer();
@@ -1119,7 +1174,7 @@ async function flushBacklogIfActive() {
   }
 }
 
-const MAX_BACKLOG_AGE_MS = 20 * 60 * 60 * 1000; // au-delà de 20h, le message est considéré périmé
+const MAX_BACKLOG_AGE_MS = 72 * 60 * 60 * 1000; // au-delà de 72 h (un week-end), trop ancien : noté au récap au lieu d'une réponse
 
 // Remerciements / accusés de réception / formules de politesse seules : inutile d'y répondre en rattrapage
 function isPureAcknowledgment(text) {
@@ -1132,7 +1187,9 @@ function isPureAcknowledgment(text) {
 // ============================================
 // 3. APPEL CLAUDE API
 // ============================================
+// Renvoie null en cas d'échec (jamais de message d'erreur envoyé au client)
 async function callClaudeAPI(conversationHistory, isKnownClient, from) {
+  try {
   const systemPrompt = await buildSystemPrompt(isKnownClient, from);
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -1153,11 +1210,15 @@ async function callClaudeAPI(conversationHistory, isKnownClient, from) {
   const textBlock = data.content?.find(item => item.type === 'text');
 
   if (!textBlock) {
-    console.error(`Claude API erreur (status ${response.status}):`, JSON.stringify(data));
-    return "Désolé, un souci technique. L'équipe revient vers vous très vite !";
+    console.error(`Claude API erreur (status ${response.status}):`, JSON.stringify(data).slice(0, 300));
+    return null;
   }
 
   return textBlock.text;
+  } catch (err) {
+    console.error('Claude API injoignable :', err.message);
+    return null;
+  }
 }
 
 // ============================================
@@ -1694,7 +1755,7 @@ async function veilleUrgences() {
       if (!urgent) urgent = await checkUrgentOnly(hist.slice(0, -1), hist.length ? hist[hist.length - 1].content : texte).catch(() => false);
       if (urgent) {
         console.log(`Veille : message urgent de ${from} pendant que Leïla est en veille`);
-        await triggerUrgentAlert(from, hist, { label: ' (Leïla en veille, personne n\'a encore répondu)', logFallback: false });
+        await triggerUrgentAlert(from, hist, { label: ' (Leïla en veille, personne n\'a encore répondu)' });
       }
     } catch (e) { console.error(`Veille urgences ${from} :`, e.message); }
   }
@@ -1798,7 +1859,9 @@ app.post('/admin/simuler', async (req, res) => {
     const isKnownClient = history.length > 0;
     const fullHistory = [...history, { role: 'user', content: message }];
 
-    const rawReply = extractRecapNote(await callClaudeAPI(fullHistory, isKnownClient, numero)).clean;
+    const brut = await callClaudeAPI(fullHistory, isKnownClient, numero);
+    if (brut === null) return res.status(502).send('L\'IA n\'a pas répondu (clé, quota ou panne) : réessaie dans un instant.');
+    const rawReply = extractRecapNote(brut).clean;
 
     if (rawReply.includes(IGNORE_MARKER)) {
       return res.send(
@@ -1809,11 +1872,11 @@ app.post('/admin/simuler', async (req, res) => {
       );
     }
 
-    const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(message);
+    const isUrgent = URGENT_RE.test(rawReply) || looksUrgent(message);
     const lei = require('./gestion/leila');
     const { clean: sansPl, planche: plSim } = lei.extrairePlanche(lei.extraireBat(rawReply).clean);
     const { clean: sansDv, devis: dvSim } = lei.extraireDevis(sansPl);
-    const reply = sansDv.replace(URGENT_MARKER, '').trim();
+    const reply = nettoyerPourClient(sansDv);
 
     res.send(
       `🧪 SIMULATION (rien envoyé, rien enregistré)\n\n` +

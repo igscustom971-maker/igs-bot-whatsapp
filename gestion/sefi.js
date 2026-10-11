@@ -259,7 +259,9 @@ async function reglage(cle, defaut = null) {
   return data ? data.valeur : defaut;
 }
 async function setReglage(cle, valeur) {
-  if (supabase) await supabase.from('gestion_reglages').upsert({ cle, valeur, updated_at: new Date().toISOString() });
+  if (!supabase) return;
+  const { error } = await supabase.from('gestion_reglages').upsert({ cle, valeur, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Supabase (${cle}) : ${error.message}`);
 }
 
 async function envoyer(par = 'Envoi automatique') {
@@ -286,6 +288,8 @@ async function envoyer(par = 'Envoi automatique') {
       await g.uploadFile(sefiDossier.id, `Commande_${lot}.pdf`, pdf, 'application/pdf');
     } catch (err) { console.error('SEFI : PDF non archivé', err.message); }
 
+    // Verrou posé AVANT l'envoi : si la suite échoue (Graph indisponible…), le même lot ne repart jamais une 2e fois
+    await setReglage('sefi_verrou', `ENVOI EN COURS - lot ${lot} : si ce message reste, vérifie que SEFI a bien reçu la commande puis vide le BDC et débloque`);
     await g.sendMail(MAILBOX, {
       to: SEFI_EMAIL, subject: `[IGS CUSTOM BAR] - Bon de commande ${dateHeure.slice(0, 10)}`,
       html: '<p>Bonjour,<br><br>Veuillez trouver ci-joint la commande du jour.<br><br>Bien Cordialement,</p><p><br>IGS CUSTOM BAR</p>',
@@ -294,8 +298,9 @@ async function envoyer(par = 'Envoi automatique') {
     await g.sendMail(MAILBOX, { to: RECAP_EMAIL, subject: `Récap commande SEFI du ${dateHeure.slice(0, 10)}`, html: recapHtml }).catch(err => console.error('SEFI : récap non envoyé', err.message));
 
     // 3_ConfirmerEnvoi : on vide le BDC seulement si rien n'a changé pendant l'envoi
-    const apres = await lireLot(id);
     let vide = false;
+    try {
+    const apres = await lireLot(id);
     if (apres.signature === L.signature) {
       await g.clearRange(id, F, 'A17:Q48');
       await g.clearRange(id, F, 'S1:S10');
@@ -308,9 +313,16 @@ async function envoyer(par = 'Envoi automatique') {
         }
       }
       vide = true;
+      await setReglage('sefi_verrou', ''); // envoi terminé et BDC vidé : on débloque
     } else {
       await setReglage('sefi_verrou', `MANUEL - BDC modifié pendant l'envoi du lot ${lot}`);
       await g.sendMail(MAILBOX, { to: MAILBOX, subject: 'Commande envoyée à SEFI mais BDC non vidé : vérifie avant le prochain envoi', html: '<p>Commande envoyée à SEFI mais BDC non vidé : vérifie avant le prochain envoi (puis débloque l\'envoi dans Admin).</p>' }).catch(() => {});
+    }
+    } catch (err) {
+      // Commande partie mais BDC pas vidé : le verrou « ENVOI EN COURS » reste, rien ne repart tout seul
+      console.error('SEFI : commande envoyée mais BDC non vidé', err.message);
+      await setReglage('sefi_verrou', `MANUEL - lot ${lot} envoyé à SEFI mais BDC non vidé (${err.message.slice(0, 80)})`).catch(() => {});
+      await g.sendMail(MAILBOX, { to: MAILBOX, subject: `SEFI : lot ${lot} envoyé, BDC NON vidé`, html: `<p>La commande du lot ${lot} est bien partie chez SEFI, mais le bon de commande n'a pas pu être vidé (${err.message.replace(/</g, '&lt;')}).</p><p>Vide-le à la main puis débloque l'envoi dans Admin, sinon les mêmes articles repartiraient.</p>` }).catch(() => {});
     }
 
     // 4_PasserEnCommande : EN COMMANDE, sans jamais faire reculer un statut

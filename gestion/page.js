@@ -18,7 +18,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin', leila: 'Leïla', bat: 'BAT' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/logo-igs.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -315,7 +315,7 @@ tr.row:hover td{background:#FFFBF4}
   .bar nav a{flex:1 1 0;min-width:0;flex-direction:column;gap:2px;padding:6px 2px;font-size:10px;color:#8D8BA8;border-radius:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
   .bar nav{justify-content:stretch;overflow-x:hidden}
   .bar nav a .lb{font-size:0;line-height:1}.bar nav a .lb::after{content:attr(data-m);font-size:10px}
-  .cols{grid-template-columns:1fr!important}
+  .cols{grid-template-columns:minmax(0,1fr)!important} .cols>*{min-width:0} .cand{flex-wrap:wrap} .cand .esp{white-space:normal}
   .bar nav a.on{background:none;color:#FF1E8E}
   .bar nav a .nn{display:none}
   .who{margin:0 0 0 auto;flex-direction:row;background:none;padding:0}
@@ -431,7 +431,6 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
     ${TECH ? `<a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>` : ''}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
-    <a class="off" title="Bientôt">Journal</a>
   </nav>
   <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : [TECH && 'Technique', COM && 'Commercial'].filter(Boolean).join(' · ') || 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
 </div></header>
@@ -455,8 +454,7 @@ ${view === 'accueil' ? `
           ${user.role === 'admin' ? '<a class="mod" href="/gestion/admin"><div class="i">⚙️</div><div class="t">Admin</div><div class="d">Collaborateurs, produits, couleurs</div></a>' : ''}
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <a class="mod" href="/gestion/heures"><div class="i">⏱</div><div class="t">Heures</div><div class="d">${user.role === 'admin' ? 'Saisie, totaux par semaine, paiements' : 'Saisir mes heures du jour'}</div></a>
-          <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
-          ${user.role === 'admin' ? '<a class="mod" href="/gestion/leila"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Planning, catalogue, contexte</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
+          <a class="mod" href="/gestion/leila"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">${user.role === 'admin' ? 'Planning, catalogue, contexte' : 'Activer, mettre en pause, statut'}</div></a>
         </div></div>
       </div>
       <div class="stack">
@@ -469,7 +467,6 @@ ${view === 'accueil' ? `
   </section>` : view === 'admin' ? `
   <section id="v-admin">
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
-    <div class="card" style="margin-bottom:12px" id="ad-source"><h3>🗄️ Données</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-tel"><h3>📞 Numéros clients dans Odoo</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-taches"><h3>⚙️ Tâches automatiques</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
@@ -747,7 +744,7 @@ async function charger(force, auto){
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
     if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
-    if (VIEW === 'commercial') { await coCharger(force); if (!auto && coTab === 'ca') finCharger(force); if (!auto && coTab === 'clients') coAnnexes(force); return; }
+    if (VIEW === 'commercial') { await coCharger(force, auto); if (!auto && coTab === 'ca') finCharger(force); if (!auto && coTab === 'clients') coAnnexes(force); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -799,7 +796,9 @@ let coData = null;
 const eur2 = n => (n == null ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }));
 const ETATS_DEVIS = { draft: ['Brouillon', '#eef2ff;color:#3730a3'], sent: ['Envoyé', '#fef3c7;color:#92400e'], sale: ['Signé', '#dcfce7;color:#065f46'], cancel: ['Annulé', '#fee2e2;color:#991b1b'] };
 const pastille = (t, c) => '<span class="esp" style="background:'+c+'">'+esc(t)+'</span>';
-async function coCharger(force){
+let coEnCours = 0; // actions en cours : l'actualisation automatique ne redessine pas (bouton réactivé, saisie perdue)
+async function coCharger(force, auto){
+  if (auto && (coEnCours || (document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-commercial input, #v-commercial textarea, #v-commercial select')))) return;
   const r = await fetch('/gestion/api/commercial' + (force ? '?force=1' : ''));
   if (r.status === 401) return location.href = '/gestion/auth/login';
   const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Erreur');
@@ -956,8 +955,10 @@ function finAfficher(){
   if ($('fin-exclu')) $('fin-exclu').onclick = e => { e.preventDefault(); $('fin-exclu-l').hidden = !$('fin-exclu-l').hidden; };
   $('fp-ajout').onclick = () => $('fp-postes').insertAdjacentHTML('beforeend', lignePoste({ depuis: m[j].mois }));
   $('fp-postes').addEventListener('click', e => { if (e.target.closest('.fp-x')) e.target.closest('.fin-poste').remove(); });
-  const per = id => $(id).value.split(/\\n/).map(l => l.trim()).filter(Boolean).map(l => { const x = l.match(/^(\\d{4}-\\d{2})\\s*:\\s*([\\d.,\\s]+)(?:\((.*)\))?/); if (!x) throw new Error('Ligne illisible : « ' + l + ' » (format AAAA-MM : montant)'); return { depuis: x[1], montant: Number(x[2].replace(/\\s/g, '').replace(',', '.')), ...(x[3] ? { note: x[3].trim() } : {}) }; });
+  const per = id => $(id).value.split(/\\n/).map(l => l.trim()).filter(Boolean).map(l => { const x = l.match(/^(\\d{4}-\\d{2})\\s*:\\s*([\\d.,\\s]+)(?:\\((.*)\\))?/); if (!x) throw new Error('Ligne illisible : « ' + l + ' » (format AAAA-MM : montant)'); return { depuis: x[1], montant: Number(x[2].replace(/\\s/g, '').replace(',', '.')), ...(x[3] ? { note: x[3].trim() } : {}) }; });
   $('fp-save').onclick = async () => {
+    if ($('fp-save').disabled) return;
+    $('fp-save').disabled = true;
     try {
       const charges_fixes = [...document.querySelectorAll('#fp-postes .fin-poste')].map(r => ({ nom: r.querySelector('.fp-nom').value.trim(), montant: Number(String(r.querySelector('.fp-mt').value).replace(',', '.')), depuis: r.querySelector('.fp-dep').value.trim(), jusqua: r.querySelector('.fp-jus').value.trim() || undefined }))
         .filter(x => x.nom || x.montant).map(x => { if (!x.nom) throw new Error('Donne un nom à chaque poste de charge'); if (!/^\\d{4}-\\d{2}$/.test(x.depuis)) throw new Error('« ' + x.nom + ' » : mois de départ au format AAAA-MM (ex. 2026-09)'); if (x.jusqua && !/^\\d{4}-\\d{2}$/.test(x.jusqua)) throw new Error('« ' + x.nom + ' » : fin au format AAAA-MM'); if (!(x.montant >= 0)) throw new Error('« ' + x.nom + ' » : montant invalide'); return x; });
@@ -969,6 +970,7 @@ function finAfficher(){
       await post('/gestion/api/finances/parametres', { params, caSaisi, produits });
       await finCharger(true); fm('✅ Charges et paramètres enregistrés : seuil et résultat recalculés', 'ok');
     } catch(err){ fm('❌ ' + esc(err.message), 'err'); }
+    finally { if ($('fp-save')) $('fp-save').disabled = false; }
   };
   $('fin-qonto').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = async () => { fm('⏳ Import en cours…', ''); try { const j = await post('/gestion/api/finances/qonto', { texte: rd.result }); fm('✅ '+j.lues+' opération(s) lue(s), '+j.ajoutees+' nouvelle(s) · mois : '+esc(j.mois.join(', ')), 'ok'); finCharger(true); } catch(err){ fm('❌ ' + esc(err.message), 'err'); } }; rd.readAsText(f); };
   $('fin-rapport').onclick = async () => { $('fin-rapport').disabled = true; try { const j = await post('/gestion/api/finances/rapport', {}); fm('✅ Rapport '+esc(j.mois)+' envoyé à '+esc(j.dest.join(', ')), 'ok'); } catch(err){ fm('❌ ' + esc(err.message), 'err'); } finally { $('fin-rapport').disabled = false; } };
@@ -1043,12 +1045,12 @@ function coEvents(){
       url = '/gestion/api/commercial/demandes/' + dem + '/brouillon'; body = { nom };
     }
     else if (a === 'abandonner') { if (!confirm('Classer cette demande sans suite ?')) return; url = '/gestion/api/commercial/demandes/' + dem + '/abandonner'; }
-    b.disabled = true;
+    b.disabled = true; coEnCours++;
     try {
       const j = await post(url, body);
       msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? '✅ Devis ' + esc(j.numero) + ' envoyé' : '✅ Fait', 'ok');
-      await coCharger(true);
-    } catch(err){ msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
+      coEnCours--; await coCharger(true);
+    } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   });
 }
 // ---------- Leïla ----------
@@ -1120,7 +1122,7 @@ function navCompteurs(){
     if ($('nav-n-bat')) $('nav-n-bat').textContent = bat || '';
   } catch(e){}
 }
-function afficher(){ navCompteurs(); if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else liste(); }
+function afficher(){ navCompteurs(); if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else if (VIEW === 'commandes') liste(); }
 
 // ---------- Planches DTF ----------
 function plStats(){
@@ -1555,7 +1557,7 @@ async function adCharger(){
     $('ad-coupes').value = (l.coupes || []).join(', ');
     document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
     $('sync').className = 'sync'; $('sync').textContent = '';
-    adNotif(); adTaches(); adSource(); adTel();
+    adNotif(); adTaches(); adTel();
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
 }
 // Messages automatiques (prête / expédiée / avis, commandes et planches) : remplacent Power Automate
@@ -1677,28 +1679,6 @@ document.addEventListener('input', e => {
   const q = inp.value.trim(); if (q.length < 2) { res.innerHTML = ''; return; }
   waTq = setTimeout(async () => { try { const j = await (await fetch('/gestion/api/admin/clients-odoo?q=' + encodeURIComponent(q))).json(); res.innerHTML = (j.clients || []).map(c => '<button type="button" data-wa-p="'+c.id+'" data-wa-tel="'+(c.telephone ? 1 : '')+'">'+esc(c.nom)+(c.telephone ? ' <span class="mt">('+esc(c.telephone)+')</span>' : '')+'</button>').join('') || '<div class="note" style="padding:10px">Aucun client</div>'; } catch {} }, 300);
 });
-// Source des données : l'Excel ou la base du dashboard (bascule définitive)
-async function adSource(){
-  const box = $('ad-source'); if (!box) return;
-  let e; try { const r = await fetch('/gestion/api/admin/source'); e = await r.json(); if (!r.ok || !['base','excel'].includes(e.source)) throw new Error(e.error || 'réponse invalide'); } catch(err){ box.innerHTML = '<h3>🗄️ Données</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
-  const base = e.source === 'base';
-  box.innerHTML = '<h3 style="display:flex;justify-content:space-between;align-items:center">🗄️ Données <span class="esp" style="background:'+(base?'#dcfce7;color:#065f46':'#fef3c7;color:#92400e')+'">'+(base?'Base du dashboard':'Excel « IGS - Gestion - Commandes »')+'</span></h3>'
-    + (base
-      ? '<div class="note">Commandes, planches et stock sont lus et enregistrés dans la base du dashboard. L’Excel n’est plus utilisé (il reste en archive, il n’est plus mis à jour). Le bon de commande SEFI reste un classeur Excel.</div><div class="btnrow" style="margin-top:8px"><button class="btn" id="src-excel">↩ Revenir à l’Excel (urgence)</button></div>'
-      : '<div class="note">Le dashboard lit encore l’Excel. La bascule fait une dernière lecture complète (commandes, planches, stock), puis tout se passe dans le dashboard : <b>plus personne ne doit modifier l’Excel ensuite</b>.</div><div class="btnrow" style="margin-top:8px"><button class="btn pink" id="src-base">Basculer sur la base du dashboard</button></div>')
-    + '<div class="msg" id="src-msg"></div>';
-  const sm = (t, k) => { $('src-msg').className = 'msg on ' + k; $('src-msg').innerHTML = t; };
-  if ($('src-base')) $('src-base').onclick = async () => {
-    if (!confirm('Basculer définitivement sur la base du dashboard ? L’Excel ne sera plus lu ni mis à jour.')) return;
-    $('src-base').disabled = true; $('src-base').textContent = 'Bascule en cours…';
-    try { const r = await post('/gestion/api/admin/source/basculer'); sm('✅ Bascule faite : ' + r.commandes + ' commande(s), ' + r.planches + ' planche(s), stock ' + esc(JSON.stringify(r.stock)), 'ok'); setTimeout(adSource, 1500); }
-    catch(err){ sm('❌ ' + esc(err.message), 'err'); $('src-base').disabled = false; $('src-base').textContent = 'Basculer sur la base du dashboard'; }
-  };
-  if ($('src-excel')) $('src-excel').onclick = async () => {
-    if (!confirm('Revenir à l’Excel ? Tout ce qui a été saisi dans le dashboard depuis la bascule n’est PAS dans l’Excel.')) return;
-    try { await post('/gestion/api/admin/source/excel'); adSource(); } catch(err){ sm('❌ ' + esc(err.message), 'err'); }
-  };
-}
 // Tâches automatiques : chacune remplace un flux Power Automate (couper le flux, puis activer)
 async function adTaches(){
   const box = $('ad-taches'); if (!box) return;
@@ -1760,6 +1740,8 @@ function adEvents(){
     if (e.target.closest('.ad-p-del') && confirm('Retirer ce produit de la liste ?')) tr.remove();
   });
   $('ad-save-listes').onclick = async () => {
+    if ($('ad-save-listes').disabled) return;
+    $('ad-save-listes').disabled = true; setTimeout(() => { const b = $('ad-save-listes'); if (b) b.disabled = false; }, 2500);
     const produits = [...tb.rows].map(tr => ({ nom: tr.querySelector('.ad-p-nom').value, tailles: tr.querySelector('.ad-p-tailles').value, coupe: tr.querySelector('.ad-p-coupe').checked }));
     try { await post('/gestion/api/admin/listes', { produits, couleurs: $('ad-couleurs').value, coupes: $('ad-coupes').value }); msg('✅ Listes enregistrées : le formulaire client et le dashboard les utilisent maintenant', 'ok'); adCharger(); }
     catch(err){ msg('❌ ' + esc(err.message), 'err'); }
@@ -1773,6 +1755,12 @@ function adEvents(){
   $('ad-col-add').onclick = () => { ct.insertAdjacentHTML('beforeend', adColRow({ actif: true, ordre: 99 })); ct.lastElementChild.querySelector('.ad-c-aff').focus(); };
   ct.addEventListener('click', async e => {
     const tr = e.target.closest('tr'); if (!tr) return;
+    // Une action à la fois par ligne (un double clic ne crée pas deux collaborateurs)
+    if (!e.target.closest('.ad-c-save,.ad-c-acces,.ad-c-inviter,.ad-c-retirer,.ad-c-del') || tr.dataset.busy) return;
+    tr.dataset.busy = '1'; tr.querySelectorAll('button').forEach(b => b.disabled = true);
+    try { await adLigneAction(e, tr); } finally { delete tr.dataset.busy; tr.querySelectorAll('button').forEach(b => b.disabled = false); }
+  });
+  async function adLigneAction(e, tr) {
     if (e.target.closest('.ad-c-save')) {
       const v = c => tr.querySelector(c);
       try { await post('/gestion/api/admin/collaborateurs', { id: tr.dataset.id ? Number(tr.dataset.id) : undefined, affichage: v('.ad-c-aff').value, nom: v('.ad-c-nom').value, taux_horaire: v('.ad-c-taux').value, ordre: v('.ad-c-ordre').value, actif: v('.ad-c-actif').checked, profils: [...tr.querySelectorAll('.ad-c-prof:checked')].map(i => i.value) }); adCharger(); }
@@ -1806,7 +1794,7 @@ function adEvents(){
       if (!confirm('Supprimer définitivement ce collaborateur ? (Pour le garder dans l\\'historique, décoche plutôt « Actif ».)')) return;
       try { await post('/gestion/api/admin/collaborateurs/'+tr.dataset.id+'/supprimer'); adCharger(); } catch(err){ alert(err.message); }
     }
-  });
+  }
 }
 let autoEtat = null;
 // ---------- Stock ----------
@@ -2359,7 +2347,7 @@ function jrAfficher(c, j){
   const conv = document.querySelector('#journal .jr-conv'); const det = document.querySelector('#journal details');
   if (det && conv) det.addEventListener('toggle', () => { conv.scrollTop = conv.scrollHeight; });
   const go = async () => {
-    const q = $('jr-q').value.trim(); if (!q) return;
+    const q = $('jr-q').value.trim(); if (!q || $('jr-go').disabled) return;
     $('jr-go').disabled = true; $('jr-go').textContent = '…';
     try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/question', { question: q }); await jrCharger(c); }
     catch(e){ const m = $('jr-msg'); if (m) { m.style.display = 'block'; m.className = 'msg err'; m.textContent = e.message; } $('jr-go').disabled = false; $('jr-go').textContent = 'Demander'; }
@@ -2718,9 +2706,16 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fermer(); })
 if (VIEW === 'admin' || VIEW === 'heures') chargerListes().finally(() => charger(false));
 else Promise.allSettled([chargerListes(), charger(false)]).then(() => { try { if (Array.isArray(data) && data.length) afficher(); } catch(e){} });
 // Compteurs du menu sur les pages qui ne chargent pas les commandes
-if (!['accueil','commandes','planches'].includes(VIEW)) fetch('/gestion/api/commandes').then(r => r.json()).then(j => { if (j && j.commandes) { data = j.commandes; navCompteurs(); } }).catch(() => {});
+if (${TECH ? 'true' : 'false'} && !['accueil','commandes','planches'].includes(VIEW)) fetch('/gestion/api/commandes').then(r => r.json()).then(j => { if (j && j.commandes) { data = j.commandes; navCompteurs(); } }).catch(() => {});
 // Actualisation automatique (pas sur Admin ni Heures : elle effacerait une saisie en cours)
-if (VIEW !== 'admin' && VIEW !== 'heures') setInterval(() => { if (!document.hidden) charger(false, true); }, 120000);
+// Actualisation auto toutes les 2 min (onglet visible seulement) ; au retour sur l'onglet, tout de suite si c'est ancien.
+// Pas sur les pages de réglages (Admin, Leïla, Heures) : une saisie en cours serait effacée.
+if (!['admin', 'heures', 'leila'].includes(VIEW)) {
+  let dernierAuto = Date.now();
+  const tick = () => { if (document.hidden) return; dernierAuto = Date.now(); charger(false, true); };
+  setInterval(tick, 120000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - dernierAuto > 120000) tick(); });
+}
 </script>
 </body>
 </html>`;

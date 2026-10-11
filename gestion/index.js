@@ -54,6 +54,13 @@ module.exports = function mountGestion(app) {
 
   // Profils : technique = atelier (commandes, BAT, planches, stock, espèces, Leïla) ; commercial = module Commercial ; admin = tout
   const tech = auth.requireProfil('technique');
+  // API de l'atelier : profil technique obligatoire (un compte seulement commercial n'y a pas accès)
+  const API_TECH = new Set(['bat', 'caisse', 'commandes', 'commandes-historique', 'fichier', 'planches', 'sefi', 'stock', 'leila']);
+  app.use('/gestion/api', (req, res, next) => {
+    const seg = req.path.split('/')[1] || '';
+    if (!API_TECH.has(seg)) return next();
+    auth.requireUser(req, res, () => tech(req, res, next));
+  });
   app.get('/gestion', auth.requireUser, (req, res) => {
     if (!auth.aProfil(req.user, 'technique')) return res.redirect(auth.aProfil(req.user, 'commercial') ? '/gestion/commercial' : '/gestion/heures');
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'accueil'));
@@ -149,17 +156,9 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/telephones/whatsapp/ignorer', auth.requireUser, auth.requireAdmin, actA(req => telBat.ignorerWhatsapp(req.body?.numero, req.user.name || req.user.email)));
   app.get('/gestion/api/admin/clients-odoo', auth.requireUser, auth.requireAdmin, actA(async req => ({ clients: String(req.query.q || '').trim().length < 2 ? [] : (await require('./odoo').searchPartners(req.query.q)).map(p => ({ id: p.id, nom: p.name, telephone: p.phone, ville: p.ville })) })));
   app.post('/gestion/api/admin/telephones/appliquer', auth.requireUser, auth.requireAdmin, actA(req => telBat.appliquer(req.body?.choix, req.user.name || req.user.email)));
-  // Source des données : Excel (historique) ou base du dashboard ; bascule définitive depuis Admin
+  // Source des données (base du dashboard depuis la bascule ; l'ancien retour vers l'Excel a été retiré)
   const source = require('./source');
   app.get('/gestion/api/admin/source', auth.requireUser, auth.requireAdmin, (req, res) => res.json(source.etat()));
-  app.post('/gestion/api/admin/source/basculer', auth.requireUser, auth.requireAdmin, async (req, res) => {
-    try { res.json(await source.basculer(req.user.name || req.user.email)); }
-    catch (err) { console.error('Gestion bascule :', err.message); res.status(400).json({ error: err.message }); }
-  });
-  app.post('/gestion/api/admin/source/excel', auth.requireUser, auth.requireAdmin, async (req, res) => {
-    try { res.json(await source.revenirExcel(req.user.name || req.user.email)); }
-    catch (err) { res.status(400).json({ error: err.message }); }
-  });
   // Diagnostic (admin) : en-têtes et formules des tableaux de l'Excel, pour les reprendre dans le dashboard
   app.get('/gestion/api/admin/formules', auth.requireUser, auth.requireAdmin, async (req, res) => {
     const g = require('./graph'), cfg = require('./config');
@@ -265,7 +264,7 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/odoo/devis/:numero', auth.requireUser, async (req, res) => {
     try {
       const lien = await require('./odoo').lienDevis(req.params.numero);
-      if (!lien) return res.status(404).send(`Devis ${req.params.numero} introuvable dans Odoo`);
+      if (!lien) return res.status(404).type('text/plain').send(`Devis ${String(req.params.numero).slice(0, 30)} introuvable dans Odoo`);
       res.redirect(lien);
     } catch (err) { res.status(502).send(err.message); }
   });

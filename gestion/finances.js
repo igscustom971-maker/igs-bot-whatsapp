@@ -64,7 +64,7 @@ function lireQonto(texte) {
   if (iDate < 0 || (iMontant < 0 && iDebit < 0 && iCredit < 0)) throw new Error('Colonnes date / montant introuvables : exporte le relevé Qonto au format CSV');
   const ops = [];
   for (const l of lignes.slice(1)) {
-    if (iStatut >= 0 && /declin|refus|annul|cancel|reverted|rejet/i.test(l[iStatut] || '')) continue;
+    if (iStatut >= 0 && /declin|refus|annul|cancel|revers|rembours.*annul|rejet/i.test(l[iStatut] || '')) continue;
     const date = dateIso(l[iDate]);
     let montant = iMontant >= 0 ? nombre(l[iMontant]) : null;
     if (montant === null && (iDebit >= 0 || iCredit >= 0)) montant = (nombre(l[iCredit]) || 0) - Math.abs(nombre(l[iDebit]) || 0);
@@ -99,8 +99,13 @@ const EXCLURE_DEFAUT = ['virement interne', 'transfert interne', 'internal trans
 async function tresorerie(annee, banqueOdoo = [], exclure = EXCLURE_DEFAUT) {
   let data = [];
   if (supabase) {
-    const r = await supabase.from('gestion_qonto').select('date, montant, libelle, categorie').gte('date', `${annee - 1}-01-01`).lte('date', `${annee}-12-31`).limit(20000);
-    if (!r.error) data = r.data || [];
+    // Paginé : Supabase plafonne chaque lecture à 1000 lignes
+    for (let from = 0; ; from += 1000) {
+      const r = await supabase.from('gestion_qonto').select('date, montant, libelle, categorie').gte('date', `${annee - 1}-01-01`).lte('date', `${annee}-12-31`).order('date').order('id').range(from, from + 999);
+      if (r.error) break;
+      data.push(...(r.data || []));
+      if ((r.data || []).length < 1000) break;
+    }
   }
   // Priorité au relevé bancaire synchronisé dans Odoo (journal Banque) ; l'import CSV Qonto ne complète que les mois absents
   // Seulement le compte bancaire réel (Qonto, journal « Banque ») : les journaux Stripe/PayPal/SumUp sont des comptes
@@ -110,18 +115,22 @@ async function tresorerie(annee, banqueOdoo = [], exclure = EXCLURE_DEFAUT) {
   for (const l of banqueOdoo) { const n = l.journal_id?.[1] || 'Banque'; journaux[n] = journaux[n] || { nom: n, lignes: 0, ignore: INTERMEDIAIRE.test(n) }; journaux[n].lignes++; }
   // Mouvements internes Stripe (versement vers Qonto, fonds en attente / disponibles), quel que soit le journal où Odoo les range
   const INTERNE_STRIPE = /stripe payout|payout\s+po_|\bpo_[a-z0-9]|adding available funds|deducting pending funds|pending funds|available funds/i;
-  banqueOdoo = banqueOdoo.filter(l => !INTERMEDIAIRE.test(l.journal_id?.[1] || '') && !INTERNE_STRIPE.test(l.payment_ref || ''));
+  // (les lignes Stripe internes restent visibles dans « exclu » au lieu de disparaître)
+  banqueOdoo = banqueOdoo.filter(l => !INTERMEDIAIRE.test(l.journal_id?.[1] || ''));
   tresorerie.journaux = Object.values(journaux);
   const moisOdoo = new Set(banqueOdoo.map(l => String(l.date).slice(0, 7)));
-  data = [...banqueOdoo.map(l => ({ date: String(l.date).slice(0, 10), montant: l.amount, libelle: l.payment_ref || '', categorie: categorieDe(l.partner_id?.[1], l.payment_ref), source: 'odoo' })),
+  data = [...banqueOdoo.map(l => ({ date: String(l.date).slice(0, 10), montant: l.amount, libelle: l.payment_ref || '', categorie: categorieDe(l.partner_id?.[1], l.payment_ref), source: 'odoo', interne: INTERNE_STRIPE.test(l.payment_ref || '') })),
     ...data.filter(o => !moisOdoo.has(String(o.date).slice(0, 7))).map(o => ({ ...o, source: 'csv' }))];
   const parMois = {};
-  const mots = (exclure || []).map(x => String(x).trim().toLowerCase()).filter(Boolean);
+  // Mots entiers, sans accents ni casse : « apport » n'exclut pas « rapport », « cca » n'exclut pas « accastillage »
+  const sansAccent = v => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const echap = v => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const mots = [...new Set((exclure || []).map(x => sansAccent(x).trim()).filter(Boolean))].map(w => new RegExp(`(^|[^a-z0-9])${echap(w).replace(/\s+/g, '\\s+')}($|[^a-z0-9])`));
   for (const o of data) {
     const m = o.date.slice(0, 7);
     const x = parMois[m] || (parMois[m] = { entrees: 0, sorties: 0, categories: {}, clients: {}, source: o.source, exclu: { entrees: 0, sorties: 0, lignes: [] } });
-    const texte = `${o.categorie || ''} ${o.libelle || ''}`.toLowerCase();
-    if (INTERNE.test(texte) || mots.some(w => texte.includes(w))) {
+    const texte = sansAccent(`${o.categorie || ''} ${o.libelle || ''}`);
+    if (o.interne || INTERNE.test(texte) || mots.some(w => w.test(texte))) {
       if (o.montant > 0) x.exclu.entrees += o.montant; else x.exclu.sorties += -o.montant;
       if (x.exclu.lignes.length < 12) x.exclu.lignes.push({ date: o.date, montant: r2(o.montant), libelle: String(o.libelle || o.categorie || '').slice(0, 80) });
       continue;
@@ -222,7 +231,7 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
     return { mois: k, libelle: `${MOIS[i]} ${a}`, ca, ca_odoo: r2(m.ca), ca_saisi: saisi, achats: r2(m.achats), marge: r2(ca - m.achats), factures: m.factures, tresorerie: treso[k] || null, gestion: gestionDuMois(params, k, ca) };
   };
   const annees = { [annee]: MOIS.map((_, i) => ligne(annee, i)), [annee - 1]: MOIS.map((_, i) => ligne(annee - 1, i)) };
-  const auj = new Date(), moisCourant = auj.getFullYear() === annee ? auj.getMonth() : 11;
+  const auj = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' })), moisCourant = auj.getFullYear() === annee ? auj.getMonth() : 11;
   const cumul = (a, jusqua) => annees[a].slice(0, jusqua + 1).reduce((s, m) => s + m.ca, 0);
   const top = new Map();
   for (const f of ventes) if (String(f.invoice_date).startsWith(String(annee)) && f.partner_id) { const k = f.partner_id[1]; top.set(k, (top.get(k) || 0) + (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0)); }
@@ -246,7 +255,7 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
 
 // ---------- Rapport du mois (mail) ----------
 async function rapportMensuel({ mois } = {}) {
-  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' })); d.setDate(1); d.setMonth(d.getMonth() - 1);
   const [a, m] = mois ? mois.split('-').map(Number) : [d.getFullYear(), d.getMonth() + 1];
   const s = await synthese(a, { force: true });
   const L = s.mois[m - 1], prec = m > 1 ? s.mois[m - 2] : (await synthese(a - 1, { force: true })).mois[11], n1 = s.mois_precedent_annee[m - 1];

@@ -15,7 +15,8 @@ const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase
 const RELANCE_JOURS = Number(process.env.COMMERCIAL_RELANCE_JOURS || 5); // devis sans réponse depuis N jours = à relancer
 const EN_COURS_JOURS = Number(process.env.COMMERCIAL_EN_COURS_JOURS || 45); // au-delà, un devis sans réponse n'est plus « en cours »
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const jours = d => (d ? Math.floor((Date.now() - Date.parse(String(d).replace(' ', 'T') + (String(d).includes('Z') ? '' : 'Z'))) / 86400e3) : null);
+// Odoo : « 2026-10-09 14:00:00 » (UTC sans fuseau) ; Supabase : « …+00:00 » ou « …Z »
+const jours = d => { if (!d) return null; const v = String(d).replace(' ', 'T'); const t = Date.parse(/(Z|[+-]\d\d:?\d\d)$/.test(v) || v.length <= 10 ? v : v + 'Z'); return isNaN(t) ? null : Math.floor((Date.now() - t) / 86400e3); };
 
 async function journal(user, action, cle, details) {
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action, cle, details }).then(() => {}, () => {});
@@ -102,7 +103,7 @@ async function nouvelleDemande(d, par = 'Leïla (WhatsApp)') {
   };
   // Même client, même produit dans les 6 h : on complète la demande existante plutôt que d'en créer une 2e
   if (row.telephone) {
-    const { data: ex } = await supabase.from('gestion_demandes').select('*').eq('telephone', row.telephone).gte('cree_le', new Date(Date.now() - 6 * 3600e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
+    const { data: ex } = await supabase.from('gestion_demandes').select('*').eq('telephone', row.telephone).in('statut', ['nouvelle', 'brouillon']).gte('cree_le', new Date(Date.now() - 6 * 3600e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
     if (ex && ex[0] && (!row.produit || !ex[0].produit || ex[0].produit.toLowerCase() === row.produit.toLowerCase())) {
       console.log(`Commercial : demande déjà enregistrée pour ${row.telephone} (${ex[0].devis_numero || 'sans brouillon'})`);
       return ex[0];
@@ -169,9 +170,15 @@ async function relancer(numero, user, message) {
 }
 
 // ---------- Facture du solde ----------
-const LIB_SOLDE = { introuvable: 'devis introuvable dans Odoo', pas_confirme: 'devis pas encore confirmé', pas_d_acompte: 'pas d\'acompte facturé', brouillon_existant: 'une facture brouillon existe déjà dans Odoo', deja_facture: 'déjà entièrement facturé', rien_a_facturer: 'rien à facturer' };
+const LIB_SOLDE = { introuvable: 'devis introuvable dans Odoo', pas_confirme: 'devis pas encore confirmé', pas_d_acompte: 'pas d\'acompte facturé', brouillon_existant: 'une facture brouillon existe déjà dans Odoo', deja_facture: 'déjà entièrement facturé', rien_a_facturer: 'rien à facturer', pas_d_email: 'pas d\'e-mail sur la fiche client Odoo', en_cours: 'facture déjà en cours de création' };
+const soldeEnCours = new Set(); // verrou par devis : bouton manuel et passage automatique ne facturent jamais deux fois
 async function facturerSolde(numero, user, { auto = false } = {}) {
-  const r = await odoo.facturerSolde(numero, { exigerAcompte: auto });
+  const cleV = String(numero || '').trim().toUpperCase();
+  if (soldeEnCours.has(cleV)) return { statut: 'en_cours', libelle: LIB_SOLDE.en_cours };
+  soldeEnCours.add(cleV);
+  let r;
+  try { r = await odoo.facturerSolde(numero, { exigerAcompte: auto }); }
+  finally { soldeEnCours.delete(cleV); }
   if (r.statut === 'envoyee') {
     await journal(user, 'facture_solde_envoyee', numero, { facture: r.numero, ttc: r.montant_ttc, auto });
     console.log(`Commercial : facture du solde ${r.numero} (${r.montant_ttc} € TTC) envoyée pour ${numero}${auto ? ' (automatique)' : ''}`);
@@ -181,23 +188,20 @@ async function facturerSolde(numero, user, { auto = false } = {}) {
 }
 
 // Appelé quand une commande change de statut (atelier) : TERMINÉE / À EXPÉDIER -> facture du solde si acompte
-const soldeEnCours = new Set();
 async function surStatutCommande(c, nouveauStatut, par) {
   try {
     const st = String(nouveauStatut || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
     if (!['TERMINEE', 'AEXPEDIER'].includes(st) || !c?.n_devis || !odoo.configured()) return;
     if ((await require('./notifications').reglage('tache_facture_solde', 'off')) !== 'on') return;
-    if (soldeEnCours.has(c.n_devis)) return;
-    soldeEnCours.add(c.n_devis);
     const r = await facturerSolde(c.n_devis, `${par} (automatique)`, { auto: true });
-    if (r.statut !== 'envoyee' && !['pas_d_acompte', 'deja_facture', 'pas_confirme'].includes(r.statut)) {
+    if (r.statut !== 'envoyee' && !['pas_d_acompte', 'deja_facture', 'pas_confirme', 'en_cours'].includes(r.statut)) {
       // Cas à regarder à la main : prévenir par mail
       await g.sendMail(MAILBOX, { to: MAILBOX, subject: `Facture du solde non envoyée - ${c.n_devis} - ${c.client || ''}`, html: `<p>La commande ${esc(c.n_devis)} (${esc(c.client || '')}) est passée en ${esc(nouveauStatut)}, mais la facture du solde n'a pas pu partir : <b>${esc(r.libelle || r.statut)}</b>.</p><p>À vérifier dans Odoo.</p>` }).catch(() => {});
     }
   } catch (err) {
     console.error(`Commercial : facture du solde ${c?.n_devis} :`, err.message);
     g.sendMail(MAILBOX, { to: MAILBOX, subject: `Facture du solde en erreur - ${c?.n_devis}`, html: `<p>Erreur lors de la facture du solde de ${esc(c?.n_devis)} : ${esc(err.message)}</p>` }).catch(() => {});
-  } finally { if (c?.n_devis) soldeEnCours.delete(c.n_devis); }
+  }
 }
 
 

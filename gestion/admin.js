@@ -115,6 +115,7 @@ async function supprimerCollaborateur(id) {
   needDb();
   const { error } = await supabase.from('gestion_collaborateurs').delete().eq('id', id);
   if (error) throw new Error(`Supabase : ${error.message}`);
+  require('./comptes').oublierCache(id); // la session du compte supprimé tombe tout de suite
 }
 
 module.exports = { getListes, setListes, collaborateurs, enregistrerCollaborateur, supprimerCollaborateur, DEFAUT };

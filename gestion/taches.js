@@ -103,7 +103,15 @@ async function commandesPayees() {
   const ajoutees = [];
   for (const o of liste) {
     if (vus.has(o.name)) continue;
-    if (rows.some(r => String(r.n_devis || '').toUpperCase() === o.name.toUpperCase())) { vus.add(o.name); continue; }
+    const ex = rows.find(r => String(r.n_devis || '').toUpperCase() === o.name.toUpperCase());
+    if (ex) {
+      // Ligne créée « EN DEVIS » par le formulaire avant le paiement : elle passe en PAYÉE dès la confirmation Odoo
+      if (statutKey(ex.statut) === 'ENDEVIS') {
+        try { await commandes.modifier(ex.cle, { statut: 'PAYÉE', ...(ex.infos || !o.infos ? {} : { infos: o.infos }) }, 'Odoo (commande payée)'); ajoutees.push(`${o.name} ${o.client} (EN DEVIS → PAYÉE)`); }
+        catch (err) { console.error(`Gestion commande payée ${o.name} :`, err.message); continue; }
+      }
+      vus.add(o.name); continue;
+    }
     try {
       await commandes.creerCommande({ n_devis: o.name, client: o.client, infos: o.infos, statut: 'PAYÉE' }, 'Odoo (commande payée)');
       vus.add(o.name); ajoutees.push(`${o.name} ${o.client}`);
@@ -142,6 +150,9 @@ async function nettoyerLivrees() {
   await Promise.all([require('./commandes').syncNow().catch(() => {}), planches.syncNow().catch(() => {})]);
   return `Planches : ${nbP} ligne(s) supprimée(s), ${hebdo} hebdo remise(s) à zéro | Commandes : ${nbC} ligne(s) supprimée(s)`;
 }
+// Tâches de nuit : dues une fois par jour calendaire de Guadeloupe
+const jourGP = d => { const x = heureGP(d); return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`; };
+const autreJour = (h, d) => !d || jourGP(new Date(d)) !== `${h.getFullYear()}-${h.getMonth()}-${h.getDate()}`;
 // ---------- Registre ----------
 // quand(h, dernier) : la tâche est-elle due ? h = heure de Guadeloupe, dernier = Date du dernier passage (ou null)
 const TACHES = [
@@ -156,7 +167,7 @@ const TACHES = [
   { id: 'sefi_envoi', nom: 'Envoi du bon de commande à SEFI', flux: 'IGS - Envoi SEFI Auto + IGS - Envoi BDC SEFI', rythme: '9 h, 11 h et 17 h', fn: async () => { const r = await require('./sefi').envoyer('Envoi automatique'); return r.raison || `lot ${r.lot} envoyé (${r.devis.join(', ')})${r.bdcVide ? '' : ' — BDC NON vidé, à vérifier'}`; },
     quand: (h, d) => [9, 11, 17].includes(h.getHours()) && (!d || Date.now() - d > 70 * 60e3) },
   { id: 'nettoyage_livrees', nom: 'Nettoyage des commandes et planches LIVRÉE', flux: 'IGS - Nettoyage commande livrees', rythme: 'chaque nuit (minuit)', fn: nettoyerLivrees,
-    quand: (h, d) => h.getHours() === 0 && (!d || Date.now() - d > 20 * 3600e3) },
+    quand: (h, d) => h.getHours() === 0 && autreJour(h, d) },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },
   { id: 'planches_mail', nom: 'Planches reçues par mail (dossier « Planches DTF »)', flux: 'IGS - Planche DTF MAIL', rythme: 'toutes les 2 min', fn: () => require('./planches-mail').relever(),
@@ -165,14 +176,15 @@ const TACHES = [
     quand: (h, d) => !d || Date.now() - d > 14 * 60e3 },
   { id: 'archiver_planches', nom: 'Archivage des planches imprimées (fichiers de plus de 24 h)', flux: 'IGS - Archivage planches imp', rythme: 'chaque nuit du lundi au vendredi', fn: archiverPlanches,
     // nuits de lundi à vendredi = passages du mardi au samedi vers minuit ; rien dimanche ni lundi
-    quand: (h, d) => [2, 3, 4, 5, 6].includes(h.getDay()) && h.getHours() <= 1 && (!d || Date.now() - d > 20 * 3600e3) },
+    quand: (h, d) => [2, 3, 4, 5, 6].includes(h.getDay()) && h.getHours() <= 1 && autreJour(h, d) },
   { id: 'vider_racine_planches', nom: 'Nettoyage du dossier Planches (fichiers de plus de 48 h)', flux: 'IGS - Vider dossier planches', rythme: 'chaque nuit (minuit)', fn: viderRacinePlanches,
-    quand: (h, d) => !d || Date.now() - d > 23 * 3600e3 },
+    quand: (h, d) => autreJour(h, d) },
   { id: 'vider_archives_planches', nom: 'Vidage mensuel des archives de planches', flux: 'IGS - vider archive planche', rythme: 'le 8 de chaque mois (10 h)', fn: viderArchivesPlanches,
     quand: (h, d) => h.getDate() >= 8 && h.getHours() >= 10 && (!d || heureGP(d).getMonth() !== h.getMonth() || Date.now() - d > 32 * 86400e3) },
 ];
 
 const etatMemoire = new Map(); // id -> { le, ok, resultat }
+const autoMemoire = new Map(); // id -> ms du dernier passage AUTOMATIQUE (un lancement manuel ne décale pas les tâches de nuit)
 async function lancer(t, par = 'automatique') {
   if (etatMemoire.get(t.id)?.enCours) throw new Error('Déjà en cours');
   etatMemoire.set(t.id, { ...(etatMemoire.get(t.id) || {}), enCours: true });
@@ -182,6 +194,7 @@ async function lancer(t, par = 'automatique') {
   const e = { le: new Date().toISOString(), ok, resultat: String(resultat || '').slice(0, 500), par };
   etatMemoire.set(t.id, e);
   await setReglage(`tache_${t.id}_dernier`, JSON.stringify(e)).catch(() => {});
+  if (par === 'automatique') { autoMemoire.set(t.id, Date.parse(e.le)); await setReglage(`tache_${t.id}_auto`, e.le).catch(() => {}); }
   if (ok) console.log(`Gestion tâche ${t.id} : ${e.resultat}`);
   return e;
 }
@@ -194,8 +207,10 @@ async function tour() {
     const h = heureGP();
     for (const t of TACHES) {
       if ((await reglage(`tache_${t.id}`, 'off')) !== 'on') continue;
+      // Dernier passage automatique : le plus récent entre la mémoire et l'enregistrement (une écriture ratée ne relance pas)
       const dernier = lireJSON(await reglage(`tache_${t.id}_dernier`, 'null'), null);
-      const d = dernier ? Date.parse(dernier.le) : null;
+      const auto = Date.parse(await reglage(`tache_${t.id}_auto`, '')) || (dernier && dernier.par === 'automatique' ? Date.parse(dernier.le) : 0);
+      const d = Math.max(auto || 0, autoMemoire.get(t.id) || 0) || null;
       // « Vider dossier planches » : vers minuit seulement
       if (t.id === 'vider_racine_planches' && h.getHours() > 1) continue;
       if (t.evenement) continue;

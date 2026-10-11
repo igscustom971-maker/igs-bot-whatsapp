@@ -78,7 +78,9 @@ async function sessionValide(u) {
   let e = cacheEtat.get(k);
   if (!e || Date.now() - e.at > 60e3) {
     let { data, error } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage, profils').eq('id', u.cid).maybeSingle();
-    if (error && /profils/.test(error.message)) ({ data } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage').eq('id', u.cid).maybeSingle());
+    if (error && /profils/.test(error.message)) ({ data, error } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage').eq('id', u.cid).maybeSingle());
+    // Base momentanément injoignable : erreur (pas de déconnexion, rien en cache)
+    if (error) throw new Error(`Supabase : ${error.message}`);
     e = { at: Date.now(), data };
     cacheEtat.set(k, e);
   }
@@ -86,7 +88,7 @@ async function sessionValide(u) {
   if (!d || !d.actif || !d.mdp_hash || (d.mdp_version || 0) !== u.pv) return false;
   return { provisoire: !!d.mdp_provisoire, affichage: d.affichage, profils: profilsDe(d) };
 }
-const oublierCache = id => cacheEtat.delete(id);
+const oublierCache = id => { cacheEtat.delete(id); cacheEtat.delete(Number(id)); cacheEtat.delete(String(id)); };
 
 // ---------- Admin : identifiant, e-mail perso, mot de passe provisoire ----------
 async function definirAcces(id, data) {

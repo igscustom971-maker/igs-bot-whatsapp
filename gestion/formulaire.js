@@ -30,6 +30,10 @@ function tropDEnvois(ip) {
   liste.push(now); envois.set(ip, liste);
   return liste.length > 8;
 }
+// Purge horaire des adresses inactives (la table ne grossit pas indéfiniment)
+setInterval(() => { const now = Date.now(); for (const [ip, l] of envois) if (!l.some(t => now - t < 3600e3)) envois.delete(ip); }, 3600e3).unref();
+// Adresse du client : la DERNIÈRE de X-Forwarded-For (ajoutée par le proxy Render), la première pouvant être inventée
+const ipClient = req => { const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
 
 function cors(req, res) {
   const o = req.headers.origin;
@@ -78,10 +82,14 @@ function mount(app) {
 
   app.options('/formulaire/commande', (req, res) => { cors(req, res); res.sendStatus(204); });
 
-  app.post('/formulaire/commande', (req, res, next) => { cors(req, res); next(); }, upload.any(), async (req, res) => {
+  app.post('/formulaire/commande', (req, res, next) => {
+    cors(req, res);
+    // Refus avant de lire les fichiers : trop d'envois, ou corps annoncé trop lourd
+    if (tropDEnvois(ipClient(req))) return res.status(429).json({ error: 'Trop d\'envois, réessayez plus tard' });
+    if (Number(req.headers['content-length'] || 0) > MAX_TOTAL + 2e6) return res.status(413).json({ error: 'Fichiers trop lourds (30 Mo max au total)' });
+    next();
+  }, upload.any(), async (req, res) => {
     try {
-      const ip = (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
-      if (tropDEnvois(ip)) return res.status(429).json({ error: 'Trop d\'envois, réessayez plus tard' });
       const b = req.body || {};
       if (txt(b.site_web)) return res.json({ ok: true }); // champ piège anti-robot
       const devis = txt(b.devis).toUpperCase().slice(0, 30), client = txt(b.client).slice(0, 100);

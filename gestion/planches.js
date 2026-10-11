@@ -84,9 +84,14 @@ const cleDe = (o, id) => o.n_devis || `SANS-DEVIS-${key(o.client || '')}-${id ||
 let sansStatutLe = false; // colonne statut_le pas encore créée dans Supabase : on fait sans
 async function lireBase() {
   const champs = sansStatutLe ? CHAMPS_PL.filter(c => c !== 'statut_le') : CHAMPS_PL;
-  const { data, error } = await supabase.from('gestion_planches').select(champs.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
-  if (error && !sansStatutLe && /statut_le/.test(error.message)) { sansStatutLe = true; return lireBase(); }
-  if (error) throw new Error(`Supabase : ${error.message}`);
+  const data = [];
+  for (let from = 0; ; from += 1000) { // paginé (plafond Supabase de 1000 lignes par lecture)
+    const { data: d, error } = await supabase.from('gestion_planches').select(champs.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).order('cle').range(from, from + 999);
+    if (error && !sansStatutLe && /statut_le/.test(error.message)) { sansStatutLe = true; return lireBase(); }
+    if (error) throw new Error(`Supabase : ${error.message}`);
+    data.push(...d);
+    if (d.length < 1000) break;
+  }
   return data.map(o => {
     const metres = o.metres === null ? null : Number(o.metres);
     const row = { ...o, metres, reduction: reductionDe(metres, o.format), montant_ht: montantDe(metres, o.format), hebdo: !!o.hebdo || /hebdo/i.test(o.frequence || '') };
@@ -138,7 +143,7 @@ async function nettoyerBase() {
   let retirees = 0, hebdo = 0;
   for (const p of rows) {
     if (n(p.statut) !== 'LIVREE') continue;
-    if (p.hebdo) { await supabase.from('gestion_planches').update({ statut: null }).eq('cle', p.cle); hebdo++; }
+    if (p.hebdo) { await supabase.from('gestion_planches').update({ statut: null, numero_suivi: null, mail_envoye: null, mail_expedition_envoye: null, statut_le: new Date().toISOString() }).eq('cle', p.cle); hebdo++; } // nouvelle semaine : suivi et mails remis à zéro
     else if (n(p.paiement) === 'PAYEE') { await supabase.from('gestion_planches').update({ present: false, synced_at: new Date().toISOString() }).eq('cle', p.cle); retirees++; }
   }
   await syncNow();

@@ -43,9 +43,15 @@ async function decaisser(data, user) {
 
 async function lignes() {
   needDb();
-  const { data, error } = await supabase.from('gestion_caisse').select('*').order('cree_le', { ascending: true }).limit(5000);
-  if (error) throw new Error(`Supabase : ${error.message}`);
-  return data;
+  // Paginé : Supabase plafonne chaque lecture à 1000 lignes (le solde doit voir le dernier relevé)
+  const tout = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('gestion_caisse').select('*').order('cree_le', { ascending: true }).order('id', { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+    tout.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return tout;
 }
 
 // Solde théorique : ce qui reste après le dernier relevé + encaissements depuis

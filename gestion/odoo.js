@@ -115,7 +115,7 @@ async function suggest(nom, limit = 8) {
 }
 
 // { partner, source } si identifié (mémorisé, identique, ou correspondance sûre), sinon { candidats }
-async function findPartner(nom) {
+async function findPartner(nom, { memoriser = true } = {}) {
   const alias = await getAlias(nom);
   if (alias) {
     const p = await readPartner(alias.partner_id);
@@ -127,7 +127,7 @@ async function findPartner(nom) {
   const sure = a && ((a.score === 1 && (!b || b.score < 1)) || (a.score >= 0.85 && (!b || b.score <= a.score - 0.25)));
   if (sure) {
     const p = await readPartner(a.id);
-    await setAlias(nom, p.id, p.name, 'Correspondance automatique');
+    if (memoriser) await setAlias(nom, p.id, p.name, 'Correspondance automatique');
     return { partner: p, source: a.score === 1 ? 'identique' : 'auto' };
   }
   return { candidats: cands };
@@ -424,6 +424,10 @@ async function devisParNumero(numero) {
   return r[0] || null;
 }
 async function envoyerDevisOdoo(id) {
+  // Pas d'e-mail sur la fiche client : on s'arrête avant (sinon Odoo marque le devis « envoyé » sans rien envoyer)
+  const [d] = await kw('sale.order', 'read', [[id]], { fields: ['partner_id'] });
+  const [pa] = d?.partner_id ? await kw('res.partner', 'read', [[d.partner_id[0]]], { fields: ['email'] }) : [];
+  if (!pa?.email) throw new Error(`Pas d'e-mail sur la fiche Odoo de ${d?.partner_id?.[1] || 'ce client'} : ajoute-le dans Odoo puis réessaie`);
   await sendWithTemplate('sale.order', id, DEVIS_TEMPLATE_ID, { mark_so_as_sent: true });
   const [so] = await kw('sale.order', 'read', [[id]], { fields: ['name', 'state'] });
   return so;
@@ -441,10 +445,13 @@ async function facturerSolde(numero, { exigerAcompte = true } = {}) {
   if (exigerAcompte && !actives.length) return { statut: 'pas_d_acompte' };
   if (actives.some(f => f.state === 'draft')) return { statut: 'brouillon_existant' };
   if (so.invoice_status === 'invoiced') return { statut: 'deja_facture' };
+  // Facture validée mais jamais reçue par le client si la fiche n'a pas d'e-mail : on ne crée rien
+  const [pa] = so.partner_id ? await kw('res.partner', 'read', [[so.partner_id[0]]], { fields: ['email'] }) : [];
+  if (!pa?.email) return { statut: 'pas_d_email' };
   const ctx = { active_model: 'sale.order', active_ids: [so.id], active_id: so.id };
   const wid = await kw('sale.advance.payment.inv', 'create', [{ advance_payment_method: 'delivered' }], { context: ctx });
   try { await kw('sale.advance.payment.inv', 'create_invoices', [[wid]], { context: ctx }); }
-  catch (err) { if (/aucune ligne|no invoiceable|nothing to invoice|rien à facturer/i.test(err.message)) return { statut: 'rien_a_facturer' }; throw err; }
+  catch (err) { if (/aucune ligne|ligne facturable|invoiceable line|no invoiceable|nothing to invoice|rien à facturer/i.test(err.message)) return { statut: 'rien_a_facturer' }; throw err; }
   const [apres] = await kw('sale.order', 'read', [[so.id]], { fields: ['invoice_ids'] });
   const nouvelles = (apres.invoice_ids || []).filter(id => !avant.has(id));
   if (!nouvelles.length) return { statut: 'rien_a_facturer' };
@@ -474,7 +481,7 @@ async function brouillonDemande(d) {
   let partner = null;
   if (d.telephone) partner = await partnerParTelephone(d.telephone).catch(() => null);
   if (!partner && d.email) partner = await partnerParEmail(d.email).catch(() => null);
-  if (!partner && d.nom) { const f = await findPartner(d.nom).catch(() => ({})); partner = f.partner || null; }
+  if (!partner && d.nom) { const f = await findPartner(d.nom, { memoriser: false }).catch(() => ({})); /* nom WhatsApp : pas mémorisé comme alias */ partner = f.partner || null; }
   let cree = false;
   if (!partner) {
     if (!d.nom) throw new Error('nom du client manquant pour créer la fiche Odoo');
@@ -521,8 +528,8 @@ async function ficheClientOdoo(partnerId) {
   const id = Number(partnerId);
   const [p] = await kw('res.partner', 'read', [[id]], { fields: [...PARTNER_FIELDS, 'street', 'create_date'] });
   if (!p) throw new Error('Client introuvable dans Odoo');
-  const devis = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id]]], { fields: ['id', 'name', 'state', 'amount_untaxed', 'amount_total', 'date_order', 'create_date', 'invoice_status'], order: 'create_date desc', limit: 60 });
-  const factures = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id], ['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted']]], { fields: ['id', 'name', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_untaxed', 'amount_total', 'amount_residual', 'payment_state'], order: 'invoice_date desc', limit: 60 });
+  const devis = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id]]], { fields: ['id', 'name', 'state', 'amount_untaxed', 'amount_total', 'date_order', 'create_date', 'invoice_status'], order: 'create_date desc', limit: 500 });
+  const factures = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id], ['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted']]], { fields: ['id', 'name', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_untaxed', 'amount_total', 'amount_residual', 'payment_state'], order: 'invoice_date desc', limit: 500 });
   const ca = factures.reduce((s, f) => s + (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0), 0);
   const du = factures.filter(f => f.move_type === 'out_invoice' && ['not_paid', 'partial'].includes(f.payment_state)).reduce((s, f) => s + (f.amount_residual || 0), 0);
   return {
