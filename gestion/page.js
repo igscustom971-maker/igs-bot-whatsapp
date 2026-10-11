@@ -396,6 +396,7 @@ ${view === 'accueil' ? `
   <section id="v-admin">
     <div class="tools"><h2 style="margin:0;font-size:20px">Administration</h2><div style="flex:1"></div><button class="btn" id="ad-test-mail">✉️ Tester l'envoi de mail du formulaire</button><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
     <div class="card" style="margin-bottom:12px" id="ad-source"><h3>🗄️ Données</h3><div class="skel"></div></div>
+    <div class="card" style="margin-bottom:12px" id="ad-tel"><h3>📞 Numéros clients dans Odoo</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-taches"><h3>⚙️ Tâches automatiques</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <span style="display:flex;gap:6px"><button class="btn" id="ad-col-inviter">✉️ Envoyer les invitations</button><button class="btn" id="ad-col-add">＋ Collaborateur</button></span></h3>
@@ -1182,7 +1183,7 @@ async function adCharger(){
     $('ad-coupes').value = (l.coupes || []).join(', ');
     document.querySelector('#ad-col tbody').innerHTML = c.collaborateurs.map(adColRow).join('');
     $('sync').className = 'sync'; $('sync').textContent = '';
-    adNotif(); adTaches(); adSource();
+    adNotif(); adTaches(); adSource(); adTel();
   } catch(e){ $('sync').className = 'sync err'; $('sync').textContent = '⚠️ ' + e.message; }
 }
 // Messages automatiques (prête / expédiée / avis, commandes et planches) : remplacent Power Automate
@@ -1215,6 +1216,50 @@ async function adNotif(){
   $('nt-lien-ok').onclick = async () => {
     try { await post('/gestion/api/notifications/lien-avis', { lien: $('nt-lien').value }); await adNotif(); nm('✅ Lien enregistré', 'ok'); }
     catch(err){ nm('❌ ' + esc(err.message), 'err'); }
+  };
+}
+// Numéros clients dans Odoo : lus dans les BAT (dossiers de commande + ARCHIVES) et les formulaires
+let adTelTimer = null;
+async function adTel(){
+  const box = $('ad-tel'); if (!box) return;
+  let e; try { const r = await fetch('/gestion/api/admin/telephones'); e = await r.json(); if (!r.ok) throw new Error(e.error || 'Erreur'); } catch(err){ box.innerHTML = '<h3>📞 Numéros clients dans Odoo</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
+  const r = e.rapport, lib = { a_ajouter: ['À ajouter', '#dcfce7;color:#065f46'], plusieurs: ['Plusieurs numéros', '#fef3c7;color:#92400e'], different: ['Différent dans Odoo', '#fee2e2;color:#991b1b'], deja_ok: ['Déjà bon', '#eef2ff;color:#3730a3'], ajoute: ['Ajouté ✓', '#dcfce7;color:#065f46'] };
+  let h = '<h3>📞 Numéros clients dans Odoo</h3><div class="note">Lit les BAT et PDF des dossiers de commande (y compris ARCHIVES) et les formulaires reçus, puis les compare aux fiches clients Odoo. L’analyse ne modifie rien. Ensuite, seuls les numéros <b>manquants</b> sont ajoutés : un numéro déjà présent dans Odoo n’est jamais remplacé.</div>';
+  if (e.enCours) {
+    const p = e.progression || {};
+    h += '<div class="msg on">⏳ Analyse en cours : '+(p.dossiers||0)+' / '+(p.total||'?')+' dossiers, '+(p.pdf||0)+' PDF lus…</div>';
+    clearTimeout(adTelTimer); adTelTimer = setTimeout(adTel, 4000);
+  } else if (r && r.erreur) {
+    h += '<div class="msg on err">❌ Dernière analyse en erreur : '+esc(r.erreur)+'</div>';
+  } else if (r && r.lignes) {
+    const res = r.resume || {};
+    h += '<div class="note" style="margin:8px 0">Analyse du '+new Date(r.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : '+r.dossiers+' dossiers, '+r.pdf+' PDF lus, '+r.lignes.length+' fiches clients.</div>';
+    h += '<div class="btnrow" style="margin:0 0 10px">'+Object.keys(lib).filter(k => res[k]).map(k => '<span class="esp" style="background:'+lib[k][1]+'">'+lib[k][0]+' : '+res[k]+'</span>').join('')+'</div>';
+    const aVoir = r.lignes.filter(l => l.statut !== 'deja_ok');
+    if (aVoir.length) {
+      h += '<div style="overflow-x:auto;max-height:460px;overflow-y:auto"><table class="stk"><thead><tr><th></th><th>Client Odoo</th><th>Numéro trouvé</th><th>Dans Odoo</th><th>Trouvé dans</th></tr></thead><tbody>'
+        + aVoir.map(l => {
+          const choix = l.statut === 'a_ajouter' ? '<input type="checkbox" class="tel-c" data-p="'+l.partnerId+'" data-n="'+l.numeros[0].numero+'" checked>'
+            : l.statut === 'plusieurs' ? '<select class="tel-s" data-p="'+l.partnerId+'"><option value="">— choisir —</option>'+l.numeros.map(n => '<option value="'+n.numero+'">'+esc(n.affiche)+'</option>').join('')+'</select>' : '';
+          return '<tr><td>'+choix+'</td><td><b>'+esc(l.client)+'</b><div><span class="esp" style="background:'+lib[l.statut][1]+'">'+lib[l.statut][0]+'</span></div></td><td>'+l.numeros.map(n => esc(n.affiche)).join('<br>')+'</td><td>'+esc(l.telephoneOdoo || '—')+'</td><td class="note" style="max-width:340px">'+l.numeros.flatMap(n => n.sources).slice(0, 3).map(esc).join('<br>')+'</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    const autres = (r.sansNumero || []).length + (r.introuvables || []).length + (r.illisibles || []).length;
+    if (autres) h += '<details style="margin-top:8px"><summary class="note">Non traités : '+(r.sansNumero||[]).length+' dossier(s) sans numéro lisible, '+(r.introuvables||[]).length+' devis introuvable(s) dans Odoo, '+(r.illisibles||[]).length+' fichier(s) illisible(s)</summary><div class="note pre" style="max-height:260px;overflow:auto">'+[...(r.sansNumero||[]).map(x => '• '+x.dossier+' : '+x.raison), ...(r.introuvables||[]).map(x => '• '+x.devis+' ('+(x.client||'?')+') : '+x.raison), ...(r.illisibles||[]).map(x => '• '+x.dossier+(x.fichier?'/'+x.fichier:'')+' : '+x.raison)].map(esc).join('<br>')+'</div></details>';
+  }
+  h += '<div class="btnrow" style="margin-top:10px"><button class="btn" id="tel-analyser"'+(e.enCours?' disabled':'')+'>🔎 '+(r && r.lignes ? 'Relancer l’analyse' : 'Lancer l’analyse')+'</button>'
+    + (r && r.lignes && !e.enCours ? '<button class="btn pink" id="tel-appliquer">Ajouter les numéros cochés dans Odoo</button>' : '') + '</div><div class="msg" id="tel-msg"></div>';
+  box.innerHTML = h;
+  const tm = (t, k) => { $('tel-msg').className = 'msg on ' + k; $('tel-msg').innerHTML = t; };
+  if ($('tel-analyser')) $('tel-analyser').onclick = async () => { try { await post('/gestion/api/admin/telephones/analyser'); setTimeout(adTel, 800); } catch(err){ tm('❌ ' + esc(err.message), 'err'); } };
+  if ($('tel-appliquer')) $('tel-appliquer').onclick = async () => {
+    const choix = [...box.querySelectorAll('.tel-c:checked')].map(c => ({ partnerId: Number(c.dataset.p), numero: c.dataset.n }))
+      .concat([...box.querySelectorAll('.tel-s')].filter(s => s.value).map(s => ({ partnerId: Number(s.dataset.p), numero: s.value })));
+    if (!choix.length) { tm('Coche au moins un numéro', 'err'); return; }
+    if (!confirm('Ajouter ' + choix.length + ' numéro(s) dans Odoo ? (seulement sur les fiches qui n’en ont pas)')) return;
+    $('tel-appliquer').disabled = true;
+    try { const o = await post('/gestion/api/admin/telephones/appliquer', { choix }); await adTel(); tm('✅ ' + o.ajoutes + ' numéro(s) ajouté(s)' + (o.ignores ? ', ' + o.ignores + ' ignoré(s)' : '') + (o.details && o.details.length ? '<br>' + o.details.map(esc).join('<br>') : ''), 'ok'); }
+    catch(err){ tm('❌ ' + esc(err.message), 'err'); $('tel-appliquer').disabled = false; }
   };
 }
 // Source des données : l'Excel ou la base du dashboard (bascule définitive)

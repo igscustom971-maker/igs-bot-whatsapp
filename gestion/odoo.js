@@ -158,6 +158,14 @@ async function readPartner(id) {
   return p || null;
 }
 
+// Écrit des champs simples sur une fiche client (ex. { phone })
+async function ecrirePartner(id, valeurs) {
+  const autorises = ['phone'];
+  const v = Object.fromEntries(Object.entries(valeurs || {}).filter(([k]) => autorises.includes(k)));
+  if (!Object.keys(v).length) throw new Error('Rien à écrire');
+  await kw('res.partner', 'write', [[Number(id)], v]);
+}
+
 async function searchPartners(q) {
   if (!String(q || '').trim()) return [];
   return suggest(q, 12);
@@ -311,6 +319,17 @@ async function etatDevis(numero) {
 }
 
 // Fiche client par e-mail (mail de planche) ; null si aucune
+// Client Odoo par numéro de téléphone (format international sans +, ex. 590690112233). Odoo enregistre
+// « +590 690 11 22 33 » ou « 0690112233 » : recherche large sur la fin du numéro, puis comparaison exacte.
+async function partnerParTelephone(telIntl) {
+  const d = String(telIntl || '').replace(/\D/g, '');
+  if (d.length < 9) return null;
+  const a = d.slice(-4, -2), b = d.slice(-2);
+  const r = await kw('res.partner', 'search_read', [['|', ['phone', 'ilike', `%${a} ${b}`], ['phone', 'ilike', `%${a}${b}`]]], { fields: ['id', 'name', 'email', 'phone'], limit: 80 });
+  const norm = require('./commandes').normalizePhone;
+  return r.find(p => norm(p.phone || '') === d) || null;
+}
+
 async function partnerParEmail(email) {
   const e = String(email || '').trim();
   if (!e || !e.includes('@')) return null;
@@ -352,5 +371,5 @@ async function supprimerDevis(numero) {
 
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner,
 };

@@ -109,6 +109,11 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/listes', auth.requireUser, auth.requireAdmin, actA(req => admin.setListes(req.body || {})));
   app.get('/gestion/api/collaborateurs', auth.requireUser, actA(req => admin.collaborateurs({ admin: req.user.role === 'admin', tous: req.query.tous === '1' && req.user.role === 'admin' }).then(c => ({ collaborateurs: c }))));
   app.post('/gestion/api/admin/collaborateurs', auth.requireUser, auth.requireAdmin, actA(req => admin.enregistrerCollaborateur(req.body || {})));
+  // Numéros clients dans Odoo à partir des BAT et des commandes (analyse puis application, jamais d'écrasement)
+  const telBat = require('./telephones-bat');
+  app.get('/gestion/api/admin/telephones', auth.requireUser, auth.requireAdmin, actA(() => telBat.rapport()));
+  app.post('/gestion/api/admin/telephones/analyser', auth.requireUser, auth.requireAdmin, actA(req => telBat.analyser(req.user.name || req.user.email)));
+  app.post('/gestion/api/admin/telephones/appliquer', auth.requireUser, auth.requireAdmin, actA(req => telBat.appliquer(req.body?.choix, req.user.name || req.user.email)));
   // Source des données : Excel (historique) ou base du dashboard ; bascule définitive depuis Admin
   const source = require('./source');
   app.get('/gestion/api/admin/source', auth.requireUser, auth.requireAdmin, (req, res) => res.json(source.etat()));

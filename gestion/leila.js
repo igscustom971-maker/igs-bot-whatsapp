@@ -184,19 +184,28 @@ async function creerPlancheWhatsApp(tel, { metres, detail }) {
   try {
     const planches = require('./planches');
     // 1. Nom de ses planches précédentes (même numéro dans Odoo) : même ligne hebdo, même client Odoo
-    let client = null, sur = '';
+    let client = null, sur = '', partnerId = null;
     const pl = ((await planches.listPlanches()).rows || []).slice().reverse();
     for (const p of pl.slice(0, 60)) {
       const ct = await contactPlancheCache(p.client);
-      if (ct.tel === tel) { client = p.client; sur = 'retrouvé par son numéro'; break; }
+      if (ct.tel === tel) { client = p.client; sur = 'client retrouvé par son numéro'; break; }
     }
-    // 2. Sinon le nom connu du client (prénom donné ou nom WhatsApp)
-    if (!client && supabase) {
+    const odoo = require('./odoo');
+    // 2. Fiche client Odoo avec ce numéro de téléphone
+    if (!client && odoo.configured()) {
+      const p = await odoo.partnerParTelephone(tel).catch(() => null);
+      if (p) { client = p.name; partnerId = p.id; sur = 'client Odoo retrouvé par son numéro'; }
+    }
+    // 3. Nom de contact (prénom donné ou nom WhatsApp) reconnu sans ambiguïté dans Odoo
+    if (!client && supabase && odoo.configured()) {
       const { data } = await supabase.from('clients').select('name').eq('phone_number', tel).maybeSingle();
-      if (data?.name) { client = data.name; sur = 'nom WhatsApp, client à vérifier'; }
+      if (data?.name) {
+        const r = await odoo.findPartner(data.name).catch(() => ({}));
+        if (r.partner) { client = r.partner.name; partnerId = r.partner.id; sur = `client Odoo reconnu par son nom (${data.name})`; }
+      }
     }
-    if (!client) throw new Error('client introuvable');
-    const res = await planches.ajouter({ client, metres, statut: 'A PREPARER', remarques: `Demande WhatsApp (Leïla) : ${detail} · ${tel}${sur ? ' · ' + sur : ''}` }, 'Leïla (WhatsApp)');
+    if (!client) throw new Error('client non reconnu dans Odoo (ni par son numéro, ni par son nom)');
+    const res = await planches.ajouter({ client, ...(partnerId ? { partnerId } : {}), metres, statut: 'A PREPARER', remarques: `Demande WhatsApp (Leïla) : ${detail} · ${tel}${sur ? ' · ' + sur : ''}` }, 'Leïla (WhatsApp)');
     console.log(`Gestion Leïla : planche ${metres} ajoutée pour ${client} (${detail})${res?.compteur ? ' sur son compteur hebdo' : ''}`);
   } catch (err) {
     console.error(`Gestion Leïla : planche WhatsApp non ajoutée pour ${tel} :`, err.message);
