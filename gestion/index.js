@@ -81,6 +81,7 @@ module.exports = function mountGestion(app) {
   // Chiffre d'affaires et résultats : administrateur uniquement
   const finances = require('./finances');
   app.get('/gestion/api/finances', auth.requireUser, auth.requireAdmin, actCom(req => finances.synthese(Number(req.query.annee) || undefined, { force: req.query.force === '1' })));
+  app.post('/gestion/api/finances/parametres', auth.requireUser, auth.requireAdmin, actCom(req => finances.enregistrerParametres(req.body || {})));
   app.post('/gestion/api/finances/objectif', auth.requireUser, auth.requireAdmin, actCom(req => finances.setObjectif(req.body?.montant).then(() => ({ ok: true }))));
   app.post('/gestion/api/finances/qonto', auth.requireUser, auth.requireAdmin, actCom(req => finances.importerQonto(req.body?.texte, quiCom(req))));
   app.post('/gestion/api/finances/rapport', auth.requireUser, auth.requireAdmin, actCom(req => finances.rapportMensuel({ mois: req.body?.mois })));

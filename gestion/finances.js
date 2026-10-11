@@ -115,6 +115,65 @@ async function tresorerie(annee, banqueOdoo = []) {
   return parMois;
 }
 
+// ---------- Paramètres de gestion (objectifs, structure de coûts, CA de référence, fiches produits) ----------
+// Valeurs données par Ismaël le 11/10/2026 ; modifiables dans l'onglet Chiffre d'affaires.
+const PARAMS_DEFAUT = {
+  taux_variables: 51.5,                                    // % du CA (ratio de juin 2026)
+  charges_fixes: [{ depuis: '2026-09', montant: 1600 }],
+  main_oeuvre: [{ depuis: '2026-08', montant: 1061, note: 'Maureen + Kelhyan' }, { depuis: '2026-10', montant: 1506, note: 'alternant + Maureen' }],
+  cca: [{ depuis: '2026-01', montant: 600 }, { depuis: '2027-01', montant: 1000 }],
+  phases: [
+    { nom: 'Phase 1', jusqua: '2027-01', cible: 10000 },
+    { nom: 'Phase 2', jusqua: '2028-01', cible: 15000, minimum: 14982, recommande: 16000, salaire_cout: 3160, salaire_net: 1700 },
+  ],
+  ca_source: 'saisie', // 'saisie' : le CA saisi (référence) prime sur Odoo quand il est renseigné ; 'odoo' : toujours Odoo
+};
+const CA_SAISI_DEFAUT = { '2026-01': 3500, '2026-02': 4000, '2026-03': 3200, '2026-04': 3000, '2026-05': 6450, '2026-06': 6187, '2026-07': 5000, '2026-08': 5300, '2026-09': 3700 };
+const PRODUITS_DEFAUT = [
+  { nom: 'Tablier DTF (Wordans)', cout: 6.9, prix: 15, statut: 'confirmé' },
+  { nom: 'Porte-clés Mineral', cout: 0.8, prix: 2, statut: 'confirmé' },
+  { nom: 'Stylo Kanor (+ flocage DTF UV)', cout: 0.3, prix: 1.2, statut: 'confirmé' },
+  { nom: 'Gourde', cout: 3.65, prix: 7.5, statut: 'confirmé' },
+  { nom: 'Mug personnalisé', cout: null, prix: 13, statut: 'coût manquant' },
+  { nom: 'Gobelet Eco Cup DTF UV', cout: null, prix: 2.3, statut: 'coût manquant' },
+];
+const lireJSON = (t, d) => { try { const v = JSON.parse(t); return v ?? d; } catch { return d; } };
+async function parametres() {
+  const [p, ca, pr] = await Promise.all([reglage('finances_params', null), reglage('finances_ca_saisi', null), reglage('finances_produits', null)]);
+  return { params: { ...PARAMS_DEFAUT, ...lireJSON(p, {}) }, caSaisi: lireJSON(ca, CA_SAISI_DEFAUT), produits: lireJSON(pr, PRODUITS_DEFAUT) };
+}
+async function enregistrerParametres({ params, caSaisi, produits }) {
+  if (params) {
+    const t = Number(params.taux_variables);
+    if (!(t >= 0 && t < 100)) throw new Error('Taux de charges variables invalide');
+    await setReglage('finances_params', JSON.stringify(params));
+  }
+  if (caSaisi) {
+    const propre = {};
+    for (const [k, v] of Object.entries(caSaisi)) if (/^\d{4}-\d{2}$/.test(k) && v !== '' && v !== null && !isNaN(Number(v))) propre[k] = Number(v);
+    await setReglage('finances_ca_saisi', JSON.stringify(propre));
+  }
+  if (produits) await setReglage('finances_produits', JSON.stringify(produits.filter(x => x && String(x.nom || '').trim()).map(x => ({ nom: String(x.nom).trim().slice(0, 80), cout: x.cout === '' || x.cout == null || isNaN(Number(x.cout)) ? null : Number(x.cout), prix: Number(x.prix) || 0, statut: String(x.statut || '').slice(0, 40) }))));
+  cache.le = 0;
+  return { ok: true };
+}
+// Valeur en vigueur un mois donné (dernière entrée dont « depuis » est passé ; avant la 1re, la 1re s'applique)
+const enVigueur = (liste, mois) => { const l = (liste || []).slice().sort((a, b) => a.depuis.localeCompare(b.depuis)); let v = l[0] ? l[0].montant : 0; for (const x of l) if (x.depuis <= mois) v = x.montant; return Number(v) || 0; };
+const phaseDe = (phases, mois) => (phases || []).slice().sort((a, b) => a.jusqua.localeCompare(b.jusqua)).find(ph => mois <= ph.jusqua) || (phases || [])[phases.length - 1] || null;
+function gestionDuMois(params, mois, ca) {
+  const taux = (Number(params.taux_variables) || 0) / 100;
+  const fixes = enVigueur(params.charges_fixes, mois), mo = enVigueur(params.main_oeuvre, mois), cca = enVigueur(params.cca, mois);
+  const couts = fixes + mo + cca;
+  const ph = phaseDe(params.phases, mois);
+  return {
+    charges_fixes: fixes, main_oeuvre: mo, cca, charges_variables: r2(ca * taux),
+    seuil: taux < 1 ? Math.round(couts / (1 - taux)) : null,
+    resultat: r2(ca * (1 - taux) - couts),
+    phase: ph ? { nom: ph.nom, cible: ph.cible, minimum: ph.minimum || null, recommande: ph.recommande || null } : null,
+    seuil_avec_salaire: ph && ph.salaire_cout && taux < 1 ? Math.round((couts + Number(ph.salaire_cout)) / (1 - taux)) : null,
+  };
+}
+
 // ---------- Synthèse ----------
 let cache = { cle: null, le: 0, data: null };
 async function synthese(annee = new Date().getFullYear(), { force = false } = {}) {
@@ -127,7 +186,13 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
   for (const f of ventes) { const m = mois[cle(f.invoice_date)] || (mois[cle(f.invoice_date)] = { ca: 0, achats: 0, factures: 0 }); m.ca += (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0); if (f.move_type === 'out_invoice') m.factures++; }
   for (const f of achats) { const m = mois[cle(f.invoice_date)] || (mois[cle(f.invoice_date)] = { ca: 0, achats: 0, factures: 0 }); m.achats += (f.move_type === 'in_refund' ? -1 : 1) * (f.amount_untaxed || 0); }
   const treso = await tresorerie(annee, banque);
-  const ligne = (a, i) => { const k = `${a}-${String(i + 1).padStart(2, '0')}`; const m = mois[k] || { ca: 0, achats: 0, factures: 0 }; return { mois: k, libelle: `${MOIS[i]} ${a}`, ca: r2(m.ca), achats: r2(m.achats), marge: r2(m.ca - m.achats), factures: m.factures, tresorerie: treso[k] || null }; };
+  const { params, caSaisi, produits } = await parametres();
+  const ligne = (a, i) => {
+    const k = `${a}-${String(i + 1).padStart(2, '0')}`; const m = mois[k] || { ca: 0, achats: 0, factures: 0 };
+    const saisi = caSaisi[k] != null ? Number(caSaisi[k]) : null;
+    const ca = params.ca_source === 'saisie' && saisi != null ? saisi : r2(m.ca);
+    return { mois: k, libelle: `${MOIS[i]} ${a}`, ca, ca_odoo: r2(m.ca), ca_saisi: saisi, achats: r2(m.achats), marge: r2(ca - m.achats), factures: m.factures, tresorerie: treso[k] || null, gestion: gestionDuMois(params, k, ca) };
+  };
   const annees = { [annee]: MOIS.map((_, i) => ligne(annee, i)), [annee - 1]: MOIS.map((_, i) => ligne(annee - 1, i)) };
   const auj = new Date(), moisCourant = auj.getFullYear() === annee ? auj.getMonth() : 11;
   const cumul = (a, jusqua) => annees[a].slice(0, jusqua + 1).reduce((s, m) => s + m.ca, 0);
@@ -135,7 +200,8 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
   for (const f of ventes) if (String(f.invoice_date).startsWith(String(annee)) && f.partner_id) { const k = f.partner_id[1]; top.set(k, (top.get(k) || 0) + (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0)); }
   const today = auj.toISOString().slice(0, 10);
   const impayes = ventes.filter(f => f.move_type === 'out_invoice' && ['not_paid', 'partial'].includes(f.payment_state) && f.invoice_date_due && f.invoice_date_due < today);
-  const objectif = Number(await reglage('finances_objectif_mensuel', '0')) || 0;
+  const moisCle = `${annee}-${String(moisCourant + 1).padStart(2, '0')}`;
+  const objectif = phaseDe(params.phases, moisCle)?.cible || Number(await reglage('finances_objectif_mensuel', '0')) || 0;
   const data = {
     annee, mois_courant: moisCourant, objectif_mensuel: objectif,
     mois: annees[annee], mois_precedent_annee: annees[annee - 1],
@@ -143,6 +209,8 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
     top_clients: [...top].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([nom, ht]) => ({ nom, ht: r2(ht) })),
     impayes: { n: impayes.length, ttc: r2(impayes.reduce((s, f) => s + (f.amount_residual || 0), 0)), liste: impayes.sort((a, b) => b.amount_residual - a.amount_residual).slice(0, 15).map(f => ({ numero: f.name, client: f.partner_id?.[1], echeance: f.invoice_date_due, reste: f.amount_residual })) },
     qonto_mois: Object.keys(treso).sort(), banque_odoo: banque.length > 0,
+    params, ca_saisi: caSaisi,
+    produits: produits.map(x => ({ ...x, marge: x.cout != null ? r2(x.prix - x.cout) : null, taux: x.cout != null && x.prix ? Math.round((x.prix - x.cout) / x.prix * 100) : null })),
   };
   cache = { cle: annee, le: Date.now(), data };
   return data;
@@ -164,7 +232,10 @@ async function rapportMensuel({ mois } = {}) {
     ['Factures émises', String(L.factures), L.factures ? `panier moyen ${eur(L.ca / L.factures)} HT` : ''],
     ['Cumul depuis janvier', eur(cumul), `${pct(cumul, cumulN1)} vs ${a - 1} à la même date`],
   ];
-  if (s.objectif_mensuel) lignes.push(['Objectif du mois', eur(s.objectif_mensuel), `${Math.round(L.ca / s.objectif_mensuel * 100)} % atteint`]);
+  const G = L.gestion;
+  if (G.seuil) lignes.push(['Seuil de rentabilité', eur(G.seuil), L.ca >= G.seuil ? `atteint (+${eur(L.ca - G.seuil)})` : `manque ${eur(G.seuil - L.ca)}`]);
+  lignes.push(['Résultat estimé', eur(G.resultat), `CA − charges variables (${s.params.taux_variables} %) − fixes ${eur(G.charges_fixes)} − main d'œuvre ${eur(G.main_oeuvre)} − CCA ${eur(G.cca)}`]);
+  if (G.phase) lignes.push([`Objectif ${G.phase.nom}`, eur(G.phase.cible), `${Math.round(L.ca / G.phase.cible * 100)} % atteint`]);
   if (t) lignes.push(['Trésorerie réelle (banque)', eur(t.net), `entrées ${eur(t.entrees)} · sorties ${eur(t.sorties)} (TTC, hors virements internes, ${t.source === 'odoo' ? 'journal Banque d\'Odoo' : 'relevé Qonto importé'})`]);
   const cats = t ? Object.entries(t.categories).sort((x, y) => y[1] - x[1]).slice(0, 8) : [];
   const html = `<div style="font:14px/1.5 Arial,sans-serif;color:#1E1E4B;max-width:640px">
@@ -180,4 +251,4 @@ ${s.impayes.n ? `<h3 style="margin:20px 0 6px">Impayés échus</h3><p>${s.impaye
   return { ok: true, mois: `${a}-${String(m).padStart(2, '0')}`, ca: L.ca, dest };
 }
 
-module.exports = { synthese, importerQonto, rapportMensuel, setObjectif: v => setReglage('finances_objectif_mensuel', Math.max(0, Number(v) || 0)), _test: { lireQonto, parseCsv } };
+module.exports = { synthese, parametres, enregistrerParametres, importerQonto, rapportMensuel, setObjectif: v => setReglage('finances_objectif_mensuel', Math.max(0, Number(v) || 0)), _test: { lireQonto, parseCsv } };
