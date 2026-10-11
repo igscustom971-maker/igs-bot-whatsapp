@@ -539,7 +539,7 @@ async function brouillonDemande(d) {
     cree = true;
   }
   const prod = await produitPourDemande(d.produit, d.zone).catch(() => null);
-  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : d.source === 'mail' ? 'reçue par mail (Leïla)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
+  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : d.source === 'mail' ? 'reçue par mail (Leïla)' : d.source === 'ismael' ? 'demandée par Ismaël (WhatsApp)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
   const lines = [];
   if (prod) lines.push([0, 0, { product_id: prod.id, product_uom_qty: Number(d.quantite) > 0 ? Number(d.quantite) : 1 }]);
   lines.push([0, 0, { display_type: 'line_note', name: note + (prod ? '' : ' (produit à choisir)') }]);

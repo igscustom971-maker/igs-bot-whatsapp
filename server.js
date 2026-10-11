@@ -755,8 +755,15 @@ async function traiterMessageEntrant(message, profil) {
     if (isRecapRequest(text)) {
       console.log(`Demande de récap production reçue d'Ismaël (${from})`);
       await handleProductionRecap(from, sendWhatsAppMessage);
+    } else if (require('./gestion/demandes-ismael').estDemande(text)) {
+      // « Devis pour BLACHA GRILL, 5 t-shirts… » : Leïla enregistre la demande (mention « demandée par Ismaël ») et prépare le brouillon
+      console.log(`Demande de devis transmise par Ismaël (${from})`);
+      let reponse;
+      try { reponse = await require('./gestion/demandes-ismael').traiter(text); }
+      catch (err) { console.error('Demande de devis d\'Ismaël :', err.message); reponse = `⚠️ Demande non enregistrée : ${err.message}. Saisis-la dans Commercial > Demandes.`; }
+      await sendWhatsAppMessage(from, reponse);
     } else {
-      console.log(`Message d'Ismaël sur son propre numéro (hors récap), ignoré par le bot client`);
+      console.log(`Message d'Ismaël sur son propre numéro (hors récap / devis), ignoré par le bot client`);
     }
     return;
   }

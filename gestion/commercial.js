@@ -114,9 +114,9 @@ async function nouvelleDemande(d, par = 'Leïla (WhatsApp)') {
   }
   const { data: ins, error } = await supabase.from('gestion_demandes').insert(row).select().single();
   if (error) { console.error('Commercial demande :', error.message); return null; }
-  await preparerBrouillon(ins.id, par).catch(() => {});
+  const b = await preparerBrouillon(ins.id, par).catch(err => ({ statut: 'erreur', erreur: err.message }));
   cache.le = 0;
-  return ins;
+  return { ...ins, ...b };
 }
 
 async function preparerBrouillon(id, par, nom) {
@@ -130,7 +130,7 @@ async function preparerBrouillon(id, par, nom) {
     await supabase.from('gestion_demandes').update({ statut: 'brouillon', devis_id: so.id, devis_numero: so.numero, erreur: null }).eq('id', id);
     await journal(par, 'demande_brouillon', so.numero, { demande: id, client: so.client, client_cree: so.client_cree, produit: so.produit });
     console.log(`Commercial : brouillon ${so.numero} préparé pour ${so.client}${so.produit ? ' (' + so.produit + ')' : ' (produit à choisir)'}`);
-    return { ...d, statut: 'brouillon', devis_id: so.id, devis_numero: so.numero };
+    return { ...d, statut: 'brouillon', devis_id: so.id, devis_numero: so.numero, client_odoo: so.client, client_cree: !!so.client_cree, produit_odoo: so.produit };
   } catch (err) {
     await supabase.from('gestion_demandes').update({ statut: 'erreur', erreur: err.message.slice(0, 300) }).eq('id', id);
     cache.le = 0;
@@ -450,16 +450,17 @@ async function ficheClient(partnerId) {
 // ---------- Origine des demandes (90 jours) ----------
 async function origines() {
   const tous = await odoo.devisCommerciaux({ jours: 90, planches: true });
-  const viaLeila = new Set();
+  const viaLeila = new Map(); // n° de devis -> origine de la demande
+  const ORIG = { whatsapp: 'Leïla (WhatsApp)', mail: 'Leïla (mail)', ismael: 'Demandé par Ismaël', manuel: 'Demandes saisies' };
   if (supabase) {
-    const { data } = await supabase.from('gestion_demandes').select('devis_numero').not('devis_numero', 'is', null).gte('cree_le', new Date(Date.now() - 95 * 86400e3).toISOString());
-    for (const d of data || []) viaLeila.add(d.devis_numero);
+    const { data } = await supabase.from('gestion_demandes').select('devis_numero, source').not('devis_numero', 'is', null).gte('cree_le', new Date(Date.now() - 95 * 86400e3).toISOString());
+    for (const d of data || []) viaLeila.set(d.devis_numero, ORIG[d.source] || 'Leïla (WhatsApp)');
   }
   const textile = new Set((await odoo.devisCommerciaux({ jours: 90 })).map(d => d.numero));
   const groupes = {};
   for (const d of tous) {
     if (d.etat === 'cancel' && !d.montant_ht) continue;
-    const src = viaLeila.has(d.numero) ? 'Leïla (WhatsApp)' : textile.has(d.numero) ? 'Textile (boutique, mail, site…)' : 'Planches DTF';
+    const src = viaLeila.has(d.numero) ? viaLeila.get(d.numero) : textile.has(d.numero) ? 'Textile (boutique, mail, site…)' : 'Planches DTF';
     const gr = groupes[src] || (groupes[src] = { source: src, devis: 0, signes: 0, ca_signe_ht: 0 });
     gr.devis++;
     if (d.etat === 'sale') { gr.signes++; gr.ca_signe_ht += d.montant_ht || 0; }

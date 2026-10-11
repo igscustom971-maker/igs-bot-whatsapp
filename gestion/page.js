@@ -843,7 +843,7 @@ function coAfficher(){
   $('co-dem').innerHTML = !dem.length ? coVide('✅ Aucune demande en attente.') : '<div class="co-grid">' + dem.slice(0, pl('dem')).map(x =>
     '<div class="co-c" data-dem="'+x.id+'"><div class="t"><b>'+new Date(x.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</b>'
     + (x.devis_numero ? pastille(x.devis_numero + ' prêt', '#eef2ff;color:#3730a3') : x.statut === 'erreur' ? pastille('à faire à la main', '#fee2e2;color:#991b1b') : pastille('en préparation', '#fef3c7;color:#92400e'))+'</div>'
-    + '<div class="cl">'+esc(x.nom || 'Client sans nom')+(x.source === 'mail' ? ' <span class="mt">· reçue par mail</span>' : x.source === 'manuel' ? ' <span class="mt">· saisie</span>' : '')+'</div>'
+    + '<div class="cl">'+esc(x.nom || 'Client sans nom')+(x.source === 'mail' ? ' <span class="mt">· reçue par mail</span>' : x.source === 'ismael' ? ' <span class="mt">· demandée par Ismaël</span>' : x.source === 'manuel' ? ' <span class="mt">· saisie</span>' : '')+'</div>'
     + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
     + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
     + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'

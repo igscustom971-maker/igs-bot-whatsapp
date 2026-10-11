@@ -174,6 +174,8 @@ const TACHES = [
     quand: (h, d) => h.getHours() === 0 && autreJour(h, d) },
   { id: 'demandes_mail', nom: 'Demandes de devis reçues par mail (contact@) → Commercial > Demandes', flux: '(nouveau, Leïla)', rythme: 'toutes les 5 min', fn: () => require('./demandes-mail').relever(),
     quand: (h, d) => !d || Date.now() - d > 4.5 * 60e3 },
+  { id: 'demandes_accuse', nom: 'Demande de devis reçue par mail → accusé de réception au client (10 min après, lundi-vendredi)', flux: '(nouveau, Leïla)', rythme: 'toutes les 5 min', fn: () => require('./demandes-mail').accuser(),
+    quand: (h, d) => !d || Date.now() - d > 4.5 * 60e3 },
   { id: 'devis_whatsapp', nom: 'Devis envoyé → message WhatsApp de Leïla au client (si fenêtre de 24 h ouverte)', flux: '(nouveau, Leïla)', rythme: 'toutes les 10 min', fn: () => require('./commercial').devisEnvoyesWhatsapp(),
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,

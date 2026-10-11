@@ -17,9 +17,46 @@ const texte = html => String(html || '').replace(/<style[\s\S]*?<\/style>/gi, ''
 const IGNORER_EXP = /(@igscustom\.fr|@ghs-|noreply|no-reply|ne-pas-repondre|nepasrepondre|notification|mailer-daemon|postmaster|@odoo|odoo\.com|stripe|qonto|sefi|paypal|sumup|microsoft|google\.com|facebook|instagram|linkedin|wordpress|woocommerce|newsletter|marketing)/i;
 const IGNORER_SUJET = /^(re|tr|fw|fwd|réf|aw)\s*:|nouvelle commande -|planche|facture|invoice|bon de commande|commande n°|livraison|colis|suivi/i;
 
+// ---------- Formulaire de contact du site (Elementor) : envoyé depuis une adresse @igscustom.fr ----------
+const estFormulaireSite = corps => /Powered by\s*:?\s*Elementor/i.test(corps) || (/Nom\s+Pr[ée]nom\s*:/i.test(corps) && /Adresse\s+mail\s*:/i.test(corps));
+// Champs « Libellé: valeur » du formulaire
+function champsFormulaire(corps) {
+  const lire = re => { const m = String(corps).match(re); return m ? m[1].replace(/\s+/g, ' ').trim() : ''; };
+  return {
+    nom: lire(/Nom\s+Pr[ée]nom\s*:[ \t]*([^\n]*)/i),
+    entreprise: lire(/Nom\s+de\s+l['’]entreprise\s*:[ \t]*([^\n]*)/i),
+    email: lire(/Adresse\s+(?:e-?)?mail\s*:[ \t]*([^\s\n]*)/i),
+    telephone: lire(/Num[ée]ro\s+de\s+t[ée]l[ée]phone\s*:[ \t]*([^\n]*)/i),
+    message: lire(/Type\s+de\s+produit[^:\n]*:[ \t]*([\s\S]*?)(?:\n\s*-{3}|\n\s*Date\s*:|$)/i),
+    page: lire(/Page\s+URL\s*:[ \t]*([^\n]*)/i),
+  };
+}
+// Champs vides du formulaire : la ligne suivante (« Nom de l'entreprise: ») ne doit pas être prise pour la valeur
+const vide = v => !v || /^[A-ZÉÈ][\wéèêàç' ’,]+\s*:/.test(v) ? '' : v;
+
+// ---------- Spam : score simple, avant toute analyse ----------
+const GENERIQUE = /(plus d['’]?\s*informations?|merci de me contacter|me contacter par (e-?)?mail|contactez[- ]moi|more information|contact me|get back to me|i am interested|your (website|site)|seo|backlinks?|referencement|référencement|marketing digital|crypto|bitcoin|investment|loan|pr[êe]t rapide|casino|viagra|telegram)/i;
+const PRODUIT = /(t-?shirt|tee-?shirt|polo|sweat|hoodie|casquette|tote|sac|tablier|maillot|veste|planche|dtf|flocage|floquer|logo|brod|impression|imprimer|personnalis|marquage|textile|uniforme|tenue|\b\d+\s*(pi[eè]ces?|pcs|articles?|unit[ée]s?)\b)/i;
+function scoreSpam({ message, telephone, entreprise, page, formulaire }) {
+  const m = String(message || '');
+  let s = 0;
+  const raisons = [];
+  const plus = (n, r) => { s += n; raisons.push(r); };
+  if (GENERIQUE.test(m)) plus(2, 'texte générique');
+  if (/igs\s*custom/i.test(m)) plus(2, 'reprend le nom de l\'atelier');
+  if (/https?:\/\/|www\./i.test(m)) plus(2, 'lien dans le message');
+  if (!String(telephone || '').replace(/\D/g, '')) plus(1, 'sans téléphone');
+  if (formulaire && !page) plus(1, 'page d\'envoi vide');
+  if (formulaire && !entreprise && m.split(/\s+/).filter(Boolean).length < 15) plus(1, 'message très court');
+  if (/[\u0400-\u04FF\u4E00-\u9FFF]/.test(m)) plus(2, 'alphabet étranger');
+  if (PRODUIT.test(m)) { s -= 3; raisons.push('besoin concret'); }
+  else if (/devis|tarifs?|prix|commander|commande/i.test(m)) { s -= 2; raisons.push('parle de devis ou de prix'); }
+  return { spam: s >= 3, score: s, raisons };
+}
+
 const SYSTEME = `Tu tries les mails reçus par IGS CUSTOM BAR, atelier de personnalisation textile et d'impression DTF en Guadeloupe.
 Réponds uniquement avec un objet JSON, sans texte autour.
-Champs : demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom de la personne ou de la structure, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion).`;
+Champs : spam (true pour un message automatique, générique ou suspect sans besoin concret : « je souhaite plus d'informations, contactez-moi par mail », prospection SEO/marketing, lien douteux, texte qui reprend juste le nom de l'atelier ; false pour un vrai client, même bref, qui décrit ce qu'il veut), demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom de la personne ou de la structure, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion).`;
 
 async function reglage(cle, defaut = null) {
   if (!supabase) return defaut;
@@ -45,6 +82,12 @@ async function analyser({ expediteur, sujet, corps }) {
   return JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
 }
 
+// Spam écarté : noté dans le journal (Admin) pour pouvoir vérifier qu'aucun vrai client n'a été écarté
+async function spam(m, exp, sujet, raison) {
+  console.log(`Demandes mail : spam écarté « ${sujet.slice(0, 60)} » (${raison})`);
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: 'Leïla (mail)', action: 'demande_spam', cle: String(m.id).slice(-60), details: { expediteur: exp, sujet: sujet.slice(0, 120), raison, recu: m.receivedDateTime } }).then(() => {}, () => {});
+}
+
 const normTel = brut => (String(brut || '').replace(/\D/g, '') ? require('./telephones-bat').telValide(brut) : null);
 
 // Une passe : mails arrivés depuis le dernier passage (au plus 30), déjà vus ignorés
@@ -57,7 +100,7 @@ async function relever() {
   const q = `?$filter=${encodeURIComponent(`receivedDateTime ge ${depuis}`)}&$orderby=receivedDateTime%20asc&$top=30&$select=id,subject,from,receivedDateTime,body`;
   const r = await g.graph(u + q);
   const mails = r.value || [];
-  let crees = 0, ignores = 0, dernier = depuis;
+  let crees = 0, ignores = 0, spams = 0, dernier = depuis;
   const commercial = require('./commercial');
   for (const m of mails) {
     dernier = m.receivedDateTime > dernier ? m.receivedDateTime : dernier;
@@ -65,15 +108,29 @@ async function relever() {
     vus.add(m.id);
     const exp = String(m.from?.emailAddress?.address || '').toLowerCase();
     const sujet = String(m.subject || '');
-    if (!exp || IGNORER_EXP.test(exp) || IGNORER_SUJET.test(sujet.trim())) { ignores++; continue; }
+    const corps = texte(m.body?.content);
+    // Le formulaire du site arrive d'une adresse @igscustom.fr : c'est le seul mail « interne » analysé
+    const formulaire = estFormulaireSite(corps);
+    if (!exp || (!formulaire && (IGNORER_EXP.test(exp) || IGNORER_SUJET.test(sujet.trim())))) { ignores++; continue; }
+    let f = null;
+    if (formulaire) {
+      const c = champsFormulaire(corps);
+      f = { nom: vide(c.nom), entreprise: vide(c.entreprise), email: vide(c.email), telephone: vide(c.telephone), message: vide(c.message), page: vide(c.page) };
+    }
+    const sp = scoreSpam(f ? { ...f, formulaire: true } : { message: `${sujet}\n${corps}`.slice(0, 1500), telephone: (corps.match(/(?:\+|00)?\d[\d .]{8,}\d/) || [''])[0], formulaire: false });
+    if (sp.spam) { spams++; await spam(m, exp, sujet, sp.raisons.join(', ')); continue; }
     try {
-      const a = await analyser({ expediteur: `${m.from?.emailAddress?.name || ''} <${exp}>`, sujet, corps: texte(m.body?.content) });
+      const a = await analyser({ expediteur: `${m.from?.emailAddress?.name || ''} <${exp}>`, sujet, corps: f ? `Formulaire de contact du site igscustom.fr\nNom : ${f.nom}\nEntreprise : ${f.entreprise}\nE-mail : ${f.email}\nTéléphone : ${f.telephone}\nMessage : ${f.message}` : corps });
+      if (a && a.spam === true) { spams++; await spam(m, exp, sujet, 'jugé indésirable à la lecture'); continue; }
       if (!a || a.demande_devis !== true) { ignores++; continue; }
-      const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(a.email || '')) ? String(a.email).toLowerCase() : exp;
+      const valide = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
+      // Formulaire : l'adresse du client est dans le champ « Adresse mail », jamais l'expéditeur (@igscustom.fr)
+      const email = valide(a.email) && !/@igscustom\.fr$/i.test(a.email) ? String(a.email).trim().toLowerCase() : f ? (valide(f.email) ? f.email.toLowerCase() : null) : exp;
+      const nom = String(a.nom || (f && (f.entreprise || f.nom)) || (f ? '' : m.from?.emailAddress?.name) || '').trim();
       const d = await commercial.nouvelleDemande({
-        source: 'mail', email, nom: String(a.nom || m.from?.emailAddress?.name || '').trim(), telephone: normTel(a.telephone),
+        source: 'mail', email, nom, telephone: normTel(a.telephone || (f && f.telephone)),
         produit: String(a.produit || '').trim(), quantite: Number(a.quantite) || null, zone: String(a.zone || '').trim(),
-        details: [String(a.details || '').trim(), `(mail du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')} : « ${sujet.slice(0, 80)} »)`].filter(Boolean).join(' '),
+        details: [String(a.details || '').trim(), f ? `(formulaire du site, ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')})` : `(mail du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')} : « ${sujet.slice(0, 80)} »)`].filter(Boolean).join(' '),
       }, 'Leïla (mail)');
       if (d) crees++;
     } catch (err) { console.error(`Demandes mail : « ${sujet.slice(0, 60)} » non analysé :`, err.message); vus.delete(m.id); }
@@ -82,7 +139,56 @@ async function relever() {
   await setReglage('demandes_mail_depuis', dernier);
   await setReglage('demandes_mail_vus', JSON.stringify([...vus].slice(-300)));
   if (premier && !mails.length) return 'démarrage : aucun mail ces 2 dernières heures';
-  return `${mails.length} mail(s) lu(s) : ${crees} demande(s) de devis ajoutée(s), ${ignores} ignoré(s)`;
+  return `${mails.length} mail(s) lu(s) : ${crees} demande(s) de devis ajoutée(s), ${spams} spam(s) écarté(s), ${ignores} ignoré(s)`;
 }
 
-module.exports = { relever, _test: { analyser, IGNORER_EXP, IGNORER_SUJET } };
+// ---------- Accusé de réception (tâche « demandes_accuse ») ----------
+// Environ 10 min après une vraie demande reçue par mail ou par le formulaire du site, Leïla répond au client que sa demande
+// est prise en compte et qu'un devis suivra dans un autre mail. Du lundi au vendredi, 7 h - 19 h (Guadeloupe) seulement :
+// une demande du week-end reçoit son accusé le lundi matin. Pas d'accusé si le devis est déjà parti ou la demande classée.
+const DELAI_ACCUSE = 10 * 60e3;
+const heureGP = (d = new Date()) => new Date(d.toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
+const ouvre = (d = new Date()) => { const h = heureGP(d); return h.getDay() >= 1 && h.getDay() <= 5 && h.getHours() >= 7 && h.getHours() < 19; };
+const escHtml = t => String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const SUJETS_ACCUSE = ['Votre demande de devis – IGS Custom Bar', 'Demande de devis bien reçue – IGS Custom Bar', 'IGS Custom Bar : nous avons bien reçu votre demande'];
+const TEXTES_ACCUSE = [
+  q => `Nous avons bien reçu votre demande de devis${q} et nous vous en remercions. Elle est prise en compte : vous recevrez votre devis dans un autre mail, dans les meilleurs délais.`,
+  q => `Merci pour votre demande${q} ! Elle a bien été enregistrée par notre équipe, qui prépare votre devis. Il vous parviendra par un mail séparé, le plus rapidement possible.`,
+  q => `Votre demande de devis${q} nous est bien parvenue. Nous nous en occupons et vous enverrons le devis dans un prochain mail, dans les meilleurs délais.`,
+];
+function mailAccuse(d) {
+  const i = Math.floor(Math.random() * TEXTES_ACCUSE.length);
+  const quoi = d.produit ? ` (${[d.quantite ? `${Number(d.quantite)} x` : '', d.produit].filter(Boolean).join(' ')})` : '';
+  const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#1E1E4B;line-height:1.5">
+<p>Bonjour,</p>
+<p>${escHtml(TEXTES_ACCUSE[i](quoi))}</p>
+<p>Si vous souhaitez ajouter une précision (tailles, couleurs, logo, date souhaitée), il vous suffit de répondre à ce mail.</p>
+<p>Belle journée,<br>L'équipe IGS Custom Bar</p></div>`;
+  return { subject: SUJETS_ACCUSE[Math.floor(Math.random() * SUJETS_ACCUSE.length)], html };
+}
+async function accuser() {
+  if (!supabase) return 'base non configurée';
+  // Premier passage : seulement les demandes reçues à partir de maintenant
+  const depuis = await reglage('demandes_accuse_depuis');
+  if (!depuis) { await setReglage('demandes_accuse_depuis', new Date().toISOString()); return 'démarrage : les demandes reçues à partir de maintenant recevront un accusé'; }
+  if (!ouvre()) return 'hors horaires (lundi-vendredi, 7 h - 19 h) : en attente';
+  const min = new Date(Math.max(Date.parse(depuis) || 0, Date.now() - 5 * 86400e3)).toISOString();
+  const { data: liste } = await supabase.from('gestion_demandes').select('*').eq('source', 'mail').not('email', 'is', null)
+    .in('statut', ['nouvelle', 'brouillon', 'erreur']).gte('cree_le', min).lte('cree_le', new Date(Date.now() - DELAI_ACCUSE).toISOString()).order('cree_le', { ascending: true }).limit(30);
+  if (!liste || !liste.length) return 'aucune demande à accuser';
+  const { data: faits } = await supabase.from('gestion_actions').select('cle').eq('action', 'demande_accuse').in('cle', liste.map(d => `demande-${d.id}`));
+  const deja = new Set((faits || []).map(x => x.cle));
+  let n = 0, err = 0;
+  for (const d of liste) {
+    if (deja.has(`demande-${d.id}`) || /@igscustom\.fr$/i.test(d.email)) continue;
+    try {
+      const m = mailAccuse(d);
+      await g.sendMail(MAILBOX, { to: d.email, subject: m.subject, html: m.html, replyTo: MAILBOX });
+      await supabase.from('gestion_actions').insert({ utilisateur: 'Leïla (automatique)', action: 'demande_accuse', cle: `demande-${d.id}`, details: { email: d.email, nom: d.nom } });
+      n++;
+    } catch (e) { err++; console.error(`Demandes mail : accusé de réception à ${d.email} non envoyé :`, e.message); }
+  }
+  return `${n} accusé(s) de réception envoyé(s)${err ? `, ${err} en erreur` : ''}`;
+}
+
+module.exports = { relever, accuser, _test: { mailAccuse, ouvre, analyser, IGNORER_EXP, IGNORER_SUJET, estFormulaireSite, champsFormulaire, scoreSpam, vide } };
