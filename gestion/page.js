@@ -263,6 +263,7 @@ header{position:fixed;top:0;left:0;bottom:0;width:var(--side);background:#1E1E4B
 .bar nav a .nn.o{background:#FF8A3D;color:#1E1E4B}
 .bar nav a .nn:empty{display:none}
 .bar nav a.off{display:none}
+.bar nav a.nav-plus,.nav-feuille{display:none}
 .who{margin:auto 0 0;flex-direction:column;align-items:stretch;gap:6px;background:rgba(255,255,255,.06);border-radius:14px;padding:12px;color:#8D8BB8}
 .who .me{display:flex;align-items:center;gap:10px}
 .who .nm{display:flex;flex-direction:column;line-height:1.25}.who .nm small{color:#8D8BB8;font-size:12px}
@@ -321,7 +322,22 @@ tr.row:hover td{background:#FFFBF4}
   .who .me{display:none}
   main{margin:0;padding:16px 14px 90px}
   .steps .st span{font-size:10px}
-  td.c-x{position:static;width:auto;min-width:0;background:none}
+  /* Cartes commandes / planches : croix en bas à droite, statut qui ne déborde plus */
+  tr.row{position:relative;padding:12px 14px 14px;grid-template-columns:minmax(0,1fr) auto}
+  td.c-x{position:absolute!important;right:8px;bottom:8px;width:auto!important;min-width:0;padding:0!important;background:none!important}
+  td.c-x .xdel{width:30px;height:30px;font-size:18px}
+  td.c-statut{width:auto!important;max-width:48vw;justify-self:end}
+  td.c-statut select.inl{max-width:100%;font-size:11.5px;padding:4px 8px}
+  tr.row td:not(.c-statut):not(.c-x){padding-right:30px}
+  /* Menu du bas : 4 raccourcis + « Plus » (le reste dans un panneau) */
+  .bar nav a:hover{background:none;color:#8D8BA8}.bar nav a.on:hover{color:#FF1E8E}
+  .bar nav a.nav-sec{display:none}
+  .bar nav a.nav-plus{display:flex}
+  .nav-feuille{position:fixed;left:10px;right:10px;bottom:calc(72px + env(safe-area-inset-bottom));background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 40px rgba(30,30,75,.18);padding:10px;display:none;grid-template-columns:repeat(3,1fr);gap:6px;z-index:20}
+  .nav-feuille.ouvert{display:grid}
+  .nav-feuille a{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:12px;color:#1E1E4B;font-weight:600;font-size:12px;text-decoration:none}
+  .nav-feuille a.on{background:#FFF0F7;color:#FF1E8E}
+  .nav-feuille a .nn,.nav-feuille a .lb::after{display:none}.nav-feuille a .lb{font-size:12px}
   .titre-page{font-size:32px}
 }
 
@@ -593,6 +609,22 @@ const PL_COULEURS = {
 };
 let planches = [];
 const VIEW = '${view}';
+// Téléphone : le menu du bas garde 4 raccourcis + « Plus » ; les autres pages s'ouvrent dans un petit panneau
+(function navMobile(){
+  const nav = document.querySelector('.bar nav'); if (!nav) return;
+  const liens = [...nav.querySelectorAll('a:not(.off)')];
+  if (liens.length <= 5) return;
+  const sec = liens.slice(4);
+  sec.forEach(a => a.classList.add('nav-sec'));
+  const feuille = document.createElement('div'); feuille.className = 'nav-feuille';
+  sec.forEach(a => { const c = a.cloneNode(true); c.classList.remove('nav-sec'); c.removeAttribute('id'); c.querySelectorAll('[id]').forEach(x => x.removeAttribute('id')); feuille.appendChild(c); });
+  document.body.appendChild(feuille);
+  const plus = document.createElement('a'); plus.href = '#'; plus.className = 'nav-plus' + (sec.some(a => a.classList.contains('on')) ? ' on' : '');
+  plus.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg><span class="lb" data-m="Plus">Plus</span>';
+  plus.onclick = e => { e.preventDefault(); feuille.classList.toggle('ouvert'); };
+  nav.appendChild(plus);
+  document.addEventListener('click', e => { if (!e.target.closest('.nav-plus') && !e.target.closest('.nav-feuille')) feuille.classList.remove('ouvert'); });
+})();
 const BAT_SEUL = ${batSeul ? 'true' : 'false'};
 // Bonjour / Bonsoir selon l'heure (à partir de 18 h : bonsoir)
 (() => { const el = document.getElementById('salut'); if (el) { const h = new Date().getHours(); el.textContent = (h >= 18 || h < 5) ? 'Bonsoir' : 'Bonjour'; } })();
