@@ -103,6 +103,13 @@ async function tresorerie(annee, banqueOdoo = [], exclure = EXCLURE_DEFAUT) {
     if (!r.error) data = r.data || [];
   }
   // Priorité au relevé bancaire synchronisé dans Odoo (journal Banque) ; l'import CSV Qonto ne complète que les mois absents
+  // Seulement le compte bancaire réel (Qonto, journal « Banque ») : les journaux Stripe/PayPal/SumUp sont des comptes
+  // intermédiaires (fonds en attente, versements vers Qonto) qui feraient compter deux fois les mêmes encaissements.
+  const INTERMEDIAIRE = /stripe|paypal|sum\s?up|payplug|lydia|attente|transit|suspens/i;
+  const journaux = {};
+  for (const l of banqueOdoo) { const n = l.journal_id?.[1] || 'Banque'; journaux[n] = journaux[n] || { nom: n, lignes: 0, ignore: INTERMEDIAIRE.test(n) }; journaux[n].lignes++; }
+  banqueOdoo = banqueOdoo.filter(l => !INTERMEDIAIRE.test(l.journal_id?.[1] || ''));
+  tresorerie.journaux = Object.values(journaux);
   const moisOdoo = new Set(banqueOdoo.map(l => String(l.date).slice(0, 7)));
   data = [...banqueOdoo.map(l => ({ date: String(l.date).slice(0, 10), montant: l.amount, libelle: l.payment_ref || '', categorie: categorieDe(l.partner_id?.[1], l.payment_ref), source: 'odoo' })),
     ...data.filter(o => !moisOdoo.has(String(o.date).slice(0, 7))).map(o => ({ ...o, source: 'csv' }))];
@@ -227,7 +234,7 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
     cumul: { annee: r2(cumul(annee, moisCourant)), annee_precedente: r2(cumul(annee - 1, moisCourant)), total_annee_precedente: r2(cumul(annee - 1, 11)) },
     top_clients: [...top].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([nom, ht]) => ({ nom, ht: r2(ht) })),
     impayes: { n: impayes.length, ttc: r2(impayes.reduce((s, f) => s + (f.amount_residual || 0), 0)), liste: impayes.sort((a, b) => b.amount_residual - a.amount_residual).slice(0, 15).map(f => ({ numero: f.name, client: f.partner_id?.[1], echeance: f.invoice_date_due, reste: f.amount_residual })) },
-    qonto_mois: Object.keys(treso).sort(), banque_odoo: banque.length > 0,
+    qonto_mois: Object.keys(treso).sort(), banque_odoo: banque.length > 0, journaux_banque: tresorerie.journaux || [],
     params, ca_saisi: caSaisi,
     produits: produits.map(x => ({ ...x, marge: x.cout != null ? r2(x.prix - x.cout) : null, taux: x.cout != null && x.prix ? Math.round((x.prix - x.cout) / x.prix * 100) : null })),
   };
