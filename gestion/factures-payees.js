@@ -3,8 +3,9 @@
 // Un virement ou une remise TPE est rapproché dans Odoo (souvent plusieurs jours après), la facture passe « payée »…
 // mais personne ne l'a envoyée au client. Cette tâche les repère et les envoie au client avec le gabarit facture d'Odoo
 // (le PDF porte la mention « payée ») : le client a sa facture réglée, sans relance à faire.
-//  - seulement les factures entièrement payées (rapprochées), validées, datées depuis le démarrage de la tâche
-//    (30 jours avant la première activation), pas marquées « envoyée » et sans mail au client dans leur historique ;
+//  - seulement les factures passées « payées » APRÈS l'activation de la tâche (pas de rattrapage de l'historique :
+//    une ancienne facture se renvoie à la main si le client la réclame), pas marquées « envoyée » et sans mail au
+//    client dans leur historique ;
 //  - de 7 h à 20 h (heure de Guadeloupe), 5 factures au plus par passage ;
 //  - pas d'e-mail sur la fiche client : Ismaël est prévenu une fois, à envoyer à la main ;
 //  - Ismaël reçoit un récap WhatsApp des factures envoyées.
@@ -13,9 +14,7 @@
 const { supabase } = require('./db');
 
 const MAX_PAR_PASSAGE = 5;
-const JOURS_RATTRAPAGE = Number(process.env.FACTURES_PAYEES_RATTRAPAGE_JOURS || 30);
 const eur = n => `${Number(n || 0).toFixed(2).replace('.', ',')} €`;
-const jour = d => d.toLocaleDateString('en-CA', { timeZone: 'America/Guadeloupe' });
 
 async function reglage(cle, defaut = null) {
   if (!supabase) return defaut;
@@ -41,10 +40,11 @@ async function prevenirIsmael(texte) {
 async function verifier({ maintenant = new Date() } = {}) {
   const odoo = require('./odoo');
   if (!odoo.configured()) return 'Odoo non configuré';
-  let depuis = await reglage('factures_payees_depuis');
-  if (!depuis) {
-    depuis = jour(new Date(maintenant.getTime() - JOURS_RATTRAPAGE * 86400e3));
-    await setReglage('factures_payees_depuis', depuis);
+  // Point de départ = première activation : rien avant (ancienne valeur au format date seule : remise à maintenant)
+  const depuis = await reglage('factures_payees_depuis');
+  if (!depuis || !/T/.test(depuis)) {
+    await setReglage('factures_payees_depuis', maintenant.toISOString());
+    return 'démarrage : seules les factures payées à partir de maintenant seront envoyées';
   }
   const h = Number(maintenant.toLocaleString('en-US', { timeZone: 'America/Guadeloupe', hour: 'numeric', hour12: false }));
   if (h < 7 || h >= 20) return 'hors horaires (7 h - 20 h)';

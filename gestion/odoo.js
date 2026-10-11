@@ -584,10 +584,14 @@ async function reglementComptoir(numero, { tpe = null, especes = 0, par = 'IGS D
 }
 
 // ---------- Factures payées mais jamais envoyées au client (tâche « factures_payees ») ----------
-// Factures clients validées, entièrement payées (rapprochées : virement, TPE, Stripe…), datées depuis `depuis` (AAAA-MM-JJ),
-// pas marquées « envoyée » dans Odoo et sans aucun mail au client dans leur historique.
+// Factures clients validées, entièrement payées (rapprochées : virement, TPE, Stripe…), modifiées depuis `depuis` (ISO :
+// le passage à « payée » met à jour la date de modification), de moins de 6 mois, pas marquées « envoyée » dans Odoo
+// et sans aucun mail au client dans leur historique.
 async function facturesPayeesNonEnvoyees(depuis) {
-  const fs = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['move_type', '=', 'out_invoice'], ['state', '=', 'posted'], ['payment_state', '=', 'paid'], ['amount_total', '>', 0], ['invoice_date', '>=', depuis], ['is_move_sent', '=', false]]],
+  const d = new Date(depuis);
+  const modif = d.toISOString().slice(0, 19).replace('T', ' ');
+  const limite = new Date(d.getTime() - 180 * 86400e3).toISOString().slice(0, 10);
+  const fs = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['move_type', '=', 'out_invoice'], ['state', '=', 'posted'], ['payment_state', '=', 'paid'], ['amount_total', '>', 0], ['write_date', '>=', modif], ['invoice_date', '>=', limite], ['is_move_sent', '=', false]]],
     { fields: ['id', 'name', 'partner_id', 'invoice_date', 'amount_total', 'invoice_origin'], order: 'invoice_date asc, id asc', limit: 100 });
   if (!fs.length) return [];
   // Déjà envoyée par un autre chemin (gabarit, relance) : un message (pas une note) adressé à quelqu'un dans l'historique
