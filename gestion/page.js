@@ -377,6 +377,12 @@ a.brand:hover h1{color:#FF1E8E}
 .co-c .ac{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:6px}
 .co-c .ac .btn{min-height:34px;padding:6px 11px;font-size:13px}
 .co-c.chaud{border-color:#FFB37A;box-shadow:inset 3px 0 0 #FF8A3D}
+.co-c{position:relative}.co-c:focus-within{z-index:30}
+.wa-res{position:absolute;left:0;right:0;top:100%;z-index:40;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 14px 34px rgba(30,30,75,.18);max-height:260px;overflow:auto;margin-top:4px}
+.wa-res:empty{display:none}
+.wa-res button{display:block;width:100%;text-align:left;background:#fff;border:0;border-bottom:1px solid #F3ECDF;padding:9px 12px;font:600 13.5px 'Poppins',sans-serif;color:#1E1E4B;cursor:pointer}
+.wa-res button:hover{background:#FFF0F7}
+.co-c.fait{opacity:.6}
 .co-plus{margin-top:12px;text-align:center}
 .co-vide{background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:#68677D}
 .co-recherche{position:relative;min-width:300px}
@@ -1605,16 +1611,19 @@ async function telWhatsapp(){
       '<div class="co-c" data-wa="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.affiche)+'</b><span class="mt">'+x.messages+' message(s)</span></div><div class="cl">'+esc(x.nom || 'Nom inconnu')+'</div>'
       + (x.extrait ? '<div class="mt">« '+esc(x.extrait)+' »</div>' : '') + '<div class="mt">dernier message le '+new Date(x.dernier).toLocaleDateString('fr-FR')+'</div>'
       + (x.suggestions.length ? '<div class="mt" style="margin-top:4px"><b>C’est peut-être :</b></div>' + x.suggestions.map(sg => '<button class="btn" style="justify-content:flex-start;text-align:left" data-wa-p="'+sg.id+'" data-wa-tel="'+(sg.telephone ? 1 : '')+'">→ '+esc(sg.nom)+(sg.telephone ? ' <span class="mt">(a déjà '+esc(sg.telephone)+')</span>' : '')+'</button>').join('') : '<div class="mt">Aucune suggestion : cherche le client ci-dessous.</div>')
-      + '<div style="position:relative"><input class="search wa-q" placeholder="Autre client Odoo…" style="min-height:38px;padding:8px 10px;margin-top:4px"><div class="wa-res" style="position:absolute;left:0;right:0;z-index:5;background:#fff;border-radius:10px;box-shadow:0 10px 24px rgba(30,30,75,.12)"></div></div><div class="msg wa-msg"></div></div>').join('') + '</div>';
+      + (x.valide ? '' : '<div class="mt" style="color:#9a3412">Numéro au format inhabituel : vérifie-le avant de le rattacher.</div>')
+      + '<div style="position:relative"><input class="search wa-q" placeholder="Autre client Odoo…" autocomplete="off" style="min-height:38px;padding:8px 10px;margin-top:4px"><div class="wa-res"></div></div><div class="msg wa-msg"></div></div>').join('') + '</div>';
   } catch(err){ box.innerHTML = '<div class="msg on err">❌ '+esc(err.message)+'</div>'; }
 }
 document.addEventListener('click', async e => {
+  if (!e.target.closest('.wa-res') && !e.target.closest('.wa-q')) document.querySelectorAll('.wa-res').forEach(x => { x.innerHTML = ''; });
   const b = e.target.closest('[data-wa-p]'); if (!b) return;
   const carte = b.closest('[data-wa]'); const m = carte.querySelector('.wa-msg');
   const remplacer = !!b.dataset.waTel;
   if (remplacer && !confirm('Ce client a déjà un numéro dans Odoo. Le remplacer par ' + carte.querySelector('.t b').textContent + ' ?')) return;
   b.disabled = true;
-  try { const j = await post('/gestion/api/admin/telephones/whatsapp', { numero: carte.dataset.wa, partnerId: Number(b.dataset.waP), remplacer }); carte.style.opacity = '.55'; m.className = 'msg on ok wa-msg'; m.innerHTML = '✅ Rattaché à ' + esc(j.client); }
+  carte.querySelectorAll('.wa-res').forEach(x => { x.innerHTML = ''; });
+  try { const j = await post('/gestion/api/admin/telephones/whatsapp', { numero: carte.dataset.wa, partnerId: Number(b.dataset.waP), remplacer }); carte.classList.add('fait'); const q = carte.querySelector('.wa-q'); if (q) q.value = ''; m.className = 'msg on ok wa-msg'; m.innerHTML = '✅ Rattaché à ' + esc(j.client); }
   catch(err){ m.className = 'msg on err wa-msg'; m.innerHTML = '❌ ' + esc(err.message); b.disabled = false; }
 });
 let waTq;
@@ -1622,7 +1631,7 @@ document.addEventListener('input', e => {
   if (!e.target.classList.contains('wa-q')) return;
   const inp = e.target, res = inp.parentNode.querySelector('.wa-res'); clearTimeout(waTq);
   const q = inp.value.trim(); if (q.length < 2) { res.innerHTML = ''; return; }
-  waTq = setTimeout(async () => { try { const j = await (await fetch('/gestion/api/admin/clients-odoo?q=' + encodeURIComponent(q))).json(); res.innerHTML = (j.clients || []).map(c => '<button class="btn" style="display:block;width:100%;text-align:left;border:0;border-radius:0" data-wa-p="'+c.id+'" data-wa-tel="'+(c.telephone ? 1 : '')+'">'+esc(c.nom)+(c.telephone ? ' <span class="mt">('+esc(c.telephone)+')</span>' : '')+'</button>').join('') || '<div class="note" style="padding:8px">Aucun client</div>'; } catch {} }, 300);
+  waTq = setTimeout(async () => { try { const j = await (await fetch('/gestion/api/admin/clients-odoo?q=' + encodeURIComponent(q))).json(); res.innerHTML = (j.clients || []).map(c => '<button type="button" data-wa-p="'+c.id+'" data-wa-tel="'+(c.telephone ? 1 : '')+'">'+esc(c.nom)+(c.telephone ? ' <span class="mt">('+esc(c.telephone)+')</span>' : '')+'</button>').join('') || '<div class="note" style="padding:10px">Aucun client</div>'; } catch {} }, 300);
 });
 // Source des données : l'Excel ou la base du dashboard (bascule définitive)
 async function adSource(){

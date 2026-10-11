@@ -272,10 +272,11 @@ async function whatsappNonRattaches() {
     const { data, error } = await supabase.from('conversations').select('phone_number, role, content, created_at').gte('created_at', depuis).order('created_at', { ascending: false }).range(page * 1000, page * 1000 + 999);
     if (error) throw new Error(error.message);
     for (const m of data || []) {
-      const st = stats.get(m.phone_number) || { numero: m.phone_number, messages: 0, dernier: m.created_at, extrait: null };
-      st.messages++;
-      if (!st.extrait && m.role === 'user' && m.content && !/^\[/.test(m.content)) st.extrait = String(m.content).slice(0, 140);
-      stats.set(m.phone_number, st);
+      const cle = telValide(m.phone_number) || String(m.phone_number);
+      const st = stats.get(cle) || { numero: m.phone_number, formats: new Set(), messages: 0, dernier: m.created_at, extrait: null };
+      st.messages++; st.formats.add(m.phone_number);
+      if (!st.extrait && m.role === 'user' && m.content && !/^\[|^<m[ée]dias? omis>$/i.test(m.content.trim())) st.extrait = String(m.content).slice(0, 140);
+      stats.set(cle, st);
     }
     if (!data || data.length < 1000) break;
   }
@@ -286,8 +287,8 @@ async function whatsappNonRattaches() {
   // Noms connus (nom WhatsApp ou prénom donné à Leïla)
   const noms = new Map();
   for (let i = 0; i < liste.length; i += 100) {
-    const { data } = await supabase.from('clients').select('phone_number, name').in('phone_number', liste.slice(i, i + 100).map(x => x.numero));
-    for (const c of data || []) if (c.name) noms.set(c.phone_number, c.name);
+    const { data } = await supabase.from('clients').select('phone_number, name').in('phone_number', liste.slice(i, i + 100).flatMap(x => [...x.formats]));
+    for (const c of data || []) if (c.name) for (const x of liste) if (x.formats.has(c.phone_number)) noms.set(x.numero, c.name);
   }
   // Planches ajoutées par Leïla pour ce numéro (remarque « Demande WhatsApp (Leïla) … · numéro »)
   const plParTel = new Map();
@@ -300,11 +301,15 @@ async function whatsappNonRattaches() {
     while (i < liste.length) {
       const x = liste[i++];
       x.nom = noms.get(x.numero) || null;
+      x.valide = !!telValide(x.numero);
       x.affiche = odoo.formatTel(telValide(x.numero) || x.numero);
+      const formats = [...x.formats]; delete x.formats;
+      if (!x.nom) for (const f of formats) if (noms.get(f)) x.nom = noms.get(f);
       x.suggestions = [];
-      const termes = [plParTel.get(x.numero), x.nom].filter(Boolean);
+      const pl = formats.map(f => plParTel.get(f)).find(Boolean);
+      const termes = [pl, x.nom].filter(Boolean);
       for (const t of termes) {
-        try { for (const s of await odoo.searchPartners(t)) if (!x.suggestions.some(y => y.id === s.id)) x.suggestions.push({ id: s.id, nom: s.name, score: s.score, telephone: s.phone || null, via: t === plParTel.get(x.numero) ? 'planche WhatsApp' : 'nom WhatsApp' }); } catch {}
+        try { for (const s of await odoo.searchPartners(t)) if (!x.suggestions.some(y => y.id === s.id)) x.suggestions.push({ id: s.id, nom: s.name, score: s.score, telephone: s.phone || null, via: t === pl ? 'planche WhatsApp' : 'nom WhatsApp' }); } catch {}
       }
       x.suggestions = x.suggestions.sort((a, b) => b.score - a.score).slice(0, 4);
     }
