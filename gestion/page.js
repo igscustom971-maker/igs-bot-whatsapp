@@ -360,6 +360,22 @@ a.brand:hover h1{color:#FF1E8E}
 #co-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:1240px){#co-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){#co-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+#co-res .co-r{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer}
+#co-res .co-r:hover{background:#FBF6EC}
+.co-fiche{position:fixed;inset:0;background:rgba(30,30,75,.35);z-index:30;display:flex;justify-content:flex-end}
+.co-fiche[hidden]{display:none}
+.co-fiche-in{width:min(760px,100%);height:100%;overflow:auto;background:var(--bg);padding:22px 24px 48px;box-shadow:-10px 0 30px rgba(30,30,75,.2)}
+.co-conv{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.co-conv div{max-width:80%;padding:7px 10px;border-radius:12px;font-size:13px;white-space:pre-wrap}
+.co-conv .u{background:#fff;border:1px solid var(--line);align-self:flex-start}.co-conv .a{background:#E7ECFE;align-self:flex-end}
+.fin-graph{display:flex;align-items:flex-end;gap:6px;height:190px;padding:10px 0 0;border-bottom:1px solid var(--line);position:relative}
+.fin-m{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;min-width:0}
+.fin-b{display:flex;align-items:flex-end;gap:2px;height:100%;width:100%;justify-content:center}
+.fin-b i{display:block;width:42%;max-width:18px;border-radius:4px 4px 0 0;min-height:2px}
+.fin-b i.a{background:#3E63F0}.fin-b i.p{background:#FF8A3D}
+.fin-m span{font-size:10.5px;color:var(--muted)}
+.fin-leg{display:flex;gap:14px;font-size:12px;color:var(--muted);margin:8px 0 4px}.fin-leg b{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.fin-tip{position:absolute;background:#1E1E4B;color:#fff;font-size:12px;padding:6px 9px;border-radius:8px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-110%);display:none;z-index:2}
 .lei-ta{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #E3D8C4;border-radius:12px;padding:10px 12px;font:13px/1.45 'Poppins',sans-serif;resize:vertical;background:#fff}
 #lei-out{white-space:pre-wrap;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:#FBF6EC;border-radius:12px;padding:12px;max-height:420px;overflow:auto;margin:0}
 .btn.pink:hover{background:#E6127C}
@@ -491,11 +507,18 @@ ${view === 'accueil' ? `
   <section id="v-commercial">
     <div class="hello"><div><h2>Commercial</h2><div class="sub">Devis en cours, relances, demandes prises par Leïla et reste à facturer.</div></div>
       <div class="tools" style="margin:0"><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div></div>
-    <div class="kpis" id="co-kpis"><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div></div>
+    <div class="card co-recherche"><h3>🔎 Fiche client</h3><input id="co-q" class="search" placeholder="Nom, entreprise ou e-mail du client…" autocomplete="off"><div id="co-res"></div></div>
+    ${user.role === 'admin' ? `<div class="card" id="co-fin" style="margin-top:14px"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📊 Chiffre d’affaires <span class="note" style="text-transform:none;letter-spacing:0;font-weight:600">visible seulement par toi</span><label class="filtre">Année <select id="fin-annee"></select></label></h3><div id="fin-corps"><div class="skel"></div></div></div>` : ''}
+    <div class="kpis" id="co-kpis" style="margin-top:14px"><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div></div>
     <div class="card" style="margin-top:14px"><h3>📝 Demandes de devis</h3><div class="note" style="margin-bottom:8px">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
     <div class="card" style="margin-top:14px"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📤 Devis en cours <label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label></h3><div id="co-cours"><div class="skel"></div></div></div>
-    <div class="card" style="margin-top:14px"><h3>💶 Reste à facturer</h3><div class="note" style="margin-bottom:8px">Commandes confirmées dont une partie n’est pas encore facturée (solde après acompte). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
+    <div class="card" style="margin-top:14px"><h3>💶 Reste à facturer</h3><div class="note" style="margin-bottom:8px">Commandes signées dont l’acompte a été facturé mais pas encore le solde (la 2e partie). Le montant indiqué est ce qu’il reste à facturer au client. Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
     <div class="card" style="margin-top:14px"><h3>✅ Derniers devis signés</h3><div id="co-signes"><div class="skel"></div></div></div>
+    <div class="cols" style="margin-top:14px;grid-template-columns:1fr 1.6fr">
+      <div class="card"><h3>🧭 Origine des devis (90 jours)</h3><div id="co-orig"><div class="skel"></div></div></div>
+      <div class="card"><h3>🔁 Clients à réactiver</h3><div class="note" style="margin-bottom:8px">Ont commandé il y a 3 à 18 mois, plus rien depuis. Une petite relance par mail, avant une saison (rentrée, carnaval, fêtes), marche souvent.</div><div id="co-reac"><div class="skel"></div></div></div>
+    </div>
+    <div class="co-fiche" id="co-fiche" hidden><div class="co-fiche-in"><button class="btn" id="co-fiche-x" style="float:right">✕</button><div id="co-fiche-c"></div></div></div>
     <div class="msg" id="co-msg"></div>
   </section>` : view === 'heures' ? `
   <section id="v-heures">
@@ -682,7 +705,7 @@ async function charger(force, auto){
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
     if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
-    if (VIEW === 'commercial') { await coCharger(force); return; }
+    if (VIEW === 'commercial') { await coCharger(force); if (!auto) { finCharger(force); coAnnexes(force); } return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -763,12 +786,13 @@ function coAfficher(){
   // Devis en cours
   const f = $('co-f').value;
   const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f));
-  $('co-cours').innerHTML = !cours.length ? '<div class="note">Rien à afficher.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Âge</th><th>Relances</th><th>État</th><th></th></tr></thead><tbody>' + cours.map(x =>
+  const masques = d.anciens_masques ? '<div class="note" style="margin-top:8px">'+d.anciens_masques+' devis sans réponse depuis plus de '+d.en_cours_jours+' jours ne sont plus affichés ici.</div>' : '';
+  $('co-cours').innerHTML = (!cours.length ? '<div class="note">Rien à afficher.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Âge</th><th>Relances</th><th>État</th><th></th></tr></thead><tbody>' + cours.map(x =>
     '<tr data-num="'+esc(x.numero)+'"><td><b>'+esc(x.numero)+'</b></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td>'
     + '<td>'+(x.age == null ? '—' : x.age + ' j')+(x.a_relancer ? ' '+pastille('à relancer', '#ffedd5;color:#9a3412') : '')+'</td>'
     + '<td class="note">'+(x.relances ? x.relances + ' · le ' + new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '—')+'</td>'
     + '<td>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</td>'
-    + '<td style="white-space:nowrap">'+(x.etat === 'sent' ? '<button class="btn" data-co="relancer">✉️ Relancer</button> ' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>';
+    + '<td style="white-space:nowrap">'+(x.etat === 'sent' ? '<button class="btn" data-co="relancer">✉️ Relancer</button> ' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>') + masques;
   // Reste à facturer
   const reste = d.reste_a_facturer;
   $('co-reste').innerHTML = !reste.length ? '<div class="note">✅ Tout est facturé.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Total TTC</th><th>Reste TTC</th><th>Factures</th><th>Atelier</th><th></th></tr></thead><tbody>' + reste.map(x =>
@@ -779,13 +803,94 @@ function coAfficher(){
   $('co-signes').innerHTML = !d.signes.length ? '<div class="note">Aucun.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Signé le</th><th>Atelier</th></tr></thead><tbody>' + d.signes.slice(0, 25).map(x =>
     '<tr><td><a href="'+esc(x.lien)+'" target="_blank" rel="noopener"><b>'+esc(x.numero)+'</b></a></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td><td class="note">'+(x.date ? new Date(String(x.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+(x.atelier ? badge(x.atelier) : '<span class="note">pas encore dans l’atelier</span>')+'</td></tr>').join('') + '</tbody></table></div>';
 }
+// Chiffre d'affaires (admin)
+let finData = null;
+async function finCharger(force){
+  if (!$('co-fin')) return;
+  const sel = $('fin-annee');
+  if (!sel.options.length) { const a = new Date().getFullYear(); sel.innerHTML = [a, a - 1, a - 2].map(x => '<option>'+x+'</option>').join(''); sel.onchange = () => finCharger(true); }
+  try {
+    const r = await fetch('/gestion/api/finances?annee=' + sel.value + (force ? '&force=1' : '')); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Erreur');
+    finData = j; finAfficher();
+  } catch(err){ $('fin-corps').innerHTML = '<div class="note">Indisponible : '+esc(err.message)+'</div>'; }
+}
+function finAfficher(){
+  const d = finData, m = d.mois, p = d.mois_precedent_annee, i = d.mois_courant, cur = m[i];
+  const pct = (x, y) => y ? (x >= y ? '+' : '') + Math.round((x - y) / Math.abs(y) * 100) + ' %' : '—';
+  const obj = d.objectif_mensuel;
+  const max = Math.max(1, ...m.map(x => x.ca), ...p.map(x => x.ca));
+  let h = '<div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr))">'
+    + '<div class="kpi" style="--accent:#3E63F0"><div class="l">CA '+esc(cur.libelle)+'</div><div class="n">'+eur2(cur.ca)+'</div><div class="sub">'+pct(cur.ca, p[i].ca)+' vs '+esc(p[i].libelle)+'</div></div>'
+    + '<div class="kpi" style="--accent:#1E1E4B"><div class="l">Cumul '+d.annee+'</div><div class="n">'+eur2(d.cumul.annee)+'</div><div class="sub">'+pct(d.cumul.annee, d.cumul.annee_precedente)+' vs '+(d.annee - 1)+' à la même date</div></div>'
+    + '<div class="kpi" style="--accent:#5BBE72"><div class="l">Marge brute '+esc(cur.libelle)+'</div><div class="n">'+eur2(cur.marge)+'</div><div class="sub">CA − achats fournisseurs ('+eur2(cur.achats)+')</div></div>'
+    + '<div class="kpi" style="--accent:#FF1E8E"><div class="l">Objectif du mois</div><div class="n">'+(obj ? Math.round(cur.ca / obj * 100) + ' %' : '—')+'</div><div class="sub">'+(obj ? 'sur ' + eur2(obj) + ' HT' : 'pas encore défini')+' · <a href="#" id="fin-obj">modifier</a></div></div></div>';
+  h += '<div class="fin-leg"><span><b style="background:#3E63F0"></b>'+d.annee+'</span><span><b style="background:#FF8A3D"></b>'+(d.annee - 1)+'</span><span>CA HT par mois</span></div><div class="fin-graph" id="fin-graph">'
+    + m.map((x, k) => '<div class="fin-m" data-k="'+k+'"><div class="fin-b"><i class="a" style="height:'+(x.ca / max * 100)+'%"></i><i class="p" style="height:'+(p[k].ca / max * 100)+'%"></i></div><span>'+esc(x.libelle.split(' ')[0])+'</span></div>').join('') + '<div class="fin-tip" id="fin-tip"></div></div>';
+  h += '<details style="margin-top:10px"><summary class="note">Détail par mois (tableau)</summary><div style="overflow-x:auto"><table class="stk"><thead><tr><th>Mois</th><th>CA HT</th><th>'+(d.annee - 1)+'</th><th>Achats HT</th><th>Marge</th><th>Factures</th><th>Trésorerie Qonto</th></tr></thead><tbody>'
+    + m.map((x, k) => '<tr><td>'+esc(x.libelle)+'</td><td><b>'+eur2(x.ca)+'</b></td><td class="note">'+eur2(p[k].ca)+'</td><td>'+eur2(x.achats)+'</td><td>'+eur2(x.marge)+'</td><td>'+x.factures+'</td><td>'+(x.tresorerie ? eur2(x.tresorerie.net)+' <span class="note">(+'+eur2(x.tresorerie.entrees)+' / −'+eur2(x.tresorerie.sorties)+')</span>' : '<span class="note">—</span>')+'</td></tr>').join('') + '</tbody></table></div></details>';
+  h += '<div class="cols" style="margin-top:12px;grid-template-columns:1fr 1fr"><div><h3 style="margin-bottom:6px">Meilleurs clients '+d.annee+'</h3>'+(d.top_clients.length ? d.top_clients.map(c => '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span>'+esc(c.nom)+'</span><b>'+eur2(c.ht)+'</b></div>').join('') : '<div class="note">—</div>')+'</div>'
+    + '<div><h3 style="margin-bottom:6px">Impayés échus</h3>'+(d.impayes.n ? '<div class="note" style="margin-bottom:4px">'+d.impayes.n+' facture(s) · '+eur2(d.impayes.ttc)+' TTC</div>' + d.impayes.liste.slice(0, 8).map(f => '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span>'+esc(f.client)+' <span class="note">'+esc(f.numero)+'</span></span><b>'+eur2(f.reste)+'</b></div>').join('') : '<div class="note">✅ Aucun impayé échu</div>')+'</div></div>';
+  h += '<div class="btnrow" style="margin-top:12px"><label class="btn" style="cursor:pointer">📥 Importer un relevé Qonto (CSV)<input type="file" id="fin-qonto" accept=".csv,text/csv" hidden></label><button class="btn" id="fin-rapport">✉️ M’envoyer le rapport du mois dernier</button></div>'
+    + '<div class="note">Le rapport du mois part tout seul le 1er à 8 h si la tâche « Rapport mensuel » est active (Admin). Mois Qonto importés : '+(d.qonto_mois.length ? d.qonto_mois.join(', ') : 'aucun')+'.</div><div class="msg" id="fin-msg"></div>';
+  $('fin-corps').innerHTML = h;
+  const fm = (t, k) => { $('fin-msg').className = 'msg on ' + k; $('fin-msg').innerHTML = t; };
+  const tip = $('fin-tip');
+  $('fin-graph').addEventListener('mousemove', e => { const c = e.target.closest('.fin-m'); if (!c) { tip.style.display = 'none'; return; } const k = Number(c.dataset.k); tip.innerHTML = esc(m[k].libelle)+' : <b>'+eur2(m[k].ca)+'</b><br>'+esc(p[k].libelle)+' : '+eur2(p[k].ca); tip.style.display = 'block'; tip.style.left = (c.offsetLeft + c.offsetWidth / 2) + 'px'; tip.style.top = '20px'; });
+  $('fin-graph').addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  $('fin-obj').onclick = async e => { e.preventDefault(); const v = prompt('Objectif de chiffre d’affaires mensuel (HT, en €) :', obj || ''); if (v === null) return; try { await post('/gestion/api/finances/objectif', { montant: v.replace(/\s/g, '').replace(',', '.') }); finCharger(true); } catch(err){ fm('❌ ' + esc(err.message), 'err'); } };
+  $('fin-qonto').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = async () => { fm('⏳ Import en cours…', ''); try { const j = await post('/gestion/api/finances/qonto', { texte: rd.result }); fm('✅ '+j.lues+' opération(s) lue(s), '+j.ajoutees+' nouvelle(s) · mois : '+esc(j.mois.join(', ')), 'ok'); finCharger(true); } catch(err){ fm('❌ ' + esc(err.message), 'err'); } }; rd.readAsText(f); };
+  $('fin-rapport').onclick = async () => { $('fin-rapport').disabled = true; try { const j = await post('/gestion/api/finances/rapport', {}); fm('✅ Rapport '+esc(j.mois)+' envoyé à '+esc(j.dest.join(', ')), 'ok'); } catch(err){ fm('❌ ' + esc(err.message), 'err'); } finally { $('fin-rapport').disabled = false; } };
+}
+// Origine des devis, clients à réactiver
+async function coAnnexes(force){
+  try {
+    const o = await (await fetch('/gestion/api/commercial/origines')).json();
+    $('co-orig').innerHTML = !(o.origines || []).length ? '<div class="note">Pas encore de données.</div>' : '<table class="stk"><thead><tr><th>Source</th><th>Devis</th><th>Signés</th><th>Taux</th><th>CA signé HT</th></tr></thead><tbody>' + o.origines.map(x => '<tr><td><b>'+esc(x.source)+'</b></td><td>'+x.devis+'</td><td>'+x.signes+'</td><td>'+(x.taux == null ? '—' : x.taux + ' %')+'</td><td>'+eur2(x.ca_signe_ht)+'</td></tr>').join('') + '</tbody></table><div class="note" style="margin-top:6px">« Leïla » = devis préparés depuis ses demandes WhatsApp (à partir de maintenant).</div>';
+  } catch(err){ $('co-orig').innerHTML = '<div class="note">Indisponible : '+esc(err.message)+'</div>'; }
+  try {
+    const r = await (await fetch('/gestion/api/commercial/reactiver' + (force ? '?force=1' : ''))).json();
+    const l = r.clients || [];
+    $('co-reac').innerHTML = !l.length ? '<div class="note">Personne pour l’instant.</div>' : '<div style="overflow:auto;max-height:420px"><table class="stk"><thead><tr><th>Client</th><th>Dernière commande</th><th>Total HT</th><th></th></tr></thead><tbody>' + l.slice(0, 60).map(c =>
+      '<tr data-pid="'+c.id+'"><td><a href="#" data-fiche="'+c.id+'"><b>'+esc(c.nom)+'</b></a><div class="note">'+esc(c.email || 'pas d’e-mail')+'</div></td><td>'+Math.round(c.jours / 30)+' mois<div class="note">'+esc(c.dernier_devis)+' · '+c.commandes+' commande(s)</div></td><td>'+eur2(c.total_ht)+'</td><td style="white-space:nowrap">'+(c.email ? '<button class="btn" data-co="reactiver">✉️ Relancer</button>' : '')+(c.relance_le ? '<div class="note">relancé le '+new Date(c.relance_le).toLocaleDateString('fr-FR')+'</div>' : '')+'</td></tr>').join('') + '</tbody></table></div>';
+  } catch(err){ $('co-reac').innerHTML = '<div class="note">Indisponible : '+esc(err.message)+'</div>'; }
+}
+// Fiche client
+async function coFiche(id){
+  $('co-fiche').hidden = false; $('co-fiche-c').innerHTML = '<div class="skel"></div>';
+  try {
+    const r = await fetch('/gestion/api/commercial/client/' + id); const f = await r.json(); if (!r.ok) throw new Error(f.error || 'Erreur');
+    const c = f.client;
+    let h = '<h2 style="margin:0">'+esc(c.nom)+'</h2><div class="note">'+esc([c.email, c.telephone, [c.zip, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · <a href="'+esc(c.lien)+'" target="_blank" rel="noopener">fiche Odoo ↗</a></div>'
+      + '<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 0"><div class="kpi"><div class="l">CA facturé HT</div><div class="n">'+eur2(f.ca_ht)+'</div></div><div class="kpi"><div class="l">Reste dû</div><div class="n">'+eur2(f.du_ttc)+'</div><div class="sub">TTC</div></div><div class="kpi"><div class="l">Devis / commandes</div><div class="n">'+f.devis.length+'</div><div class="sub">'+f.devis.filter(d => d.etat === 'sale').length+' signés</div></div></div>';
+    if (f.note) h += '<div class="card" style="margin-bottom:10px"><h3>Note Leïla</h3><div class="pre">'+esc(f.note)+'</div></div>';
+    h += '<div class="card" style="margin-bottom:10px"><h3>Devis et commandes</h3>' + (f.devis.length ? '<table class="stk"><tbody>' + f.devis.map(d => { const at = (f.atelier || []).find(a => a.devis.toUpperCase() === d.numero.toUpperCase()); return '<tr><td><a href="'+esc(d.lien)+'" target="_blank" rel="noopener"><b>'+esc(d.numero)+'</b></a></td><td class="note">'+(d.date ? new Date(String(d.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+eur2(d.montant_ht)+'</td><td>'+pastille(...(ETATS_DEVIS[d.etat] || [d.etat, '#f3f4f6;color:#374151']))+'</td><td>'+(at ? badge(at.statut) : '')+'</td></tr>'; }).join('') + '</tbody></table>' : '<div class="note">Aucun.</div>') + '</div>';
+    h += '<div class="card" style="margin-bottom:10px"><h3>Factures</h3>' + (f.factures.length ? '<table class="stk"><tbody>' + f.factures.map(x => '<tr><td><a href="'+esc(x.lien)+'" target="_blank" rel="noopener">'+esc(x.numero)+'</a>'+(x.avoir ? ' <span class="note">avoir</span>' : '')+'</td><td class="note">'+esc(x.date || '')+'</td><td>'+eur2(x.ttc)+'</td><td>'+(x.paiement === 'paid' || x.paiement === 'in_payment' ? pastille('payée', '#dcfce7;color:#065f46') : pastille('reste ' + eur2(x.reste), '#fee2e2;color:#991b1b'))+'</td></tr>').join('') + '</tbody></table>' : '<div class="note">Aucune.</div>') + '</div>';
+    if ((f.planches || []).length) h += '<div class="card" style="margin-bottom:10px"><h3>Planches DTF</h3><table class="stk"><tbody>' + f.planches.map(x => '<tr><td>'+esc(x.date || '')+'</td><td>'+esc(String(x.metres || ''))+(/^A[34]$/.test(String(x.metres)) ? '' : ' m')+'</td><td>'+esc(x.statut || (x.hebdo ? 'hebdo' : ''))+'</td><td class="note">'+esc(x.paiement || '')+'</td></tr>').join('') + '</tbody></table></div>';
+    h += '<div class="card"><h3>WhatsApp (Leïla et équipe)</h3>' + ((f.conversation || []).length ? '<div class="co-conv">' + f.conversation.map(x => '<div class="'+(x.role === 'user' ? 'u' : 'a')+'" title="'+esc(new Date(x.le).toLocaleString('fr-FR'))+'">'+esc(x.texte)+'</div>').join('') + '</div>' : '<div class="note">'+(c.telephone ? 'Aucun échange enregistré avec ce numéro.' : 'Pas de numéro sur la fiche Odoo.')+'</div>') + '</div>';
+    $('co-fiche-c').innerHTML = h;
+    const cv = document.querySelector('.co-conv'); if (cv) cv.scrollTop = cv.scrollHeight;
+  } catch(err){ $('co-fiche-c').innerHTML = '<div class="msg on err">❌ '+esc(err.message)+'</div>'; }
+}
 function coEvents(){
   $('co-f').onchange = coAfficher;
+  $('co-fiche-x').onclick = () => { $('co-fiche').hidden = true; };
+  $('co-fiche').addEventListener('click', e => { if (e.target.id === 'co-fiche') $('co-fiche').hidden = true; });
+  let tq; $('co-q').addEventListener('input', e => { clearTimeout(tq); const q = e.target.value.trim(); if (q.length < 2) { $('co-res').innerHTML = ''; return; } tq = setTimeout(async () => {
+    try { const j = await (await fetch('/gestion/api/commercial/clients?q=' + encodeURIComponent(q))).json(); $('co-res').innerHTML = (j.clients || []).map(c => '<div class="co-r" data-fiche="'+c.id+'"><b>'+esc(c.nom)+'</b><span class="note">'+esc([c.email, c.ville].filter(Boolean).join(' · '))+'</span></div>').join('') || '<div class="note">Aucun client trouvé.</div>'; } catch(err){ $('co-res').innerHTML = '<div class="note">'+esc(err.message)+'</div>'; }
+  }, 300); });
+  document.getElementById('v-commercial').addEventListener('click', e => { const f = e.target.closest('[data-fiche]'); if (f) { e.preventDefault(); coFiche(f.dataset.fiche); } });
   const msg = (t, k) => { $('co-msg').className = 'msg on ' + k; $('co-msg').innerHTML = t; setTimeout(() => { $('co-msg').className = 'msg'; }, 8000); };
   document.getElementById('v-commercial').addEventListener('click', async e => {
     const b = e.target.closest('[data-co]'); if (!b) return;
     const a = b.dataset.co, tr = b.closest('tr'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;
     let url, body = {};
+    if (a === 'reactiver') {
+      const pid = tr.dataset.pid;
+      const perso = prompt('Mail de reprise de contact (« Ça fait un moment ! … je vous prépare un devis avec plaisir »).\\n\\nLaisse vide pour ce message standard, ou écris le tien :', ''); if (perso === null) return;
+      b.disabled = true;
+      try { const j = await post('/gestion/api/commercial/reactiver/' + pid, { message: perso }); msg('✅ Mail envoyé à ' + esc(j.email), 'ok'); coAnnexes(true); } catch(err){ msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
+      return;
+    }
     if (a === 'relancer') {
       const perso = prompt('Relance à l’amiable du devis ' + num + ' par mail.\\n\\nLaisse vide pour le message standard (« Je me permets de revenir vers vous… » + bouton vers le devis), ou écris ton propre message :', '');
       if (perso === null) return;

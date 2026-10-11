@@ -147,6 +147,8 @@ async function nettoyerLivrees() {
 const TACHES = [
   { id: 'commandes_payees', nom: 'Commandes payées dans Odoo → ligne PAYÉE', flux: 'IGS - Commande payés Excel', rythme: 'toutes les 10 min', fn: commandesPayees,
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
+  { id: 'rapport_mensuel', nom: 'Rapport du mois par mail (CA, achats, marge, trésorerie Qonto, impayés)', flux: '(nouveau, module Commercial)', rythme: 'le 1er de chaque mois à 8 h', fn: async () => { const r = await require('./finances').rapportMensuel(); return `rapport ${r.mois} envoyé (CA ${Math.round(r.ca)} € HT)`; },
+    quand: (h, d) => h.getDate() === 1 && h.getHours() >= 8 && (!d || Date.now() - d > 20 * 86400e3) },
   { id: 'facture_solde', nom: 'Facture du solde envoyée au client quand une commande avec acompte passe en TERMINÉE ou À EXPÉDIER', flux: '(nouveau, module Commercial)', rythme: 'à chaque changement de statut', evenement: true,
     fn: async () => 'se déclenche tout seul au changement de statut', quand: () => false },
   { id: 'depot_formulaire', nom: 'Formulaire reçu → dossier SharePoint, ligne de commande et BDC SEFI', flux: 'IGS - Dépôt fichiers commande + IGS - Remplissage BDC SEFI', rythme: 'à chaque formulaire', evenement: true,

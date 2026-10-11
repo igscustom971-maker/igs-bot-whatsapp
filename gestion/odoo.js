@@ -492,7 +492,57 @@ async function brouillonDemande(d) {
   return { id, numero: so.name, montant_ht: so.amount_untaxed, client: partner.name, client_cree: cree, produit: prod ? prod.name : null, lien: lienOdoo('sale.order', id) };
 }
 
+
+// ---------- Clients à réactiver : dernière commande signée il y a 3 à 18 mois, rien depuis ----------
+async function clientsAReactiver({ minJours = 90, maxJours = 540 } = {}) {
+  const depuis = new Date(Date.now() - 900 * 86400e3).toISOString().replace('T', ' ').slice(0, 19);
+  const so = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['state', '=', 'sale'], ['date_order', '>=', depuis]]], { fields: ['partner_id', 'date_order', 'amount_untaxed', 'name'], order: 'date_order desc', limit: 5000 });
+  const par = new Map();
+  for (const o of so) {
+    if (!o.partner_id) continue;
+    const k = o.partner_id[0];
+    const c = par.get(k) || { id: k, nom: o.partner_id[1], derniere: o.date_order, dernier_devis: o.name, commandes: 0, total_ht: 0 };
+    c.commandes++; c.total_ht += o.amount_untaxed || 0;
+    par.set(k, c);
+  }
+  const now = Date.now();
+  const out = [...par.values()].map(c => ({ ...c, total_ht: Math.round(c.total_ht), jours: Math.floor((now - Date.parse(c.derniere.replace(' ', 'T') + 'Z')) / 86400e3) }))
+    .filter(c => c.jours >= minJours && c.jours <= maxJours).sort((a, b) => b.total_ht - a.total_ht).slice(0, 150);
+  if (out.length) {
+    const ps = await kw('res.partner', 'read', [out.map(c => c.id)], { fields: ['id', 'email', 'phone'] });
+    const m = new Map(ps.map(p => [p.id, p]));
+    out.forEach(c => { c.email = m.get(c.id)?.email || null; c.telephone = m.get(c.id)?.phone || null; });
+  }
+  return out;
+}
+
+// ---------- Fiche client : devis/commandes et factures ----------
+async function ficheClientOdoo(partnerId) {
+  const id = Number(partnerId);
+  const [p] = await kw('res.partner', 'read', [[id]], { fields: [...PARTNER_FIELDS, 'street', 'create_date'] });
+  if (!p) throw new Error('Client introuvable dans Odoo');
+  const devis = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id]]], { fields: ['id', 'name', 'state', 'amount_untaxed', 'amount_total', 'date_order', 'create_date', 'invoice_status'], order: 'create_date desc', limit: 60 });
+  const factures = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['partner_id', 'child_of', id], ['move_type', 'in', ['out_invoice', 'out_refund']], ['state', '=', 'posted']]], { fields: ['id', 'name', 'move_type', 'invoice_date', 'invoice_date_due', 'amount_untaxed', 'amount_total', 'amount_residual', 'payment_state'], order: 'invoice_date desc', limit: 60 });
+  const ca = factures.reduce((s, f) => s + (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0), 0);
+  const du = factures.filter(f => f.move_type === 'out_invoice' && ['not_paid', 'partial'].includes(f.payment_state)).reduce((s, f) => s + (f.amount_residual || 0), 0);
+  return {
+    client: { id: p.id, nom: p.name, email: p.email || null, telephone: p.phone || null, ville: p.city || null, zip: p.zip || null, depuis: p.create_date, lien: lienOdoo('res.partner', p.id) },
+    ca_ht: Math.round(ca * 100) / 100, du_ttc: Math.round(du * 100) / 100,
+    devis: devis.map(d => ({ numero: d.name, etat: d.state, montant_ht: d.amount_untaxed, date: d.date_order, facturation: d.invoice_status, lien: lienOdoo('sale.order', d.id) })),
+    factures: factures.map(f => ({ numero: f.name, avoir: f.move_type === 'out_refund', date: f.invoice_date, echeance: f.invoice_date_due, ht: f.amount_untaxed, ttc: f.amount_total, reste: f.amount_residual, paiement: f.payment_state, lien: lienOdoo('account.move', f.id) })),
+  };
+}
+
+// ---------- Chiffre d'affaires et achats par mois (factures validées, HT) ----------
+async function financesMensuelles(annee) {
+  const debut = `${annee - 1}-01-01`, fin = `${annee}-12-31`;
+  const dom = [...(await igsSeulement()), ['state', '=', 'posted'], ['invoice_date', '>=', debut], ['invoice_date', '<=', fin]];
+  const ventes = await kw('account.move', 'search_read', [[...dom, ['move_type', 'in', ['out_invoice', 'out_refund']]]], { fields: ['invoice_date', 'move_type', 'amount_untaxed', 'amount_total', 'partner_id', 'amount_residual', 'payment_state', 'invoice_date_due', 'name'], limit: 20000 });
+  const achats = await kw('account.move', 'search_read', [[...dom, ['move_type', 'in', ['in_invoice', 'in_refund']]]], { fields: ['invoice_date', 'move_type', 'amount_untaxed', 'amount_total', 'partner_id'], limit: 20000 });
+  return { ventes, achats };
+}
+
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles,
 };

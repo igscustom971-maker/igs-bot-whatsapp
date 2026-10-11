@@ -73,6 +73,17 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/commercial/demandes/:id/brouillon', auth.requireUser, com, actCom(req => commercial.preparerBrouillon(Number(req.params.id), quiCom(req), req.body?.nom)));
   app.post('/gestion/api/commercial/demandes/:id/envoyer', auth.requireUser, com, actCom(req => commercial.envoyerDemande(Number(req.params.id), quiCom(req))));
   app.post('/gestion/api/commercial/demandes/:id/abandonner', auth.requireUser, com, actCom(req => commercial.abandonnerDemande(Number(req.params.id), quiCom(req))));
+  app.get('/gestion/api/commercial/reactiver', auth.requireUser, com, actCom(req => commercial.clientsAReactiver({ force: req.query.force === '1' }).then(c => ({ clients: c }))));
+  app.post('/gestion/api/commercial/reactiver/:id', auth.requireUser, com, actCom(req => commercial.relancerClient(Number(req.params.id), quiCom(req), req.body?.message)));
+  app.get('/gestion/api/commercial/clients', auth.requireUser, com, actCom(req => commercial.rechercherClients(req.query.q).then(c => ({ clients: c }))));
+  app.get('/gestion/api/commercial/client/:id', auth.requireUser, com, actCom(req => commercial.ficheClient(Number(req.params.id))));
+  app.get('/gestion/api/commercial/origines', auth.requireUser, com, actCom(() => commercial.origines().then(o => ({ origines: o }))));
+  // Chiffre d'affaires et résultats : administrateur uniquement
+  const finances = require('./finances');
+  app.get('/gestion/api/finances', auth.requireUser, auth.requireAdmin, actCom(req => finances.synthese(Number(req.query.annee) || undefined, { force: req.query.force === '1' })));
+  app.post('/gestion/api/finances/objectif', auth.requireUser, auth.requireAdmin, actCom(req => finances.setObjectif(req.body?.montant).then(() => ({ ok: true }))));
+  app.post('/gestion/api/finances/qonto', auth.requireUser, auth.requireAdmin, actCom(req => finances.importerQonto(req.body?.texte, quiCom(req))));
+  app.post('/gestion/api/finances/rapport', auth.requireUser, auth.requireAdmin, actCom(req => finances.rapportMensuel({ mois: req.body?.mois })));
   app.post('/gestion/api/commercial/demandes', auth.requireUser, com, actCom(req => commercial.nouvelleDemande({ ...(req.body || {}), source: 'manuel' }, quiCom(req))));
   app.get('/gestion/commandes', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commandes'));

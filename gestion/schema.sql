@@ -303,3 +303,18 @@ create table if not exists gestion_demandes (
 create index if not exists gestion_demandes_statut on gestion_demandes (statut, cree_le desc);
 alter table gestion_demandes enable row level security;
 notify pgrst, 'reload schema';
+
+-- Finances : relevé Qonto importé (CSV), pour la trésorerie réelle du rapport mensuel
+create table if not exists gestion_qonto (
+  id          bigserial primary key,
+  date        date not null,
+  montant     numeric(12,2) not null,   -- positif = entrée, négatif = sortie (TTC)
+  libelle     text,
+  categorie   text,
+  empreinte   text unique,              -- date|montant|libellé|n° : réimporter ne crée pas de doublon
+  importe_par text,
+  importe_le  timestamptz default now()
+);
+create index if not exists gestion_qonto_date on gestion_qonto (date);
+alter table gestion_qonto enable row level security;
+notify pgrst, 'reload schema';

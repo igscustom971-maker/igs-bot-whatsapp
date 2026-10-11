@@ -13,6 +13,7 @@ const { supabase } = require('./db');
 
 const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
 const RELANCE_JOURS = Number(process.env.COMMERCIAL_RELANCE_JOURS || 5); // devis sans réponse depuis N jours = à relancer
+const EN_COURS_JOURS = Number(process.env.COMMERCIAL_EN_COURS_JOURS || 45); // au-delà, un devis sans réponse n'est plus « en cours »
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const jours = d => (d ? Math.floor((Date.now() - Date.parse(String(d).replace(' ', 'T') + (String(d).includes('Z') ? '' : 'Z'))) / 86400e3) : null);
 
@@ -54,7 +55,9 @@ async function tableauDeBord({ force = false } = {}) {
       a_relancer: ['draft', 'sent'].includes(d.etat) && d.etat === 'sent' && age >= RELANCE_JOURS && (depuisRelance === null || depuisRelance >= RELANCE_JOURS),
     };
   });
-  const enCours = enrichi.filter(d => ['draft', 'sent'].includes(d.etat));
+  const tousEnCours = enrichi.filter(d => ['draft', 'sent'].includes(d.etat));
+  const enCours = tousEnCours.filter(d => (d.age ?? 0) <= EN_COURS_JOURS);
+  const anciens = tousEnCours.length - enCours.length;
   const signes = enrichi.filter(d => d.etat === 'sale');
   const resteAFacturer = signes.filter(d => d.facturation === 'to invoice' || (d.reste_ttc != null && d.reste_ttc > 0.5));
   const debutMois = new Date(); debutMois.setDate(1); debutMois.setHours(0, 0, 0, 0);
@@ -63,7 +66,7 @@ async function tableauDeBord({ force = false } = {}) {
   const crees90 = enrichi.filter(d => Date.parse(String(d.cree_le).replace(' ', 'T') + 'Z') >= il90 && d.etat !== 'draft');
   const somme = l => Math.round(l.reduce((s, d) => s + (d.montant_ht || 0), 0) * 100) / 100;
   const data = {
-    le: new Date().toISOString(), relance_jours: RELANCE_JOURS,
+    le: new Date().toISOString(), relance_jours: RELANCE_JOURS, en_cours_jours: EN_COURS_JOURS, anciens_masques: anciens,
     kpi: {
       en_cours: { n: enCours.length, ht: somme(enCours) },
       a_relancer: enCours.filter(d => d.a_relancer).length,
@@ -197,4 +200,84 @@ async function surStatutCommande(c, nouveauStatut, par) {
   } finally { if (c?.n_devis) soldeEnCours.delete(c.n_devis); }
 }
 
-module.exports = { tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, RELANCE_JOURS };
+
+// ---------- Clients à réactiver ----------
+let cacheReac = { le: 0, data: null };
+async function clientsAReactiver({ force = false } = {}) {
+  if (!force && cacheReac.data && Date.now() - cacheReac.le < 10 * 60e3) return cacheReac.data;
+  const liste = await odoo.clientsAReactiver();
+  const rel = {};
+  if (supabase && liste.length) {
+    const { data } = await supabase.from('gestion_actions').select('cle, cree_le').eq('action', 'client_reactivation').in('cle', liste.map(c => `partner-${c.id}`));
+    for (const r of data || []) if (!rel[r.cle] || r.cree_le > rel[r.cle]) rel[r.cle] = r.cree_le;
+  }
+  const data = liste.map(c => ({ ...c, relance_le: rel[`partner-${c.id}`] || null }));
+  cacheReac = { le: Date.now(), data };
+  return data;
+}
+async function relancerClient(partnerId, user, message) {
+  const p = await odoo.readPartner(Number(partnerId));
+  if (!p?.email) throw new Error('Pas d\'e-mail sur la fiche Odoo de ce client');
+  const prenom = String(p.name || '').split(/\s+/)[0];
+  const texte = String(message || '').trim() || `Bonjour${prenom ? ' ' + prenom : ''},\n\nÇa fait un moment ! J'espère que tout va bien de votre côté.\n\nSi vous avez un projet en vue (t-shirts, polos, sweats, tote bags, planches DTF…) pour un événement, votre équipe ou la saison qui arrive, je vous prépare un devis avec plaisir. Il suffit de répondre à ce mail.\n\nÀ très vite,\nL'équipe IGS CUSTOM BAR`;
+  await g.sendMail(MAILBOX, { to: p.email, subject: 'Des nouvelles de IGS CUSTOM BAR', html: `<div style="font:14px/1.6 Arial,sans-serif;color:#1E1E4B">${esc(texte).replace(/\n/g, '<br>')}</div>` });
+  await journal(user, 'client_reactivation', `partner-${p.id}`, { client: p.name, email: p.email });
+  cacheReac.le = 0;
+  return { ok: true, email: p.email };
+}
+
+// ---------- Fiche client complète ----------
+async function rechercherClients(q) {
+  if (String(q || '').trim().length < 2) return [];
+  return (await odoo.searchPartners(q)).map(p => ({ id: p.id, nom: p.name, email: p.email, telephone: p.phone, ville: p.ville }));
+}
+async function ficheClient(partnerId) {
+  const f = await odoo.ficheClientOdoo(partnerId);
+  const norm = require('./commandes').normalizePhone;
+  const tel = norm(f.client.telephone || '');
+  // Commandes de l'atelier liées à ses devis
+  try {
+    const nums = new Set(f.devis.map(d => d.numero.toUpperCase()));
+    const rows = (await require('./commandes').listCommandes()).rows || [];
+    f.atelier = rows.filter(c => c.n_devis && nums.has(c.n_devis.toUpperCase())).map(c => ({ devis: c.n_devis, statut: c.statut, livraison: c.date_livraison || null }));
+  } catch { f.atelier = []; }
+  // Planches (même nom de client)
+  try {
+    const k = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const pl = (await require('./planches').listPlanches()).rows || [];
+    f.planches = pl.filter(p => k(p.client) === k(f.client.nom)).slice(0, 20).map(p => ({ date: p.date_commande, statut: p.statut, metres: p.format || p.metres, hebdo: !!p.hebdo, paiement: p.paiement }));
+  } catch { f.planches = []; }
+  // Conversation WhatsApp (Leïla + équipe) et note client
+  f.conversation = []; f.note = null;
+  if (supabase && tel) {
+    const [{ data: conv }, { data: note }] = await Promise.all([
+      supabase.from('conversations').select('role, content, created_at').eq('phone_number', tel).order('created_at', { ascending: false }).limit(40),
+      supabase.from('client_notes').select('note').eq('phone_number', tel).maybeSingle(),
+    ]);
+    f.conversation = (conv || []).reverse().map(m => ({ role: m.role, texte: m.content, le: m.created_at }));
+    f.note = note?.note || null;
+  }
+  return f;
+}
+
+// ---------- Origine des demandes (90 jours) ----------
+async function origines() {
+  const tous = await odoo.devisCommerciaux({ jours: 90, planches: true });
+  const viaLeila = new Set();
+  if (supabase) {
+    const { data } = await supabase.from('gestion_demandes').select('devis_numero').not('devis_numero', 'is', null).gte('cree_le', new Date(Date.now() - 95 * 86400e3).toISOString());
+    for (const d of data || []) viaLeila.add(d.devis_numero);
+  }
+  const textile = new Set((await odoo.devisCommerciaux({ jours: 90 })).map(d => d.numero));
+  const groupes = {};
+  for (const d of tous) {
+    if (d.etat === 'cancel' && !d.montant_ht) continue;
+    const src = viaLeila.has(d.numero) ? 'Leïla (WhatsApp)' : textile.has(d.numero) ? 'Textile (boutique, mail, site…)' : 'Planches DTF';
+    const gr = groupes[src] || (groupes[src] = { source: src, devis: 0, signes: 0, ca_signe_ht: 0 });
+    gr.devis++;
+    if (d.etat === 'sale') { gr.signes++; gr.ca_signe_ht += d.montant_ht || 0; }
+  }
+  return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
+}
+
+module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, RELANCE_JOURS };
