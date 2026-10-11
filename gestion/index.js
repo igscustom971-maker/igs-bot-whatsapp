@@ -70,8 +70,8 @@ module.exports = function mountGestion(app) {
   // ---------- Leïla (assistante WhatsApp) : pilotage depuis le dashboard ----------
   // Relais vers les commandes /admin/* du bot (jeton ADMIN_TOKEN ajouté côté serveur, jamais envoyé au navigateur).
   // Équipe : activer / désactiver / automatique / statut. Admin : tout.
-  const LEILA_GET = ['activer', 'desactiver', 'auto', 'statut', 'fermer', 'lever-fermeture', 'test-horaires-on', 'test-horaires-off', 'contexte-voir', 'note-client-voir', 'backlog', 'test-recap', 'messages-programmes'];
-  const LEILA_POST = ['contexte', 'contexte-ajouter', 'note-client', 'message-programme', 'message-programme-annuler', 'importer-historique', 'simuler'];
+  const LEILA_GET = ['activer', 'desactiver', 'auto', 'statut', 'fermer', 'lever-fermeture', 'test-horaires-on', 'test-horaires-off', 'contexte-voir', 'note-client-voir', 'backlog', 'test-recap', 'messages-programmes', 'planning-voir', 'catalogue-voir'];
+  const LEILA_POST = ['contexte', 'contexte-ajouter', 'note-client', 'message-programme', 'message-programme-annuler', 'importer-historique', 'simuler', 'planning', 'catalogue'];
   const LEILA_EQUIPE = ['activer', 'desactiver', 'auto', 'statut'];
   app.post('/gestion/api/leila/:action', auth.requireUser, async (req, res) => {
     const action = String(req.params.action);

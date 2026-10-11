@@ -120,6 +120,23 @@ async function getLastAssistantAt(phoneNumber) {
   return data?.created_at ? new Date(data.created_at).getTime() : 0;
 }
 
+// Messages "assistant" (Leïla ou équipe) envoyés à un client après un instant donné (ms) : contenus
+async function getAssistantSince(phoneNumber, depuisMs) {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('content')
+    .eq('phone_number', phoneNumber)
+    .eq('role', 'assistant')
+    .gt('created_at', new Date(depuisMs).toISOString())
+    .limit(20);
+  if (error) {
+    console.error('Supabase getAssistantSince erreur:', error.message);
+    return [];
+  }
+  return (data || []).map(r => r.content || '');
+}
+
 // Récupère le prénom connu d'un client (ou null)
 async function getClientName(phoneNumber) {
   if (!supabase) return null;
@@ -211,6 +228,7 @@ async function getPhoneNumbersActiveSince(isoTimestamp) {
 module.exports = {
   getHistory,
   getLastAssistantAt,
+  getAssistantSince,
   appendMessage,
   getClientName,
   upsertClientName,

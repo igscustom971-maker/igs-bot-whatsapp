@@ -330,11 +330,15 @@ a.brand:hover h1{color:#FF1E8E}
 .filtre select{appearance:none;-webkit-appearance:none;border:1px solid #E3D8C4;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%231E1E4B' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center;border-radius:12px;padding:9px 34px 9px 12px;font:600 14px 'Poppins',sans-serif;color:#1E1E4B;min-height:40px;cursor:pointer}
 .filtre select:focus{outline:2px solid #FF1E8E;outline-offset:1px}
 .titre-page{font-size:40px;margin:0 0 14px;color:#1E1E4B;line-height:1}
-.lei-statut{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:700;margin-bottom:12px}
-.lei-pt{width:12px;height:12px;border-radius:50%;background:#C9C3B5;flex:none}
+.lei-statut{display:flex;align-items:flex-start;gap:12px;flex-wrap:nowrap;font-weight:700;margin-bottom:12px}
+.lei-j input{margin:0}
+.lei-pt{margin-top:5px;width:12px;height:12px;border-radius:50%;background:#C9C3B5;flex:none}
 .lei-pt.on{background:#5BBE72;box-shadow:0 0 0 4px rgba(91,190,114,.2)}
 .lei-pt.off{background:#FF1E8E;box-shadow:0 0 0 4px rgba(255,30,142,.15)}
 .lei-pt.auto{background:#3E63F0;box-shadow:0 0 0 4px rgba(62,99,240,.15)}
+.lei-jours{display:flex;gap:6px;flex-wrap:wrap}
+.field .lei-j,.lei-j{flex-direction:row;text-transform:none;letter-spacing:0;margin:0;color:#1E1E4B;display:inline-flex;align-items:center;gap:5px;border:1px solid #E3D8C4;border-radius:10px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;background:#fff}
+.lei-j:has(input:checked){border-color:#FF1E8E;background:#FFF0F7;color:#1E1E4B}
 .lei-ta{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #E3D8C4;border-radius:12px;padding:10px 12px;font:13px/1.45 'Poppins',sans-serif;resize:vertical;background:#fff}
 #lei-out{white-space:pre-wrap;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:#FBF6EC;border-radius:12px;padding:12px;max-height:420px;overflow:auto;margin:0}
 .btn.pink:hover{background:#E6127C}
@@ -378,7 +382,7 @@ ${view === 'accueil' ? `
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <a class="mod" href="/gestion/heures"><div class="i">⏱</div><div class="t">Heures</div><div class="d">${user.role === 'admin' ? 'Saisie, totaux par semaine, paiements' : 'Saisir mes heures du jour'}</div></a>
           <div class="mod soon"><div class="i">💬</div><div class="t">Journal</div><div class="d">Messages envoyés aux clients</div></div>
-          ${user.role === 'admin' ? '<a class="mod" href="/panel" target="_blank" rel="noopener"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Panneau du bot WhatsApp</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
+          ${user.role === 'admin' ? '<a class="mod" href="/gestion/leila"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">Planning, catalogue, contexte</div></a>' : '<div class="mod soon"><div class="i">🤖</div><div class="t">Actions Leïla</div><div class="d">Écrire aux clients</div></div>'}
         </div></div>
       </div>
       <div class="stack">
@@ -419,15 +423,24 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Statut</h3>
           <div id="lei-statut" class="lei-statut">…</div>
           <div class="btnrow"><button class="btn pink" data-lei="activer">▶ Activer</button><button class="btn" data-lei="desactiver">⏸ Désactiver</button><button class="btn" data-lei="auto">🔄 Planning automatique</button></div>
-          <div class="note" style="margin-top:8px">Automatique : Leïla répond selon son planning (lundi et jeudi matin). Activer / Désactiver force son état jusqu’au retour en automatique.</div>
+          <div class="note" style="margin-top:8px">Automatique : Leïla répond selon son planning. Activer / Désactiver force son état jusqu’au retour en automatique. Les messages reçus quand elle est éteinte sont toujours enregistrés : elle a tout le contexte à son retour.</div>
         </div>
         ${user.role === 'admin' ? `<div class="card"><h3>Fermeture</h3>
           <div class="field"><label>Fermée jusqu’au (inclus)</label><input type="date" id="lei-date"></div>
           <div class="btnrow"><button class="btn" data-lei="fermer">🔒 Fermer</button><button class="btn" data-lei="lever-fermeture">Lever la fermeture</button></div></div>
+        <div class="card"><h3>Planning</h3>
+          <div class="field"><label>Jours où Leïla répond</label><div class="lei-jours" id="lei-jours"></div></div>
+          <div class="hrrow" style="display:flex;gap:10px;flex-wrap:wrap"><div class="field"><label>Ouverture</label><input type="time" id="lei-ouv"></div><div class="field"><label>Fermeture</label><input type="time" id="lei-ferm"></div></div>
+          <div class="field"><label>Arrêt l’après-midi (l’équipe prend le relais) : ces jours-là</label><div class="lei-jours" id="lei-cjours"></div></div>
+          <div class="field"><label>… à partir de (heure, vide = pas d’arrêt)</label><input type="number" id="lei-ch" min="0" max="23" style="max-width:120px"></div>
+          <div class="btnrow"><button class="btn primary" data-lei="planning">Enregistrer le planning</button></div></div>
         <div class="card"><h3>Tests</h3><div class="btnrow" style="margin-top:0"><button class="btn" data-lei="test-recap">Récap de test</button><button class="btn" data-lei="backlog">Messages en attente</button><button class="btn" data-lei="test-horaires-on">Simuler heures d’ouverture</button><button class="btn" data-lei="test-horaires-off">Fin de simulation</button></div></div>` : ''}
         <div class="card"><h3>Réponse</h3><div id="lei-out" class="note pre" style="min-height:40px">—</div></div>
       </div>
       ${user.role === 'admin' ? `<div class="stack">
+        <div class="card"><h3>Catalogue et tarifs</h3><div class="note" style="margin-bottom:6px">Ce que Leïla sait des produits, prix, planches et livraison. Modifie le texte puis enregistre : c’est pris en compte dès le message suivant.</div>
+          <textarea id="lei-cat" class="lei-ta" style="min-height:320px" placeholder="Chargement…"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="catalogue">Enregistrer le catalogue</button><button class="btn" data-lei="catalogue-defaut">Remettre le texte d’origine</button></div></div>
         <div class="card"><h3>Contexte du moment</h3><div class="note" style="margin-bottom:6px">Ex. rupture de stock sur les polos noirs cette semaine. Leïla en tient compte dans ses réponses.</div>
           <textarea id="lei-ctx" class="lei-ta" placeholder="Contexte général…"></textarea>
           <div class="btnrow"><button class="btn primary" data-lei="contexte">Remplacer</button><button class="btn" data-lei="contexte-ajouter">Ajouter</button><button class="btn" data-lei="contexte-voir">Voir l’actuel</button></div></div>
@@ -619,7 +632,7 @@ async function charger(force, auto){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
-    if (VIEW === 'leila') { await leiStatut(); return; }
+    if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -676,10 +689,26 @@ async function leiAppel(action, corps){
 async function leiStatut(){
   try {
     const t = await leiAppel('statut');
-    const actif = /FORCÉ ACTIF/.test(t), inactif = /FORCÉ INACTIF|FERMETURE/.test(t);
-    $('lei-statut').innerHTML = '<span class="lei-pt '+(actif ? 'on' : inactif ? 'off' : 'auto')+'"></span><div><b>'+(actif ? 'Activée' : inactif ? (/FERMETURE/.test(t) ? 'Fermée' : 'Désactivée') : 'Planning automatique')+'</b><div class="note">'+esc(t.replace(/^Statut actuel : /, ''))+'</div></div>';
+    const lignes = t.split('\\n'), tete = lignes[0] || '';
+    const actif = /FORCÉ ACTIF/.test(tete), inactif = /FORCÉ INACTIF|FERMETURE/.test(tete);
+    $('lei-statut').innerHTML = '<span class="lei-pt '+(actif ? 'on' : inactif ? 'off' : 'auto')+'"></span><div><b>'+(actif ? 'Activée' : inactif ? (/FERMETURE/.test(tete) ? esc(tete.replace(/^🔒 /, '')) : 'Désactivée') : 'Planning automatique')+'</b>'+lignes.slice(1).map(l => '<div class="note">'+esc(l)+'</div>').join('')+'</div>';
     $('sync').className = 'sync'; $('sync').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
   } catch(e){ $('lei-statut').textContent = '⚠️ ' + e.message; }
+}
+const LEI_JOURS = [['Mon','Lun'],['Tue','Mar'],['Wed','Mer'],['Thu','Jeu'],['Fri','Ven'],['Sat','Sam'],['Sun','Dim']];
+let leiReglagesCharges = false;
+async function leiReglages(){
+  if (!$('lei-jours') || leiReglagesCharges) return;
+  try {
+    const pl = JSON.parse(await leiAppel('planning-voir'));
+    const cases = (id, sel) => { $(id).innerHTML = LEI_JOURS.map(([k, l]) => '<label class="lei-j"><input type="checkbox" value="'+k+'"'+((sel || []).includes(k) ? ' checked' : '')+'> '+l+'</label>').join(''); };
+    cases('lei-jours', pl.jours); cases('lei-cjours', pl.coupureJours);
+    $('lei-ouv').value = pl.ouverture || '08:30'; $('lei-ferm').value = pl.fermeture || '17:30';
+    $('lei-ch').value = pl.coupureHeure == null ? '' : pl.coupureHeure;
+    const cat = JSON.parse(await leiAppel('catalogue-voir'));
+    $('lei-cat').value = cat.texte || '';
+    leiReglagesCharges = true;
+  } catch(e){ $('lei-out').textContent = '⚠️ Réglages : ' + e.message; }
 }
 function leiEvents(){
   const v = id => ($(id) ? $(id).value.trim() : '');
@@ -688,6 +717,8 @@ function leiEvents(){
     'note-client': { numero: v('lei-note-num'), texte: v('lei-note') }, 'note-client-voir': { numero: v('lei-note-num') },
     'message-programme': { numero: v('lei-prog-num'), texte: v('lei-prog') }, 'message-programme-annuler': { numero: v('lei-prog-num') },
     simuler: { numero: v('lei-sim-num'), message: v('lei-sim') },
+    planning: { jours: [...document.querySelectorAll('#lei-jours input:checked')].map(i => i.value), coupureJours: [...document.querySelectorAll('#lei-cjours input:checked')].map(i => i.value), ouverture: v('lei-ouv'), fermeture: v('lei-ferm'), coupureHeure: v('lei-ch') },
+    catalogue: { texte: $('lei-cat') ? $('lei-cat').value : '' }, 'catalogue-defaut': { defaut: true },
     'importer-historique': { numero: v('lei-imp-num'), nomEquipe: v('lei-imp-nom'), texte: v('lei-imp') },
   })[a] || {};
   if ($('lei-imp-fichier')) $('lei-imp-fichier').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { $('lei-imp').value = rd.result; }; rd.readAsText(f); };
@@ -695,8 +726,14 @@ function leiEvents(){
     const b = e.target.closest('[data-lei]'); if (!b) return;
     const a = b.dataset.lei;
     if (a === 'contexte' && !confirm('Remplacer tout le contexte actuel ?')) return;
+    if (a === 'catalogue-defaut' && !confirm('Remettre le catalogue d’origine ? Tes modifications seront perdues.')) return;
     b.disabled = true;
-    try { const t = await leiAppel(a, corpsDe(a)); $('lei-out').textContent = t || '✅ Fait'; if (['activer','desactiver','auto','fermer','lever-fermeture'].includes(a)) await leiStatut(); }
+    try {
+      const t = await leiAppel(a === 'catalogue-defaut' ? 'catalogue' : a, corpsDe(a));
+      $('lei-out').textContent = t || '✅ Fait';
+      if (a === 'catalogue-defaut') { leiReglagesCharges = false; await leiReglages(); }
+      if (['activer','desactiver','auto','fermer','lever-fermeture','planning','test-horaires-on','test-horaires-off'].includes(a)) await leiStatut();
+    }
     catch(err){ $('lei-out').textContent = '❌ ' + err.message; }
     finally { b.disabled = false; }
   });

@@ -75,7 +75,19 @@ const DEBOUNCE_MS = 8000; // attend 8 sec de silence avant de traiter les messag
 
 // Messages reçus pendant que le bot était inactif (jour non actif / désactivé manuellement),
 // à traiter dès que le bot redevient actif. PAS utilisé pendant une fermeture prolongée (congés).
+// Persistée dans Supabase (bot_settings « leila_attente ») : rien n'est perdu en cas de redémarrage.
+// Sert aussi aux messages reçus hors horaires (traités à l'ouverture), plus d'attente en mémoire.
 const backlogMessages = {}; // { [from]: [{ text, at }, ...] }
+let sauvegardeAttente = Promise.resolve();
+function sauverAttente() {
+  sauvegardeAttente = sauvegardeAttente.then(() => db.setSetting('leila_attente', JSON.stringify(backlogMessages))).catch(e => console.error('Leïla attente (sauvegarde) :', e.message));
+  return sauvegardeAttente;
+}
+function mettreEnAttente(from, text, at = Date.now()) {
+  if (!backlogMessages[from]) backlogMessages[from] = [];
+  backlogMessages[from].push({ text, at });
+  return sauverAttente();
+}
 
 // Pour savoir si Ismaël a déjà répondu manuellement depuis son app (via l'écho WhatsApp Coexistence)
 const lastInboundAt = {};   // { [from]: timestamp du dernier message client }
@@ -83,7 +95,20 @@ const lastIsmaelReplyAt = {}; // { [from]: timestamp de la dernière réponse ma
 
 // Jours où le bot répond automatiquement (jours "off" d'Ismaël)
 // Mercredi n'est PAS dans la liste : activation uniquement via lien manuel ce jour-là
-const DEFAULT_ACTIVE_DAYS = ['Mon', 'Thu'];
+// Planning modifiable depuis le dashboard (page Leïla), enregistré dans bot_settings « leila_planning »
+const PLANNING_DEFAUT = { jours: ['Mon', 'Thu'], ouverture: '08:30', fermeture: '17:30', coupureJours: ['Mon', 'Thu'], coupureHeure: 13 };
+let planning = { ...PLANNING_DEFAUT };
+const JOURS_FR = { Mon: 'lundi', Tue: 'mardi', Wed: 'mercredi', Thu: 'jeudi', Fri: 'vendredi', Sat: 'samedi', Sun: 'dimanche' };
+const minutesDe = hhmm => { const [h, m] = String(hhmm || '').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+const listeJours = j => (j || []).map(x => JOURS_FR[x] || x).join(', ') || 'aucun';
+function planningTexte() {
+  const coupure = planning.coupureHeure != null && planning.coupureJours?.length ? ` · arrêt à ${planning.coupureHeure}h le ${listeJours(planning.coupureJours)}` : '';
+  return `${listeJours(planning.jours)} · ${planning.ouverture.replace(':', 'h')}-${planning.fermeture.replace(':', 'h')}${coupure}`;
+}
+
+// Modèles : réponses aux clients (qualité) / petites tâches internes (résumé, prénom, urgence : moins cher)
+const MODELE_REPONSE = process.env.LEILA_MODELE || 'claude-sonnet-4-6';
+const MODELE_LEGER = process.env.LEILA_MODELE_LEGER || 'claude-haiku-4-5';
 
 // Override manuel : null = suit le planning par défaut, true = forcé ON, false = forcé OFF
 let manualOverride = null;
@@ -180,31 +205,43 @@ function getGuadeloupeTime(date) {
 
 // Est-ce qu'on est dans les horaires ouvrés (8h30 - 17h30) ?
 function isWithinBusinessHours({ hour, minute }) {
-  const afterOpen = hour > 8 || (hour === 8 && minute >= 30);
-  const beforeClose = hour < 17 || (hour === 17 && minute <= 30);
-  return afterOpen && beforeClose;
+  const m = hour * 60 + minute;
+  return m >= minutesDe(planning.ouverture) && m <= minutesDe(planning.fermeture);
 }
 
 // Est-ce que le bot doit répondre aujourd'hui ? (planning par défaut, sauf override manuel)
 function isBotDayActive(weekday) {
   if (manualOverride !== null) return manualOverride;
-  return DEFAULT_ACTIVE_DAYS.includes(weekday);
+  return planning.jours.includes(weekday);
 }
 
 // Jours où le bot s'arrête à 13h (l'équipe présente l'après-midi prend le relais, pour éviter
 // tout conflit bot/humain). Uniquement en mode AUTOMATIQUE (une activation manuelle l'ignore).
-const EARLY_CUTOFF_DAYS = ['Mon', 'Thu'];
-const EARLY_CUTOFF_HOUR = 13;
 
 // Est-on dans la fenêtre "après-midi, équipe présente, bot en veille" (lundi/jeudi après 13h) ?
 function isHumanHandoffWindow(weekday, hour) {
   if (manualOverride !== null) return false; // une activation manuelle ignore cette coupure
-  return EARLY_CUTOFF_DAYS.includes(weekday) && hour >= EARLY_CUTOFF_HOUR;
+  return planning.coupureHeure != null && (planning.coupureJours || []).includes(weekday) && hour >= planning.coupureHeure;
 }
 
 // Fermeture prolongée réglable depuis le panel (en mémoire, se réinitialise à chaque redéploiement,
 // contrairement à CLOSED_UNTIL qui est une variable d'environnement plus robuste)
 let closureOverrideUntil = null;
+
+// État de Leïla enregistré dans Supabase (bot_settings « leila_etat ») : survit aux redémarrages et mises en ligne
+async function sauverEtatLeila() {
+  try { await db.setSetting('leila_etat', JSON.stringify({ manualOverride, closureOverrideUntil, ignoreBusinessHours })); }
+  catch (e) { console.error('Leïla état (sauvegarde) :', e.message); }
+}
+async function chargerEtatLeila() {
+  try {
+    const [etat, plan, attente] = await Promise.all([db.getSetting('leila_etat'), db.getSetting('leila_planning'), db.getSetting('leila_attente')]);
+    if (etat) { const e = JSON.parse(etat); manualOverride = e.manualOverride ?? null; closureOverrideUntil = e.closureOverrideUntil || null; ignoreBusinessHours = !!e.ignoreBusinessHours; }
+    if (plan) planning = { ...PLANNING_DEFAUT, ...JSON.parse(plan) };
+    if (attente) { const a = JSON.parse(attente) || {}; for (const [k, v] of Object.entries(a)) if (Array.isArray(v) && v.length) backlogMessages[k] = [...v, ...(backlogMessages[k] || [])]; }
+    console.log(`Leïla : état restauré (mode ${manualOverride === null ? 'auto' : manualOverride ? 'forcé actif' : 'forcé inactif'}${closureOverrideUntil ? ', fermée jusqu\'au ' + closureOverrideUntil : ''}, ${Object.keys(backlogMessages).length} conversation(s) en attente)`);
+  } catch (e) { console.error('Leïla état (chargement) :', e.message); }
+}
 
 // Est-ce qu'on est en période de fermeture prolongée (congés) ? Prioritaire sur tout le reste
 // Vérifie à la fois la variable d'environnement CLOSED_UNTIL et l'override réglé depuis le panel
@@ -213,17 +250,6 @@ function isClosedForBreak(now) {
   if (CLOSED_UNTIL && todayKey <= CLOSED_UNTIL) return true;
   if (closureOverrideUntil && todayKey <= closureOverrideUntil) return true;
   return false;
-}
-
-// Calcule le délai (en ms) jusqu'au PROCHAIN 8h30 (aujourd'hui si on est avant 8h30, sinon demain)
-function msUntilNext8am(now) {
-  const guadNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
-  const target = new Date(guadNow);
-  target.setHours(8, 30, 0, 0);
-  if (target.getTime() <= guadNow.getTime()) {
-    target.setDate(target.getDate() + 1); // 8h30 déjà passé aujourd'hui → viser demain
-  }
-  return target.getTime() - guadNow.getTime();
 }
 
 // Date du jour au format YYYY-MM-DD (heure Guadeloupe)
@@ -292,7 +318,7 @@ async function summarizeForRecap(history) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: MODELE_LEGER,
       max_tokens: 60,
       system: `Résume cette conversation client en UNE seule phrase narrative, claire et précise, en français, sans guillemets et sans tiret cadratin.
 
@@ -327,7 +353,7 @@ async function checkUrgentOnly(history, newText) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: MODELE_LEGER,
       max_tokens: 10,
       system: "Ce message de client nécessite-t-il une intervention humaine urgente ? OUI si : demande de statut de commande non confirmé récemment, modification sur une commande en cours, demande avec délai très court/urgent explicite, plainte/réclamation, demande d'annulation, négociation de prix/remise, ou relance sur une promesse non tenue. Réponds UNIQUEMENT par OUI ou NON, rien d'autre.",
       messages: [{ role: 'user', content: conversationText }],
@@ -348,7 +374,7 @@ async function extractClientName(history) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: MODELE_LEGER,
       max_tokens: 20,
       system: "Le client a-t-il donné son prénom ou son nom à un moment dans cette conversation ? Réponds UNIQUEMENT par ce prénom/nom (ex: \"Sandrine\"), ou par \"INCONNU\" si ce n'est pas mentionné. Rien d'autre.",
       messages: [{ role: 'user', content: conversationText }],
@@ -373,31 +399,8 @@ async function resolveClientDisplay(from, history) {
 // ============================================
 // PROMPT PERSONA (résumé condensé du fichier complet)
 // ============================================
-const SYSTEM_PROMPT_BASE = `Tu t'appelles Leïla. Tu fais partie de l'équipe commerciale d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. L'équipe a plusieurs pôles (commercial, production, etc.) : toi tu es côté commercial, tu prends la demande, ce n'est pas forcément toi qui produiras derrière.
-
-IDENTITÉ : tu t'appelles Leïla, pour TOUS les clients sans exception (nouveaux comme réguliers). Tu ne te présentes JAMAIS spontanément : pas de "ici Leïla" dans tes messages, pas de signature. Tu ne donnes ton prénom que si on te le demande (ex: "qui êtes-vous ?", "comment tu t'appelles ?") ou si la conversation l'appelle naturellement. Dans ce cas, réponds simplement que tu es Leïla, de l'équipe IGS Custom Bar. Tu es une femme : accorde au féminin (désolée, ravie...). Ne prétends JAMAIS être un humain : si on te demande clairement si tu es une vraie personne, un robot ou une IA, dis franchement que tu es l'assistante virtuelle de l'équipe et que l'équipe prend le relais pour la suite.
-
-RÈGLES DE TON :
-- Réponds TOUJOURS en français, même si le client écrit en créole, anglais, ou une autre langue
-- Si le client a un devis/une demande en attente et change complètement de sujet (nouvelle demande sans rapport), clarifie d'abord si c'est séparé ou à ajouter à la demande précédente, avant de traiter la nouvelle demande
-- Professionnel mais chaleureux et naturel, jamais robotique
-- Emojis sparingly (max 1-2 par message)
-- Réponses courtes : 2-4 lignes
-- UNE seule question à la fois, jamais un mur d'infos
-- NE JAMAIS mentionner le prénom "Ismaël" dans tes réponses. Parle au nom de l'équipe ("nous allons vous faire le devis", "on vous prépare ça") ou à la première personne comme un membre de l'équipe ("je vous fais ça et je reviens vers vous au plus vite"). Jamais de renvoi vers une personne précise nommée
-- NE JAMAIS répéter le nom/entreprise/email du client pour "confirmer", juste noter et continuer
-- NE JAMAIS finir par "À toi !" ou style formulaire
-- Dis "Bonjour" UNIQUEMENT au tout premier message de la conversation. Pour tous les messages suivants, enchaîne naturellement SANS redire "Bonjour"
-- NE JAMAIS annoncer le prix TOTAL (ex: "125€ pour 10 pièces"), donne UNIQUEMENT le prix unitaire (ex: "12,50€ par t-shirt")
-- Ne JAMAIS demander si c'est pour une association, une entreprise ou du perso, ça ne nous regarde pas
-- INTERDIT d'utiliser le caractère tiret cadratin "—" dans tes réponses. Utilise une virgule à la place
-- Ne JAMAIS inventer un produit, un service ou un tarif qui n'est pas listé ci-dessous. Si le produit demandé n'est pas dans la liste, dis que tu n'es pas sûr et utilise la phrase de blocage
-- Ne JAMAIS annoncer une date précise (ex: "on reprend le 1er octobre") sauf si cette info précise t'est donnée explicitement dans ce prompt. Si tu n'es pas sûr d'une date, reste vague ("on revient vers vous très vite", "dès que possible") plutôt que d'inventer ou de répéter une ancienne info qui a pu changer
-- REGISTRE : avec un NOUVEAU client (jamais écrit avant), tu VOUVOIES TOUJOURS et tu restes cordial et poli, même si le client écrit de façon familière ou comme en SMS. Tu tutoies si le client est CONNU/RÉGULIER ET qu'il te tutoie OU se montre familier avec l'équipe (ex: "Hello Ismaël", "Salut", "Coucou", "Hey", ton décontracté, prénom + message amical), ou si une note le précise : dans ce cas tu le tutoies aussi, naturellement. Dans le doute, vouvoie
-- Sur le recto/verso (ou une autre précision similaire) : si tu as posé la question UNE fois et que le client ne répond pas clairement dessus (il enchaîne sur autre chose), NE PAS insister ni reposer la question. Pars du principe que c'est recto-verso par défaut et continue naturellement, ça évite de paraître insistant
-- Évite de répéter la même idée deux fois dans la même réponse (ex: dire "je transmets à l'équipe" puis reformuler la même chose juste après). Dis les choses une fois, clairement, et passe à la suite
-
-CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
+// Catalogue, tarifs, livraison : texte par défaut, modifiable depuis le dashboard (page Leïla, bot_settings « leila_catalogue »)
+const CATALOGUE_DEFAUT = `CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 
 **T-shirt** (à partir de 10 pièces = tarif pro, en dessous = tarif public) :
 - Public (moins de 10) : avant seul 15€ / avant-arrière 20€. Possibilité de commander directement sur igscustom.fr/personnalisation/
@@ -427,8 +430,37 @@ CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 
 **Livraison / retrait** (dépend de la localisation du client, voir CONTEXTE ci-dessous) :
 - Client en Guadeloupe : retrait boutique possible à Pointe-à-Pitre (lundi au vendredi, 14h30 à 17h30), ou livraison en Guadeloupe même
+- Adresse de la boutique (à donner UNIQUEMENT si le client demande l'adresse ou où se trouve la boutique) : 62 rue Louis Vatable, 97110 Pointe-à-Pitre
 - Client en Martinique : PAS de point de retrait, uniquement expédition. Deux options : standard par La Poste, ou express (départ tous les mardis)
 - Délai production commandes textile : 48 à 72h
+`;
+
+const SYSTEM_PROMPT_BASE = `Tu t'appelles Leïla. Tu fais partie de l'équipe commerciale d'IGS Custom Bar, entreprise de personnalisation textile (flocage DTF) à Pointe-à-Pitre, Guadeloupe. L'équipe a plusieurs pôles (commercial, production, etc.) : toi tu es côté commercial, tu prends la demande, ce n'est pas forcément toi qui produiras derrière.
+
+IDENTITÉ : tu t'appelles Leïla, pour TOUS les clients sans exception (nouveaux comme réguliers). Tu ne te présentes JAMAIS spontanément : pas de "ici Leïla" dans tes messages, pas de signature. Tu ne donnes ton prénom que si on te le demande (ex: "qui êtes-vous ?", "comment tu t'appelles ?") ou si la conversation l'appelle naturellement. Dans ce cas, réponds simplement que tu es Leïla, de l'équipe IGS Custom Bar. Tu es une femme : accorde au féminin (désolée, ravie...). Ne prétends JAMAIS être un humain : si on te demande clairement si tu es une vraie personne, un robot ou une IA, dis franchement que tu es l'assistante virtuelle de l'équipe et que l'équipe prend le relais pour la suite.
+
+RÈGLES DE TON :
+- Réponds TOUJOURS en français, même si le client écrit en créole, anglais, ou une autre langue
+- Si le client a un devis/une demande en attente et change complètement de sujet (nouvelle demande sans rapport), clarifie d'abord si c'est séparé ou à ajouter à la demande précédente, avant de traiter la nouvelle demande
+- Professionnel mais chaleureux et naturel, jamais robotique
+- Emojis sparingly (max 1-2 par message)
+- Réponses courtes : 2-4 lignes
+- UNE seule question à la fois, jamais un mur d'infos
+- NE JAMAIS mentionner le prénom "Ismaël" dans tes réponses. Parle au nom de l'équipe ("nous allons vous faire le devis", "on vous prépare ça") ou à la première personne comme un membre de l'équipe ("je vous fais ça et je reviens vers vous au plus vite"). Jamais de renvoi vers une personne précise nommée
+- NE JAMAIS répéter le nom/entreprise/email du client pour "confirmer", juste noter et continuer
+- NE JAMAIS finir par "À toi !" ou style formulaire
+- Dis "Bonjour" UNIQUEMENT au tout premier message de la conversation. Pour tous les messages suivants, enchaîne naturellement SANS redire "Bonjour"
+- NE JAMAIS annoncer le prix TOTAL (ex: "125€ pour 10 pièces"), donne UNIQUEMENT le prix unitaire (ex: "12,50€ par t-shirt")
+- Ne JAMAIS demander si c'est pour une association, une entreprise ou du perso, ça ne nous regarde pas
+- INTERDIT d'utiliser le caractère tiret cadratin "—" dans tes réponses. Utilise une virgule à la place
+- Ne JAMAIS inventer un produit, un service ou un tarif qui n'est pas listé ci-dessous. Si le produit demandé n'est pas dans la liste, dis que tu n'es pas sûr et utilise la phrase de blocage
+- Ne JAMAIS annoncer une date précise (ex: "on reprend le 1er octobre") sauf si cette info précise t'est donnée explicitement dans ce prompt. Si tu n'es pas sûr d'une date, reste vague ("on revient vers vous très vite", "dès que possible") plutôt que d'inventer ou de répéter une ancienne info qui a pu changer
+- REGISTRE : avec un NOUVEAU client (jamais écrit avant), tu VOUVOIES TOUJOURS et tu restes cordial et poli, même si le client écrit de façon familière ou comme en SMS. Tu tutoies si le client est CONNU/RÉGULIER ET qu'il te tutoie OU se montre familier avec l'équipe (ex: "Hello Ismaël", "Salut", "Coucou", "Hey", ton décontracté, prénom + message amical), ou si une note le précise : dans ce cas tu le tutoies aussi, naturellement. Dans le doute, vouvoie
+- Sur le recto/verso (ou une autre précision similaire) : si tu as posé la question UNE fois et que le client ne répond pas clairement dessus (il enchaîne sur autre chose), NE PAS insister ni reposer la question. Pars du principe que c'est recto-verso par défaut et continue naturellement, ça évite de paraître insistant
+- ADRESSE : ne donne JAMAIS l'adresse de la boutique de toi-même (ni dans une confirmation, ni pour un retrait). Donne-la UNIQUEMENT si le client demande l'adresse ou où se trouve la boutique. Pour un retrait, indique seulement les jours et horaires
+- Évite de répéter la même idée deux fois dans la même réponse (ex: dire "je transmets à l'équipe" puis reformuler la même chose juste après). Dis les choses une fois, clairement, et passe à la suite
+
+{{CATALOGUE}}
 
 ⚠️ LE VRAI PROCESS DE COMMANDE (textile personnalisé) À RESPECTER :
 1. Prise d'informations de base : zone de flocage, type de textile/produit, quantité, nom, et email (nécessaires pour établir et envoyer le devis, c'est TOUT ce que toi tu collectes)
@@ -481,13 +513,13 @@ Exemple 3, client régulier qui tutoie :
 - **Client envoie une photo/image directement dans le chat WhatsApp pour une planche** (plutôt que par email) : dis-lui que c'est plus simple de l'envoyer par mail à contact@igscustom.fr, car c'est difficile à traiter correctement depuis WhatsApp
 - **Nouveau client qui commande plusieurs planches d'affilée** : tu peux lui proposer qu'on lui crée un Canva partagé dédié pour la prochaine fois, histoire de simplifier ses futures commandes
 
-⚠️ NE JAMAIS AFFIRMER UN STATUT DE COMMANDE (RÈGLE ABSOLUE) :
-Même si l'historique de cette conversation contient d'anciens échanges mentionnant une commande, TU N'AS AUCUN MOYEN DE SAVOIR où en est réellement la production aujourd'hui (pas d'accès à Odoo, pas de visibilité en temps réel). Un ancien message disant "ce sera prêt le X" ou "entre 14h30 et 17h30" ne veut PAS dire que c'est le cas MAINTENANT.
-Donc : si le client demande si sa commande est prête, où elle en est, si elle a été reçue/expédiée/payée, ou toute question sur l'état ACTUEL d'une commande, NE REPONDS JAMAIS par une confirmation déduite de l'historique (ex: ne dis jamais "oui c'est bon, tu peux passer" en te basant sur un ancien message qui disait ça pour une autre commande ou un autre jour). C'est systématiquement un cas d'urgence (voir marqueur ###URGENT### ci-dessous), car seule l'équipe a la vraie info à jour.
+⚠️ STATUT DES COMMANDES (RÈGLE ABSOLUE) :
+La SEULE source fiable sur l'état d'une commande ou d'une planche est le bloc « COMMANDES DU CLIENT » placé à la fin de ces instructions : il est à jour en temps réel. Ne déduis JAMAIS un statut des anciens messages de la conversation (un ancien "ce sera prêt le X" ne veut pas dire que c'est le cas MAINTENANT).
+Donc : si le client demande où en est sa commande et qu'elle figure dans ce bloc, réponds avec ce statut (en suivant les RÈGLES COMMANDES du bloc), ce n'est PAS une urgence. Si sa commande n'y figure pas, ou si tu n'arrives pas à savoir de quelle commande il parle après une question de clarification, alors c'est un cas d'urgence (marqueur ###URGENT### ci-dessous), car seule l'équipe a l'info.
 
 ⚠️ DÉTECTION D'URGENCE RÉELLE (très important) :
-Tu n'as PAS d'accès à l'état réel des commandes ni de visibilité à jour au-delà de ce qui est explicitement écrit dans les tout derniers messages de cette conversation. Si le client :
-- demande le statut actuel d'une commande (prête ? reçue ? expédiée ? payée ?) sans que ce statut exact vienne d'être confirmé dans les tout derniers messages de cette conversation
+En dehors du bloc « COMMANDES DU CLIENT », tu n'as aucune visibilité sur l'état réel des commandes. Si le client :
+- demande le statut actuel d'une commande (prête ? reçue ? expédiée ? payée ?) qui ne figure PAS dans le bloc « COMMANDES DU CLIENT » (ou que tu n'arrives pas à identifier)
 - fait référence à une commande, un devis ou une modification déjà en cours ailleurs (ex: "j'ai déjà passé commande hier", "j'ai informé d'un changement", "comme convenu avec vous hier", "j'ai effectué le virement/le paiement", "merci de me donner la marche à suivre")
 - réclame une action immédiate ou dans un délai très court (ex: "il me faut ça avant midi", "c'est urgent", "vous deviez me revenir")
 - demande son lien de paiement ou son devis pour une commande qu'il dit avoir DÉJÀ passée (ex: "j'avais commandé une planche A3, c'est possible d'avoir le lien de paiement ?") : l'équipe doit envoyer le devis, c'est une urgence même si c'est la première fois qu'il écrit à ce sujet
@@ -540,7 +572,8 @@ async function buildSystemPrompt(isKnownClient, from) {
   // Commandes du client (statut, suivi, BAT) : module gestion
   let commandesNote = '';
   try { commandesNote = await require('./gestion/leila').contexteCommandes(from); } catch (e) { console.error('Contexte commandes :', e.message); }
-  return clientSpecificBlock + SYSTEM_PROMPT_BASE + '\n\n' + clientKnownNote + regionNote + extraNote + commandesNote;
+  const catalogue = (await db.getSetting('leila_catalogue')) || CATALOGUE_DEFAUT;
+  return clientSpecificBlock + SYSTEM_PROMPT_BASE.replace('{{CATALOGUE}}', catalogue) + '\n\n' + clientKnownNote + regionNote + extraNote + commandesNote;
 }
 
 // ============================================
@@ -562,108 +595,138 @@ app.get('/webhook', (req, res) => {
 // ============================================
 // 2. RÉCEPTION DES MESSAGES (webhook POST)
 // ============================================
+// Un même message peut être livré deux fois par WhatsApp (nouvel essai quand la réponse tarde) :
+// chaque message a un identifiant unique, on ignore ceux déjà vus.
+const idsVus = new Map();
+function dejaVu(id) {
+  if (!id) return false;
+  if (idsVus.has(id)) return true;
+  idsVus.set(id, Date.now());
+  if (idsVus.size > 3000) for (const k of [...idsVus.keys()].slice(0, 1000)) idsVus.delete(k);
+  return false;
+}
+
+// Une conversation à la fois par client (évite deux réponses simultanées au même client)
+const chaines = {};
+function enFile(from, fn) {
+  const p = (chaines[from] || Promise.resolve()).catch(() => {}).then(fn);
+  chaines[from] = p;
+  p.finally(() => { if (chaines[from] === p) delete chaines[from]; }).catch(() => {});
+  return p;
+}
+
+// Nom WhatsApp du client (profil) : retenu comme nom du client s'il n'en a pas encore (aide à retrouver ses commandes)
+const profilsVus = new Set();
+async function memoriserProfil(from, nom) {
+  if (!nom || profilsVus.has(from)) return;
+  profilsVus.add(from);
+  try { if (!(await db.getClientName(from))) await db.upsertClientName(from, String(nom).slice(0, 80)); } catch (e) { console.error('Profil WhatsApp :', e.message); }
+}
+
 app.post('/webhook', async (req, res) => {
   // Réponse immédiate à Meta pour éviter les timeouts/retries
   res.sendStatus(200);
 
   try {
-    const entry = req.body.entry?.[0];
-    const change = entry?.changes?.[0];
-    const message = change?.value?.messages?.[0];
-    const echo = change?.value?.message_echoes?.[0]; // vraie structure Meta pour les échos Coexistence
-
-    // Détection d'un écho WhatsApp Coexistence : message envoyé par Ismaël DEPUIS SON APP
-    // (arrive dans un champ "message_echoes" séparé, pas dans "messages")
-    if (echo) {
-      const clientNumber = echo.to;
-      lastIsmaelReplyAt[clientNumber] = Date.now();
-      urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
-      loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
-
-      // On enregistre aussi le CONTENU de la réponse manuelle dans l'historique (pas juste l'horodatage),
-      // pour que le bot et les récaps aient une vraie vision des échanges gérés par l'équipe
-      const echoText = echo.text?.body;
-      if (echoText) {
-        await db.appendMessage(clientNumber, 'assistant', echoText);
-      }
-
-      console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
-      return;
-    }
-
-    if (!message) return; // pas un message entrant (ex: statut de livraison)
-
-    const from = message.from; // numéro du client
-    let text = message.text?.body;
-
-    // Messages sans texte : on distingue les VOCAUX (excuse "je ne peux pas écouter"), les images/fichiers
-    // (pas de réponse, noté pour l'équipe) et tout le reste (réactions 👍, stickers, localisation...) = ignoré
-    if (!text && message.type && message.type !== 'text') {
-      const caption = message.image?.caption || message.video?.caption || message.document?.caption;
-      if (message.type === 'audio') {
-        text = AUDIO_MARKER;
-      } else if (['image', 'video', 'document'].includes(message.type)) {
-        text = caption ? `[Fichier joint] ${caption}` : MEDIA_MARKER;
-      } else {
-        return; // réaction, sticker, etc. : on n'y répond pas
+    await pretLeila; // état de Leïla restauré avant de traiter quoi que ce soit
+    for (const entry of req.body.entry || []) {
+      for (const change of entry.changes || []) {
+        const v = change.value || {};
+        for (const echo of v.message_echoes || []) { if (!dejaVu(echo.id)) await traiterEcho(echo); }
+        const profils = {};
+        for (const c of v.contacts || []) if (c.wa_id) profils[c.wa_id] = c.profile?.name;
+        for (const message of v.messages || []) { if (!dejaVu(message.id)) await traiterMessageEntrant(message, profils[message.from]); }
       }
     }
-
-    if (!text) return; // rien d'exploitable (ex: statut de livraison mal formé)
-
-    // PRIORITÉ ABSOLUE : si c'est Ismaël qui écrit depuis son propre numéro perso,
-    // ce n'est jamais un client. Seul "récap"/"planning" déclenche le récap production
-    // (Excel via Power Automate) ; tout le reste venant de ce numéro est ignoré par le bot client.
-    if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
-      if (isRecapRequest(text)) {
-        console.log(`Demande de récap production reçue d'Ismaël (${from})`);
-        await handleProductionRecap(from, sendWhatsAppMessage);
-      } else {
-        console.log(`Message d'Ismaël sur son propre numéro (hors récap), ignoré par le bot client`);
-      }
-      return;
-    }
-
-    console.log(`Message reçu de ${from}: ${text}`);
-    lastInboundAt[from] = Date.now();
-
-    // Priorité absolue : fermeture prolongée en cours (congés) ? Le bot ne répond à rien,
-    // et on ne met PAS en rattrapage (trop risqué de tout traiter d'un coup après des semaines)
-    if (isClosedForBreak(new Date())) {
-      console.log(`Fermeture prolongée en cours (jusqu'au ${CLOSED_UNTIL}) — message laissé pour traitement manuel`);
-      return;
-    }
-
-    // Le bot est-il actif aujourd'hui (planning ou override manuel) ?
-    const nowCheck = getGuadeloupeTime(new Date());
-    if (!isBotDayActive(nowCheck.weekday)) {
-      console.log(`Bot inactif ce jour (${nowCheck.weekday}) — message mis en attente de rattrapage`);
-      if (!backlogMessages[from]) backlogMessages[from] = [];
-      backlogMessages[from].push({ text, at: Date.now() });
-      return;
-    }
-
-    // Bot actif : on traite via le buffer de regroupement (anti-spam de messages rapprochés)
-    bufferIncomingMessage(from, text);
-
   } catch (error) {
     console.error('Erreur traitement message:', error);
   }
 });
 
+// Écho WhatsApp Coexistence : message envoyé par l'équipe DEPUIS L'APP (champ "message_echoes")
+async function traiterEcho(echo) {
+  const clientNumber = echo.to;
+  lastIsmaelReplyAt[clientNumber] = Date.now();
+  urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
+  loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
+  // Le CONTENU de la réponse manuelle est enregistré dans l'historique (Leïla et les récaps ont toute la conversation)
+  const echoText = echo.text?.body || echo.image?.caption || echo.document?.caption || (echo.type && echo.type !== 'text' ? '[Image ou fichier envoyé par l\'équipe]' : '');
+  if (echoText) await db.appendMessage(clientNumber, 'assistant', echoText);
+  console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
+}
+
+async function traiterMessageEntrant(message, profil) {
+  const from = message.from; // numéro du client
+  let text = message.text?.body;
+
+  // Messages sans texte : VOCAUX, images/fichiers, et tout le reste (réactions 👍, stickers, localisation...) = ignoré
+  if (!text && message.type && message.type !== 'text') {
+    const caption = message.image?.caption || message.video?.caption || message.document?.caption;
+    if (message.type === 'audio') {
+      text = AUDIO_MARKER;
+    } else if (['image', 'video', 'document'].includes(message.type)) {
+      text = caption ? `[Fichier joint] ${caption}` : MEDIA_MARKER;
+    } else if (message.type === 'button' || message.type === 'interactive') {
+      text = message.button?.text || message.interactive?.button_reply?.title || message.interactive?.list_reply?.title;
+      if (!text) return;
+    } else {
+      return; // réaction, sticker, etc. : on n'y répond pas
+    }
+  }
+  if (!text) return;
+
+  // PRIORITÉ ABSOLUE : numéro perso d'Ismaël = jamais un client. Seul "récap"/"planning" déclenche le récap production.
+  if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
+    if (isRecapRequest(text)) {
+      console.log(`Demande de récap production reçue d'Ismaël (${from})`);
+      await handleProductionRecap(from, sendWhatsAppMessage);
+    } else {
+      console.log(`Message d'Ismaël sur son propre numéro (hors récap), ignoré par le bot client`);
+    }
+    return;
+  }
+
+  console.log(`Message reçu de ${from}: ${text}`);
+  const recuLe = message.timestamp ? Number(message.timestamp) * 1000 : Date.now();
+  lastInboundAt[from] = recuLe;
+
+  // TOUJOURS enregistré dans l'historique, même quand Leïla est éteinte ou fermée :
+  // à son retour elle a toute la conversation (et le dashboard aussi)
+  await db.appendMessage(from, 'user', normalizeIncoming(text).displayText);
+  memoriserProfil(from, profil);
+
+  // Fermeture prolongée (congés) : Leïla ne répond à rien et ne met rien en rattrapage
+  if (isClosedForBreak(new Date())) {
+    console.log(`Fermeture prolongée en cours — message enregistré, laissé à l'équipe`);
+    return;
+  }
+
+  // Leïla éteinte aujourd'hui (planning ou désactivation) : message mis en attente (persistée)
+  const nowCheck = getGuadeloupeTime(new Date());
+  if (!isBotDayActive(nowCheck.weekday)) {
+    console.log(`Bot inactif ce jour (${nowCheck.weekday}) — message mis en attente de rattrapage`);
+    await mettreEnAttente(from, text, recuLe);
+    return;
+  }
+
+  // Leïla active : regroupement des messages rapprochés
+  bufferIncomingMessage(from, text, recuLe);
+}
+
 // Ajoute un message au buffer d'un client, et programme le traitement groupé
 // après DEBOUNCE_MS de silence (pour regrouper les messages envoyés coup sur coup)
-function bufferIncomingMessage(from, text) {
+function bufferIncomingMessage(from, text, recuLe = Date.now()) {
   if (!pendingBuffers[from]) {
-    pendingBuffers[from] = { texts: [], timer: null };
+    pendingBuffers[from] = { texts: [], timer: null, recuLe };
   }
   pendingBuffers[from].texts.push(text);
+  pendingBuffers[from].recuLe = Math.max(pendingBuffers[from].recuLe || 0, recuLe);
 
   if (pendingBuffers[from].timer) clearTimeout(pendingBuffers[from].timer);
   pendingBuffers[from].timer = setTimeout(() => {
-    const combinedText = pendingBuffers[from].texts.join('\n');
+    const { texts, recuLe: dernier } = pendingBuffers[from];
     delete pendingBuffers[from];
-    processMessageNow(from, combinedText).catch(err => console.error('Erreur traitement bufferisé:', err));
+    enFile(from, () => processMessageNow(from, texts.join('\n'), dernier)).catch(err => console.error('Erreur traitement bufferisé:', err));
   }, DEBOUNCE_MS);
 }
 
@@ -734,20 +797,17 @@ async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = f
 // Le bot ne répond PAS au client dans ce créneau, mais vérifie quand même discrètement l'urgence,
 // et note tout pour le débrief du lendemain matin.
 async function handleAfternoonHandoff(from, rawText) {
-  console.log(`Coupure 13h — message de ${from} laissé à l'équipe présente, vérification urgence silencieuse`);
+  console.log(`Coupure de l'après-midi — message de ${from} laissé à l'équipe présente, vérification urgence silencieuse`);
 
-  const { realText, displayText } = normalizeIncoming(rawText);
-  await db.appendMessage(from, 'user', displayText);
+  const { realText } = normalizeIncoming(rawText);
   const customLimit = await db.getHistoryLimit(from);
-  const fullHistory = await db.getHistory(from, customLimit || undefined); // inclut déjà le message qu'on vient d'ajouter
-  const isKnownClient = fullHistory.length > 1;
+  const fullHistory = await db.getHistory(from, customLimit || undefined); // le message est déjà enregistré à la réception
 
-  // Vocal / image seuls : rien à analyser, on note juste pour le débrief
-  // Urgence = mots-clés évidents OU marqueur du modèle (on évite l'appel au modèle si les mots-clés suffisent)
+  // Urgence = mots-clés évidents OU vérification rapide par le modèle léger (pas de réponse rédigée pour rien)
   let isUrgent = looksUrgent(realText);
   if (!isUrgent && realText) {
-    const rawReply = await callClaudeAPI(fullHistory, isKnownClient, from);
-    isUrgent = rawReply.includes(URGENT_MARKER);
+    try { isUrgent = await checkUrgentOnly(fullHistory.slice(0, -1), fullHistory.length ? fullHistory[fullHistory.length - 1].content : realText); }
+    catch (e) { console.error('Vérification urgence :', e.message); }
   }
 
   if (isUrgent) {
@@ -771,54 +831,60 @@ async function handleAfternoonHandoff(from, rawText) {
 }
 
 // Traite un message (ou un lot de messages regroupés) : gère l'attente horaires ouvrés puis répond
-async function processMessageNow(from, text) {
+async function processMessageNow(from, text, recuLe = Date.now()) {
   const nowCheck = getGuadeloupeTime(new Date());
 
-  // Coupure 13h lundi/jeudi (mode auto uniquement) : priorité sur tout le reste
+  // Coupure de l'après-midi (mode auto uniquement) : priorité sur tout le reste
   if (!ignoreBusinessHours && isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
     await handleAfternoonHandoff(from, text);
     return;
   }
 
-// Si en dehors des horaires ouvrés (8h30-17h30), on attend le prochain 8h30 avant de répondre
-  // (sauf en mode test, où on ignore cette attente)
+  // Hors horaires : mis en attente (enregistrée en base), traité à l'ouverture en une seule réponse,
+  // sauf si l'équipe a répondu entre-temps
   if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
-    const delay = msUntilNext8am(new Date());
-    console.log(`Hors horaires ouvrés — réponse programmée dans ${Math.round(delay / 60000)} min`);
-    await sleep(delay);
-
-    // Après l'attente, on revérifie : si le jour suivant n'est PAS un jour actif
-    // (ex: message jeudi soir, mais vendredi n'est pas auto), on bascule en rattrapage
-    // au lieu de répondre automatiquement
-    const afterWait = getGuadeloupeTime(new Date());
-    if (isClosedForBreak(new Date()) || !isBotDayActive(afterWait.weekday)) {
-      console.log(`Jour suivant non actif — message basculé en rattrapage pour ${from}`);
-      if (!backlogMessages[from]) backlogMessages[from] = [];
-      backlogMessages[from].push({ text, at: Date.now() });
-      return;
-    }
+    console.log(`Hors horaires — message de ${from} mis en attente jusqu'à l'ouverture`);
+    await mettreEnAttente(from, text, recuLe);
+    return;
   }
 
-  await handleIncomingText(from, text);
+  await handleIncomingText(from, text, recuLe);
+}
+
+// L'ÉQUIPE a-t-elle déjà répondu à ce client depuis son message ? (les réponses de Leïla elle-même ne comptent pas)
+const envoisLeila = {}; // { [from]: Set des textes envoyés par Leïla }
+function noterEnvoiLeila(from, texte) {
+  if (!envoisLeila[from]) envoisLeila[from] = new Set();
+  envoisLeila[from].add(texte);
+  if (envoisLeila[from].size > 30) envoisLeila[from].delete(envoisLeila[from].values().next().value);
+}
+async function dejaRepondu(from, depuis) {
+  if ((lastIsmaelReplyAt[from] || 0) > depuis) return true;
+  const apres = await db.getAssistantSince(from, depuis);
+  const miens = envoisLeila[from] || new Set();
+  return apres.some(t => !miens.has(t));
 }
 
 // Traitement effectif : appelle Claude, applique le délai naturel, envoie la réponse, logge le récap
-async function handleIncomingText(from, rawText) {
-  // On mémorise le moment de ce message précis, pour la vérification d'écho juste avant l'envoi
-  const thisMessageAt = Date.now();
+async function handleIncomingText(from, rawText, recuLe = Date.now()) {
+  // recuLe = heure du dernier message du client traité ici : si l'équipe répond après, Leïla n'envoie rien
+  const thisMessageAt = recuLe;
 
   // Sépare le vrai texte des marqueurs vocal/image, et fabrique la version lisible pour l'historique
   const { hasAudio, realText, displayText } = normalizeIncoming(rawText);
   const text = displayText;
 
-  // Récupérer l'historique persistant depuis Supabase (100 par défaut, 200 pour un client importé)
-  const customLimit = await db.getHistoryLimit(from);
-  const history = await db.getHistory(from, customLimit || undefined);
-  const isKnownClient = history.some(m => m.content !== db.SYNTHETIC_OPENING); // déjà de vrais échanges enregistrés = client connu
+  // L'équipe a déjà répondu (ex. message de la nuit traité le matin) : rien à faire
+  if (await dejaRepondu(from, thisMessageAt)) {
+    console.log(`Pas de réponse de Leïla pour ${from} : l'équipe a déjà répondu`);
+    return;
+  }
 
-  // Sauvegarder le message client, puis reconstituer l'historique complet pour l'appel Claude
-  await db.appendMessage(from, 'user', text);
-  const fullHistory = [...history, { role: 'user', content: text }];
+  // Historique persistant (Supabase) : le message du client y est déjà, enregistré à la réception
+  const customLimit = await db.getHistoryLimit(from);
+  const fullHistory = await db.getHistory(from, customLimit || undefined);
+  if (!fullHistory.length || fullHistory[fullHistory.length - 1].role !== 'user') fullHistory.push({ role: 'user', content: text }); // filet si la base n'a pas répondu
+  const isKnownClient = fullHistory.length > 1; // déjà de vrais échanges avant ce message = client connu
 
   // Aucun vrai texte (seulement un vocal et/ou une image/un fichier sans légende) :
   // réponse "bateau" humaine (pas d'appel Claude) + note dans le récap pour que l'équipe regarde/écoute
@@ -827,13 +893,13 @@ async function handleIncomingText(from, rawText) {
     const needAck = !lastAckAt[from] || Date.now() - lastAckAt[from] > ACK_COOLDOWN_MS;
     if (needAck) {
       lastAckAt[from] = Date.now();
-      await db.appendMessage(from, 'assistant', ack);
       await sleep(randomDelay(15000, 45000));
-      if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
-        console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
+      if (await dejaRepondu(from, thisMessageAt)) {
+        console.log(`Envoi annulé pour ${from} : l'équipe a répondu pendant le délai d'attente`);
         return;
       }
-      await sendWhatsAppMessage(from, ack);
+      // Enregistré seulement s'il est vraiment parti
+      if (await sendWhatsAppMessage(from, ack)) { noterEnvoiLeila(from, ack); await db.appendMessage(from, 'assistant', ack); }
     }
     console.log(`${hasAudio ? 'Vocal' : 'Image/fichier'} sans texte reçu de ${from}, accusé de réception envoyé, noté au récap`);
     if (shouldTrigger(loggedForRecapAt, from)) {
@@ -896,8 +962,7 @@ async function handleIncomingText(from, rawText) {
     }
   }
 
-  // Sauvegarder la réponse (sans le marqueur) dans l'historique persistant
-  await db.appendMessage(from, 'assistant', reply);
+  // La réponse n'est enregistrée dans l'historique qu'une fois vraiment envoyée (plus bas)
   fullHistory.push({ role: 'assistant', content: reply });
 
   // Si c'est urgent, on alerte immédiatement Ismaël par WhatsApp (pas d'attente du récap groupé)
@@ -910,13 +975,19 @@ async function handleIncomingText(from, rawText) {
 
   // Double vérification juste avant l'envoi : si Ismaël a répondu manuellement PENDANT
   // ce délai d'attente, on annule l'envoi du bot pour éviter une réponse en double
-  if (lastIsmaelReplyAt[from] && lastIsmaelReplyAt[from] > thisMessageAt) {
-    console.log(`Envoi annulé pour ${from} : Ismaël a répondu manuellement pendant le délai d'attente`);
+  if (await dejaRepondu(from, thisMessageAt)) {
+    console.log(`Envoi annulé pour ${from} : l'équipe a répondu manuellement pendant le délai d'attente`);
     return;
   }
 
-  // Envoyer la réponse via WhatsApp
-  await sendWhatsAppMessage(from, reply);
+  // Envoyer la réponse via WhatsApp, puis l'enregistrer (seulement si elle est vraiment partie)
+  if (!(await sendWhatsAppMessage(from, reply))) {
+    console.error(`Réponse de Leïla NON envoyée à ${from} : pas enregistrée dans l'historique`);
+    return;
+  }
+  noterEnvoiLeila(from, reply);
+  await db.appendMessage(from, 'assistant', reply);
+  derniereReponseLeila = Date.now();
   if (batDemande) await require('./gestion/leila').renvoyerBat(from, batDemande);
 
   // Logger un résumé court pour le récap groupé, uniquement au moment clé
@@ -943,38 +1014,49 @@ async function handleIncomingText(from, rawText) {
 // Traite les messages en rattrapage (reçus pendant que le bot était inactif),
 // appelé dès que le bot redevient actif (activation manuelle ou passage en auto).
 // Ne traite QUE les conversations où Ismaël n'a pas déjà répondu manuellement depuis.
+let derniereReponseLeila = null;
+const rattrapageEnCours = new Set();
 async function flushBacklogIfActive() {
   if (isClosedForBreak(new Date())) return; // jamais de rattrapage pendant une fermeture prolongée
 
   const nowCheck = getGuadeloupeTime(new Date());
   if (!isBotDayActive(nowCheck.weekday)) return; // toujours inactif, rien à faire
+  if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) return; // attend l'ouverture
 
-  const numbers = Object.keys(backlogMessages);
-  for (const from of numbers) {
-    const items = backlogMessages[from];
-    delete backlogMessages[from];
-    if (!items || items.length === 0) continue;
-
-    // Dernière réponse humaine/bot connue : base persistante (Supabase) + mémoire (échos récents)
-    const dbLastReplyAt = await db.getLastAssistantAt(from);
-    const lastReplyAt = Math.max(dbLastReplyAt || 0, lastIsmaelReplyAt[from] || 0);
-
-    // On ne garde que les messages arrivés APRÈS la dernière réponse d'Ismaël,
-    // pas trop vieux, et qui ne sont pas de simples remerciements/accusés de réception
-    const now = Date.now();
-    const fresh = items.filter(it =>
-      it.at > lastReplyAt &&
-      now - it.at < MAX_BACKLOG_AGE_MS &&
-      !isPureAcknowledgment(it.text)
-    );
-
-    if (fresh.length === 0) {
-      console.log(`Rattrapage ignoré pour ${from} : déjà traité par Ismaël, trop ancien ou sans objet (${items.length} msg écartés)`);
-      continue;
+  for (const from of Object.keys(backlogMessages)) {
+    if (rattrapageEnCours.has(from)) continue;
+    const items = backlogMessages[from] || [];
+    if (!items.length) { delete backlogMessages[from]; continue; }
+    rattrapageEnCours.add(from);
+    const jusqua = Math.max(...items.map(it => it.at));
+    // Retiré de la file une fois traité (si le serveur redémarre en plein milieu, il est repris :
+    // la réponse déjà envoyée est alors vue comme « déjà répondu » et rien n'est renvoyé)
+    const retirer = async () => {
+      const reste = (backlogMessages[from] || []).filter(it => it.at > jusqua);
+      if (reste.length) backlogMessages[from] = reste; else delete backlogMessages[from];
+      await sauverAttente();
+      rattrapageEnCours.delete(from);
+    };
+    try {
+      // Dernière réponse humaine/bot connue : base persistante (Supabase) + mémoire (échos récents)
+      const dbLastReplyAt = await db.getLastAssistantAt(from);
+      const lastReplyAt = Math.max(dbLastReplyAt || 0, lastIsmaelReplyAt[from] || 0);
+      // Seulement les messages arrivés APRÈS la dernière réponse, pas trop vieux, et pas de simples « merci / ok »
+      const now = Date.now();
+      const fresh = items.filter(it => it.at > lastReplyAt && now - it.at < MAX_BACKLOG_AGE_MS && !isPureAcknowledgment(it.text));
+      if (fresh.length === 0) {
+        console.log(`Rattrapage ignoré pour ${from} : déjà traité par l'équipe, trop ancien ou sans objet (${items.length} msg écartés)`);
+        await retirer();
+        continue;
+      }
+      console.log(`Rattrapage de ${fresh.length}/${items.length} message(s) en attente pour ${from}`);
+      enFile(from, () => processMessageNow(from, fresh.map(it => it.text).join('\n'), Math.max(...fresh.map(it => it.at))))
+        .catch(err => console.error('Erreur rattrapage :', err))
+        .finally(() => retirer());
+    } catch (err) {
+      console.error(`Rattrapage ${from} :`, err.message);
+      rattrapageEnCours.delete(from);
     }
-
-    console.log(`Rattrapage de ${fresh.length}/${items.length} message(s) en attente pour ${from}`);
-    await processMessageNow(from, fresh.map(it => it.text).join('\n'));
   }
 }
 
@@ -1001,7 +1083,7 @@ async function callClaudeAPI(conversationHistory, isKnownClient, from) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: MODELE_REPONSE,
       max_tokens: 300,
       system: systemPrompt,
       messages: conversationHistory,
@@ -1062,17 +1144,21 @@ async function sendWhatsAppMessage(to, text) {
 // ============================================
 const morningRecapSentDates = new Set();
 
+let dernierEtatSauve = null;
 async function persistState() {
   try {
     const keys = Object.keys(dailyLogs).sort().slice(-4); // 4 derniers jours seulement
     const logs = {};
     keys.forEach(k => { logs[k] = dailyLogs[k]; });
-    await db.setSetting('bot_state', JSON.stringify({
+    const etat = JSON.stringify({
       dailyLogs: logs,
       manualLog,
       recapSentDates: [...recapSentDates],
       morningRecapSentDates: [...morningRecapSentDates],
-    }));
+    });
+    if (etat === dernierEtatSauve) return; // rien n'a changé depuis la dernière sauvegarde
+    await db.setSetting('bot_state', etat);
+    dernierEtatSauve = etat;
   } catch (e) {
     console.error('persistState erreur:', e.message);
   }
@@ -1098,15 +1184,10 @@ async function checkDailyRecapDue() {
   const now = new Date();
   const local = getGuadeloupeTime(now);
 
-  // Mardi matin = récap de lundi ; Vendredi matin = récap de jeudi
-  const recapMap = { Tue: 'Mon', Fri: 'Thu' };
-  const targetDay = recapMap[local.weekday];
-  if (!targetDay) return;
+  // Le lendemain matin de chaque jour actif du planning (ex. mardi pour lundi, vendredi pour jeudi)
   if (local.hour < 8 || local.hour >= 10) return; // fenêtre d'envoi : 8h-10h
-
-  // Trouver la date d'hier (le jour auto concerné)
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterday = new Date(now.getTime() - 86400e3);
+  if (!planning.jours.includes(getGuadeloupeTime(yesterday).weekday)) return;
   const dateKey = getGuadeloupeDateKey(yesterday);
 
   if (recapSentDates.has(dateKey)) return; // déjà envoyé
@@ -1132,7 +1213,7 @@ async function checkDailyRecapDue() {
 async function checkMorningRecapDue() {
   const now = new Date();
   const local = getGuadeloupeTime(now);
-  if (!EARLY_CUTOFF_DAYS.includes(local.weekday) || local.hour < EARLY_CUTOFF_HOUR) return;
+  if (planning.coupureHeure == null || !(planning.coupureJours || []).includes(local.weekday) || local.hour < planning.coupureHeure) return;
 
   const dateKey = getGuadeloupeDateKey(now);
   if (morningRecapSentDates.has(dateKey)) return;
@@ -1176,11 +1257,21 @@ async function sendRecap(text) {
 // ADMINISTRATION - Activation/désactivation manuelle du bot
 // ============================================
 
+// Les commandes /admin/* ne sont plus accessibles depuis Internet : uniquement depuis le serveur lui-même
+// (page Leïla du dashboard, qui ajoute le jeton). Le jeton reste vérifié en plus.
+app.use('/admin', (req, res, next) => {
+  const ip = req.socket?.remoteAddress || '';
+  if (/^(::1|127\.|::ffff:127\.)/.test(ip)) return next();
+  res.status(404).send('Introuvable');
+});
+
 // Force le bot à répondre, peu importe le jour (ex: vendredi matin si besoin)
 app.get('/admin/activer', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  // Récap d'une session manuelle précédente pas encore parti : on l'envoie d'abord (il n'est plus jamais effacé)
+  if (manualLog.length) await flushManualRecap();
   manualOverride = true;
-  manualLog = []; // nouvelle session manuelle, on repart d'un log vide
+  await sauverEtatLeila();
   await flushBacklogIfActive(); // traite les messages en attente depuis la dernière activité
   res.send('✅ Bot ACTIVÉ manuellement (répond peu importe le jour)');
 });
@@ -1190,6 +1281,7 @@ app.get('/admin/desactiver', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const wasManualActive = manualOverride === true;
   manualOverride = false;
+  await sauverEtatLeila();
   if (wasManualActive) await flushManualRecap();
   res.send('🛑 Bot DÉSACTIVÉ manuellement' + (wasManualActive ? ' — récap envoyé' : ''));
 });
@@ -1199,53 +1291,86 @@ app.get('/admin/auto', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const wasManualActive = manualOverride === true;
   manualOverride = null;
+  await sauverEtatLeila();
   if (wasManualActive) await flushManualRecap();
   await flushBacklogIfActive(); // au cas où on retombe pile sur un jour auto actif
-  res.send('🔄 Bot remis en mode AUTOMATIQUE (planning lundi/jeudi)' + (wasManualActive ? ' — récap envoyé' : ''));
+  res.send(`🔄 Bot remis en mode AUTOMATIQUE (${planningTexte()})` + (wasManualActive ? ' — récap envoyé' : ''));
 });
 
 // Affiche le statut actuel du bot
 app.get('/admin/statut', (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const todayKey = getGuadeloupeDateKey(new Date());
-  if (CLOSED_UNTIL && todayKey <= CLOSED_UNTIL) {
-    return res.send(`🔒 FERMETURE (Render) jusqu'au ${CLOSED_UNTIL} inclus`);
-  }
-  if (closureOverrideUntil && todayKey <= closureOverrideUntil) {
-    return res.send(`🔒 FERMETURE (panel) jusqu'au ${closureOverrideUntil} inclus`);
-  }
-  const mode = manualOverride === null ? 'AUTOMATIQUE (lundi/jeudi)' : manualOverride ? 'FORCÉ ACTIF' : 'FORCÉ INACTIF';
-  res.send(`Statut actuel : ${mode}`);
+  let mode;
+  if (CLOSED_UNTIL && todayKey <= CLOSED_UNTIL) mode = `🔒 FERMETURE (Render) jusqu'au ${CLOSED_UNTIL} inclus`;
+  else if (closureOverrideUntil && todayKey <= closureOverrideUntil) mode = `🔒 FERMETURE jusqu'au ${closureOverrideUntil} inclus`;
+  else mode = `Statut actuel : ${manualOverride === null ? 'AUTOMATIQUE' : manualOverride ? 'FORCÉ ACTIF' : 'FORCÉ INACTIF'}`;
+  const enAttente = Object.values(backlogMessages).reduce((n, l) => n + (l?.length || 0), 0);
+  const lignes = [
+    mode,
+    `Maintenant : ${etatMaintenant()}`,
+    `Planning : ${planningTexte()}`,
+    `En attente : ${enAttente ? `${enAttente} message(s) de ${Object.keys(backlogMessages).length} client(s)` : 'aucun message'}`,
+    `Dernière réponse de Leïla : ${derniereReponseLeila ? new Date(derniereReponseLeila).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'aucune depuis le dernier redémarrage'}`,
+  ];
+  if (ignoreBusinessHours) lignes.push('🧪 Simulation des heures d\'ouverture en cours');
+  res.send(lignes.join('\n'));
 });
 
+// Répond-elle maintenant ? Sinon, quand reprend-elle ?
+function repondA(date) {
+  if (isClosedForBreak(date)) return false;
+  const t = getGuadeloupeTime(date);
+  if (!isBotDayActive(t.weekday)) return false;
+  if (ignoreBusinessHours) return true;
+  return isWithinBusinessHours(t) && !isHumanHandoffWindow(t.weekday, t.hour);
+}
+function etatMaintenant() {
+  if (repondA(new Date())) return '✅ Leïla répond aux clients';
+  if (manualOverride === false) return '⏸ en pause jusqu\'à ce qu\'on la réactive ou la remette en automatique';
+  const pas = 15 * 60e3;
+  let d = new Date(Math.ceil(Date.now() / pas) * pas);
+  for (let i = 0; i < 4 * 24 * 21; i++, d = new Date(d.getTime() + pas)) {
+    if (repondA(d)) {
+      const t = getGuadeloupeTime(d);
+      return `💤 en veille, reprend ${JOURS_FR[t.weekday]} ${d.toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit' })} à ${String(t.hour).padStart(2, '0')}h${String(t.minute).padStart(2, '0')}`;
+    }
+  }
+  return '💤 en veille (aucun jour actif dans le planning)';
+}
+
 // Ferme le bot jusqu'à une date donnée (format YYYY-MM-DD), réglable depuis le panel
-app.get('/admin/fermer', (req, res) => {
+app.get('/admin/fermer', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   const date = req.query.date;
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).send('Date invalide, format attendu : YYYY-MM-DD');
   closureOverrideUntil = date;
+  await sauverEtatLeila();
   res.send(`🔒 Fermeture activée jusqu'au ${date} inclus`);
 });
 
 // Lève la fermeture réglée depuis le panel (ne touche pas à CLOSED_UNTIL sur Render, si utilisée)
-app.get('/admin/lever-fermeture', (req, res) => {
+app.get('/admin/lever-fermeture', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   closureOverrideUntil = null;
+  await sauverEtatLeila();
   res.send('🔓 Fermeture (panel) levée. Si le bot reste fermé, vérifie la variable CLOSED_UNTIL sur Render.');
 });
 
 // TEST UNIQUEMENT : ignore l'attente des horaires ouvrés (réponse immédiate, peu importe l'heure)
-app.get('/admin/test-horaires-on', (req, res) => {
+app.get('/admin/test-horaires-on', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   ignoreBusinessHours = true;
+  await sauverEtatLeila();
   res.send('🧪 Mode test activé : le bot répond immédiatement peu importe l\'heure');
 });
 
 // Remet la vérification normale des horaires ouvrés
-app.get('/admin/test-horaires-off', (req, res) => {
+app.get('/admin/test-horaires-off', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   ignoreBusinessHours = false;
-  res.send('✅ Mode test désactivé : le bot respecte à nouveau les horaires ouvrés (8h30-17h30)');
+  await sauverEtatLeila();
+  res.send(`✅ Mode test désactivé : le bot respecte à nouveau les horaires (${planning.ouverture.replace(':', 'h')}-${planning.fermeture.replace(':', 'h')})`);
 });
 
 // Enregistre une instruction de contexte générale, injectée dans le prompt de tous les clients
@@ -1293,6 +1418,40 @@ app.get('/admin/note-client-voir', async (req, res) => {
   if (!numero) return res.status(400).send('Numéro manquant (paramètre "numero")');
   const texte = await db.getClientNote(numero);
   res.send(texte ? `Note actuelle pour ${numero} :\n\n${texte}` : `Aucune note pour ${numero}.`);
+});
+
+// Planning de Leïla (jours actifs, horaires, arrêt de l'après-midi)
+app.get('/admin/planning-voir', (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  res.json(planning);
+});
+app.post('/admin/planning', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const b = req.body || {}, JOURS = Object.keys(JOURS_FR), H = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const jours = (Array.isArray(b.jours) ? b.jours : []).filter(j => JOURS.includes(j));
+  const coupureJours = (Array.isArray(b.coupureJours) ? b.coupureJours : []).filter(j => JOURS.includes(j));
+  if (!H.test(b.ouverture || '') || !H.test(b.fermeture || '')) return res.status(400).send('Horaires invalides (format HH:MM)');
+  if (minutesDe(b.ouverture) >= minutesDe(b.fermeture)) return res.status(400).send("L'heure d'ouverture doit être avant la fermeture");
+  const coupureHeure = b.coupureHeure === '' || b.coupureHeure == null ? null : Number(b.coupureHeure);
+  if (coupureHeure != null && !(coupureHeure >= 0 && coupureHeure <= 23)) return res.status(400).send('Heure d\'arrêt invalide');
+  planning = { jours, ouverture: b.ouverture, fermeture: b.fermeture, coupureJours, coupureHeure };
+  await db.setSetting('leila_planning', JSON.stringify(planning));
+  res.send(`✅ Planning enregistré : ${planningTexte()}`);
+});
+
+// Catalogue, tarifs et infos de livraison donnés par Leïla
+app.get('/admin/catalogue-voir', async (req, res) => {
+  if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const perso = await db.getSetting('leila_catalogue');
+  res.json({ texte: perso || CATALOGUE_DEFAUT, personnalise: !!perso });
+});
+app.post('/admin/catalogue', async (req, res) => {
+  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
+  const texte = String(req.body.texte || '').trim();
+  if (req.body.defaut) { await db.setSetting('leila_catalogue', ''); return res.send('✅ Catalogue remis par défaut'); }
+  if (texte.length < 50) return res.status(400).send('Catalogue trop court : vérifie le texte');
+  await db.setSetting('leila_catalogue', texte.slice(0, 20000));
+  res.send('✅ Catalogue et tarifs enregistrés : Leïla les utilise dès le prochain message');
 });
 
 // Affiche les messages actuellement en attente de rattrapage (debug/vérification)
@@ -1387,6 +1546,7 @@ async function processScheduledMessages() {
       }
       const ok = await sendWhatsAppMessage(m.to, m.text);
       if (ok) {
+        noterEnvoiLeila(m.to, m.text);
         await db.appendMessage(m.to, 'assistant', m.text);
         console.log(`Message programmé envoyé à ${m.to}`);
       } else {
@@ -1436,12 +1596,28 @@ app.post('/admin/message-programme-annuler', async (req, res) => {
   res.send(n ? `✅ Message programmé annulé pour ${numero}` : `Aucun message en attente pour ${numero}`);
 });
 
+// Routine périodique : récaps, rattrapage, messages programmés, sauvegarde de l'état.
+// Tourne toute seule chaque minute (plus besoin d'UptimeRobot pour ça) ; UptimeRobot garde juste le serveur éveillé.
+let routineEnCours = false;
+let dernierEssaiRecapManuel = 0;
+async function routine() {
+  if (routineEnCours) return;
+  routineEnCours = true;
+  try {
+    await checkMorningRecapDue();
+    await checkDailyRecapDue();
+    await flushBacklogIfActive();
+    // Récap d'une session manuelle qui n'avait pas pu partir : nouvel essai toutes les 30 min
+    if (manualOverride !== true && manualLog.length && Date.now() - dernierEssaiRecapManuel > 30 * 60e3) { dernierEssaiRecapManuel = Date.now(); await flushManualRecap(); }
+    await persistState();
+    processScheduledMessages().catch(e => console.error(e)); // sans attendre (délai d'envoi naturel)
+  } catch (e) {
+    console.error('Routine Leïla :', e.message);
+  } finally { routineEnCours = false; }
+}
+
 app.get('/cron/keepalive', async (req, res) => {
-  await checkMorningRecapDue();
-  await checkDailyRecapDue();
-  await flushBacklogIfActive();
-  persistState(); // sauvegarde l'état des récaps (sans attendre)
-  processScheduledMessages().catch(e => console.error(e)); // sans attendre (délai d'envoi naturel)
+  routine().catch(() => {});
   res.send('OK');
 });
 
@@ -1547,406 +1723,8 @@ app.post('/admin/simuler', async (req, res) => {
 // ============================================
 // PANNEAU DE CONTRÔLE MOBILE (même serveur = pas de souci de sécurité cross-domaine)
 // ============================================
-app.get('/panel', (req, res) => {
-  res.send(`<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Bot - Contrôle</title>
-<style>
-  :root {
-    --bg: #0f1115;
-    --card: #1a1d24;
-    --accent: #25d366;
-    --danger: #e5484d;
-    --text: #f4f4f5;
-    --muted: #9ca3af;
-    --border: #2a2d35;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    min-height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .wrap { max-width: 480px; margin: 0 auto; padding: 24px 16px 40px; }
-  h1 { font-size: 20px; font-weight: 700; margin: 8px 0 4px; }
-  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
-  .status-box {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 16px;
-    margin-bottom: 20px;
-    min-height: 52px;
-    font-size: 14px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-  }
-  .status-box.loading { color: var(--muted); }
-  .section-title {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--muted);
-    margin: 20px 0 10px;
-    font-weight: 600;
-  }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  button {
-    border: none;
-    border-radius: 14px;
-    padding: 16px 10px;
-    font-size: 15px;
-    font-weight: 600;
-    color: white;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-  }
-  button:active { transform: scale(0.96); opacity: 0.85; }
-  .btn-emoji { font-size: 22px; }
-  .btn-activer { background: var(--accent); }
-  .btn-desactiver { background: var(--danger); }
-  .btn-auto { background: #3b82f6; }
-  .btn-statut { background: #6b7280; }
-  .btn-test { background: #8b5cf6; }
-  .btn-full { grid-column: 1 / -1; }
-  footer { text-align: center; color: var(--muted); font-size: 11px; margin-top: 28px; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <h1>🤖 IGS Bot WhatsApp</h1>
-  <div class="subtitle">Panneau de contrôle rapide</div>
-
-  <div class="status-box loading" id="status">Chargement du statut...</div>
-
-  <div class="section-title">Activation</div>
-  <div class="grid">
-    <button class="btn-activer" onclick="callAdmin('activer')">
-      <span class="btn-emoji">✅</span> Activer maintenant
-    </button>
-    <button class="btn-desactiver" onclick="callAdmin('desactiver')">
-      <span class="btn-emoji">🛑</span> Désactiver
-    </button>
-    <button class="btn-auto btn-full" onclick="callAdmin('auto')">
-      <span class="btn-emoji">🔄</span> Remettre en automatique
-    </button>
-  </div>
-
-  <div class="section-title">Infos</div>
-  <div class="grid">
-    <button class="btn-statut btn-full" onclick="callAdmin('statut')">
-      <span class="btn-emoji">📊</span> Voir le statut actuel
-    </button>
-  </div>
-
-  <div class="section-title">Fermeture prolongée</div>
-  <div style="display:flex; gap:8px; margin-bottom:10px;">
-    <input type="date" id="closeDate" style="flex:1; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px;">
-  </div>
-  <div class="grid">
-    <button class="btn-desactiver" onclick="fermerJusqua()">
-      <span class="btn-emoji">🔒</span> Fermer jusqu'à cette date
-    </button>
-    <button class="btn-auto" onclick="callAdmin('lever-fermeture')">
-      <span class="btn-emoji">🔓</span> Lever la fermeture
-    </button>
-  </div>
-
-  <div class="section-title">Contexte général (injecté dans le prompt du bot)</div>
-  <textarea id="contexteGeneral" placeholder="Ex: Attention, rupture de stock sur les polos noirs cette semaine..." style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
-  <div class="grid">
-    <button class="btn-desactiver" onclick="sauverContexte()">
-      <span class="btn-emoji">🔄</span> Remplacer tout
-    </button>
-    <button class="btn-auto" onclick="ajouterContexte()">
-      <span class="btn-emoji">➕</span> Ajouter à la suite
-    </button>
-    <button class="btn-statut btn-full" onclick="callAdmin('contexte-voir')">
-      <span class="btn-emoji">👁️</span> Voir l'actuel
-    </button>
-  </div>
-
-  <div class="section-title">Note pour un client précis</div>
-  <input id="noteNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <textarea id="noteTexte" placeholder="Ex: Cliente régulière, tutoiement ok, anniversaire le 27/10..." style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
-  <div class="grid">
-    <button class="btn-auto" onclick="sauverNoteClient()">
-      <span class="btn-emoji">💾</span> Enregistrer
-    </button>
-    <button class="btn-statut" onclick="voirNoteClient()">
-      <span class="btn-emoji">👁️</span> Voir la note
-    </button>
-  </div>
-
-  <div class="section-title">Message programmé (envoi unique à 8h30)</div>
-  <input id="progNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <textarea id="progTexte" placeholder="Message exact à envoyer, une seule fois" style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
-  <div class="grid">
-    <button class="btn-auto" onclick="programmerMessage()">
-      <span class="btn-emoji">⏰</span> Programmer
-    </button>
-    <button class="btn-statut" onclick="callAdmin('messages-programmes')">
-      <span class="btn-emoji">👁️</span> Voir la liste
-    </button>
-    <button class="btn-statut btn-full" onclick="annulerProgramme()">
-      <span class="btn-emoji">🛑</span> Annuler pour ce numéro
-    </button>
-  </div>
-
-  <div class="section-title">Importer un historique (clients importants)</div>
-  <input id="importNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <input id="importNomEquipe" type="text" value="Igs Custom bar" placeholder="Ton nom tel qu'affiché dans l'export" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <input id="importFichier" type="file" accept=".txt" style="width:100%; color:#f4f4f5; font-size:13px; margin-bottom:8px;">
-  <textarea id="importTexte" placeholder="...ou colle ici le contenu du fichier .txt exporté depuis WhatsApp" style="width:100%; min-height:100px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:13px; font-family:inherit; margin-bottom:10px;"></textarea>
-  <div class="grid">
-    <button class="btn-auto btn-full" onclick="importerHistorique()">
-      <span class="btn-emoji">📥</span> Importer cet historique
-    </button>
-  </div>
-
-  <div class="section-title">Simuler une réponse (sans rien envoyer)</div>
-  <input id="simNumero" type="text" placeholder="Numéro (ex: 590690XXXXXX)" style="width:100%; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; margin-bottom:8px;">
-  <textarea id="simMessage" placeholder="Message fictif à tester (ex: Bonjour, du nouveau pour ma commande ?)" style="width:100%; min-height:70px; border-radius:10px; border:1px solid #2a2d35; background:#1a1d24; color:#f4f4f5; padding:10px; font-size:14px; font-family:inherit; margin-bottom:10px;"></textarea>
-  <div class="grid">
-    <button class="btn-auto btn-full" onclick="simulerReponse()">
-      <span class="btn-emoji">🧪</span> Simuler la réponse
-    </button>
-  </div>
-
-  <div class="section-title">Outils de test</div>
-  <div class="grid">
-    <button class="btn-test" onclick="callAdmin('test-recap')">
-      <span class="btn-emoji">📋</span> Forcer le récap
-    </button>
-    <button class="btn-test" onclick="callAdmin('backlog')">
-      <span class="btn-emoji">📥</span> Voir le rattrapage
-    </button>
-    <button class="btn-test" onclick="callAdmin('test-horaires-on')">
-      <span class="btn-emoji">🧪</span> Ignorer horaires
-    </button>
-    <button class="btn-test btn-full" onclick="callAdmin('test-horaires-off')">
-      <span class="btn-emoji">⏰</span> Respecter horaires (normal)
-    </button>
-  </div>
-
-  <footer>igs-bot-whatsapp</footer>
-</div>
-
-<script>
-var TOKEN = '${ADMIN_TOKEN || ""}';
-
-function callAdmin(action) {
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/' + action + '?token=' + TOKEN)
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function(err) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function fermerJusqua() {
-  var date = document.getElementById('closeDate').value;
-  if (!date) { alert('Choisis une date d\\'abord'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/fermer?token=' + TOKEN + '&date=' + date)
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function(err) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function sauverContexte() {
-  var texte = document.getElementById('contexteGeneral').value;
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/contexte', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, texte: texte })
-  })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function ajouterContexte() {
-  var texte = document.getElementById('contexteGeneral').value;
-  if (!texte) { alert('Écris d\\'abord quelque chose à ajouter'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/contexte-ajouter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, texte: texte })
-  })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function postAdmin(route, payload) {
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  payload.token = TOKEN;
-  fetch(route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    .then(function(res) { return res.text(); })
-    .then(function(text) { statusBox.classList.remove('loading'); statusBox.textContent = text; })
-    .catch(function() { statusBox.classList.remove('loading'); statusBox.textContent = 'Erreur de connexion, réessaie.'; });
-}
-function programmerMessage() {
-  var numero = document.getElementById('progNumero').value;
-  var texte = document.getElementById('progTexte').value;
-  if (!numero || !texte) { alert('Numéro et message obligatoires'); return; }
-  postAdmin('/admin/message-programme', { numero: numero, texte: texte });
-}
-function annulerProgramme() {
-  var numero = document.getElementById('progNumero').value;
-  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
-  postAdmin('/admin/message-programme-annuler', { numero: numero });
-}
-
-function sauverNoteClient() {
-  var numero = document.getElementById('noteNumero').value;
-  var texte = document.getElementById('noteTexte').value;
-  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/note-client', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, numero: numero, texte: texte })
-  })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function voirNoteClient() {
-  var numero = document.getElementById('noteNumero').value;
-  if (!numero) { alert('Indique un numéro d\\'abord'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Chargement...';
-  fetch('/admin/note-client-voir?token=' + TOKEN + '&numero=' + encodeURIComponent(numero))
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-document.getElementById('importFichier').addEventListener('change', function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(evt) {
-    document.getElementById('importTexte').value = evt.target.result;
-  };
-  reader.readAsText(file, 'UTF-8');
-});
-
-function importerHistorique() {
-  var numero = document.getElementById('importNumero').value;
-  var nomEquipe = document.getElementById('importNomEquipe').value;
-  var texte = document.getElementById('importTexte').value;
-  if (!numero || !nomEquipe || !texte) { alert('Remplis les 3 champs (numéro, ton nom, texte)'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Import en cours...';
-  fetch('/admin/importer-historique', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, numero: numero, nomEquipe: nomEquipe, texte: texte })
-  })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-function simulerReponse() {
-  var numero = document.getElementById('simNumero').value;
-  var message = document.getElementById('simMessage').value;
-  if (!numero || !message) { alert('Remplis le numéro et le message'); return; }
-  var statusBox = document.getElementById('status');
-  statusBox.classList.add('loading');
-  statusBox.textContent = 'Simulation en cours...';
-  fetch('/admin/simuler', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token: TOKEN, numero: numero, message: message })
-  })
-    .then(function(res) { return res.text(); })
-    .then(function(text) {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = text;
-    })
-    .catch(function() {
-      statusBox.classList.remove('loading');
-      statusBox.textContent = 'Erreur de connexion, réessaie.';
-    });
-}
-
-callAdmin('statut');
-</script>
-</body>
-</html>`);
-});
+// Ancien panneau : remplacé par la page Leïla du dashboard
+app.get('/panel', (req, res) => res.redirect('/gestion/leila'));
 
 // ============================================
 // LANCEMENT SERVEUR
@@ -1955,7 +1733,12 @@ app.get('/', (req, res) => {
   res.send('IGS Bot WhatsApp - Serveur actif ✅');
 });
 
-loadState();
+// État de Leïla (mode, fermeture, planning, messages en attente) restauré avant de traiter les messages
+const pretLeila = Promise.all([loadState(), chargerEtatLeila()]).catch(e => console.error('Démarrage Leïla :', e.message));
+pretLeila.then(() => {
+  setTimeout(() => routine().catch(() => {}), 20e3);
+  setInterval(() => routine().catch(() => {}), 60e3);
+});
 app.listen(PORT, () => {
   console.log(`Serveur IGS Bot démarré sur le port ${PORT}`);
 });

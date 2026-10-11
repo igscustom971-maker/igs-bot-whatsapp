@@ -19,7 +19,7 @@ function statutClair(c) {
   if (st === 'LIVREE') return 'commande livrée / récupérée';
   if (st === 'EXPEDIEE') return 'commande expédiée';
   if (st === 'AEXPEDIER') return c.numero_suivi ? 'commande expédiée' : 'commande prête, en cours d\'expédition';
-  if (st === 'TERMINEE') return 'commande PRÊTE à être récupérée (du lundi au vendredi de 14h30 à 17h30, 62 rue Louis Vatable, Pointe-à-Pitre)';
+  if (st === 'TERMINEE') return 'commande PRÊTE à être récupérée (du lundi au vendredi de 14h30 à 17h30)';
   if (st === 'ENPRODUCTION' || st === 'ENFLOCAGE') return 'commande en cours de production';
   if (st === 'ENCOMMANDE') return rep && rep.verdict === 'valide' ? 'BAT validé, les textiles sont commandés, la production suivra' : (c.bat_envoye_le ? `textiles commandés ; BAT envoyé le ${fdate(c.bat_envoye_le)}, en attente de la validation du client` : 'textiles commandés, le BAT est en préparation');
   if (st === 'VALIDEE') return rep && rep.verdict === 'valide' || bi.bat || c.bat_envoye_le ? 'BAT validé, la commande va passer en production' : 'commande validée, le BAT (bon à tirer) est en préparation';
@@ -45,22 +45,113 @@ async function commandesDuClient(tel, devisCites = []) {
   return liste;
 }
 
+// ---------- Identification par le nom, le contact (e-mail) ou le téléphone ----------
+// Mots significatifs d'un nom (sans accents, 4 lettres et plus, hors mots trop courants)
+const MOTS_COURANTS = new Set(['team', 'factory', 'association', 'asso', 'club', 'sarl', 'sasu', 'eurl', 'entreprise', 'societe', 'commande', 'commandes', 'planche', 'planches', 'tshirt', 'tshirts', 'shirt', 'maillot', 'maillots', 'polo', 'polos', 'sweat', 'custom', 'madame', 'monsieur', 'mairie', 'ecole', 'college', 'lycee', 'groupe', 'sport', 'sports', 'boutique', 'store', 'shop', 'bonjour', 'bonsoir', 'merci', 'pour', 'avec', 'dans', 'votre', 'notre', 'cest', 'nous', 'vous', 'elle', 'quand', 'est', 'prete', 'pret', 'guadeloupe', 'martinique', 'gmail', 'hotmail', 'yahoo', 'outlook', 'orange', 'wanadoo', 'icloud', 'live']);
+const mots = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4 && !MOTS_COURANTS.has(w) && !/^\d+$/.test(w));
+// Le nom d'une commande correspond-il à ce que le client a écrit / à son nom WhatsApp ?
+function correspondNom(nom, motsClient, frequence) {
+  const m = [...new Set(mots(nom))];
+  if (!m.length) return false;
+  const trouves = m.filter(w => motsClient.has(w));
+  if (trouves.length >= 2) return true;                                   // prénom + nom, ou deux mots de l'enseigne
+  if (m.length === 1 && trouves.length === 1 && trouves[0].length >= 5) return true; // nom d'un seul mot (ex. une enseigne)
+  return trouves.some(w => w.length >= 6 && (frequence.get(w) || 0) <= 1); // mot rare, propre à ce client
+}
+
+// Contact Odoo des clients planches (le tableau des planches n'a pas le téléphone) : mis en cache 6 h
+const contactsPlanches = new Map();
+async function contactPlancheCache(client) {
+  const k = String(client || '').trim().toLowerCase();
+  const c = contactsPlanches.get(k);
+  if (c && Date.now() - c.le < 6 * 3600e3) return c;
+  let r = { email: null, tel: null };
+  try {
+    r = await Promise.race([require('./notifications').contactPlanche(client), new Promise(ok => setTimeout(() => ok({ email: null, tel: null }), 4000))]);
+  } catch {}
+  const v = { email: (r.email || '').toLowerCase() || null, tel: r.tel || null, le: Date.now() };
+  contactsPlanches.set(k, v);
+  return v;
+}
+
+function statutPlanche(p) {
+  const st = norm(p.statut);
+  if (st === 'LIVREE') return 'planche récupérée / livrée';
+  if (st === 'EXPEDIEE') return 'planche expédiée';
+  if (st === 'ARECUPERER') return 'planche PRÊTE à être récupérée (du lundi au vendredi de 14h30 à 17h30)';
+  return 'planche en cours de préparation (production sous 24 à 48 h)';
+}
+
+// Toutes les commandes et planches qui peuvent concerner ce client
+async function trouverPourClient(tel, { devisCites = [], emails = [], motsClient = new Set() } = {}) {
+  const { rows } = await commandes.listCommandes();
+  const cites = devisCites.map(d => d.toUpperCase());
+  let pl = [];
+  try { pl = ((await require('./planches').listPlanches()).rows || []).filter(p => norm(p.statut) !== 'LIVREE' || (p.statut_le && Date.now() - Date.parse(p.statut_le) < 7 * 86400e3)); } catch {}
+  const frequence = new Map();
+  for (const n of [...rows.map(r => r.client), ...pl.map(p => p.client)]) for (const w of new Set(mots(n))) frequence.set(w, (frequence.get(w) || 0) + 1);
+  const out = [];
+  for (const c of rows) {
+    let par = null;
+    if (tel && c.telephone === tel) par = 'telephone';
+    else if (c.n_devis && cites.includes(c.n_devis.toUpperCase())) par = 'devis';
+    else if (c.email && emails.includes(String(c.email).toLowerCase())) par = 'email';
+    else if (correspondNom(c.client, motsClient, frequence)) par = 'nom';
+    if (par) out.push({ type: 'commande', par, c });
+  }
+  // Commandes livrées récemment (gardées 30 jours), retrouvées par le téléphone
+  if (supabase && tel) {
+    const { data } = await supabase.from('gestion_commandes').select('cle, n_devis, client, statut, numero_suivi, telephone, synced_at')
+      .eq('telephone', tel).eq('present', false).gte('synced_at', new Date(Date.now() - 30 * 86400e3).toISOString()).limit(5);
+    for (const d of data || []) if (!out.some(x => x.c.cle === d.cle)) out.push({ type: 'commande', par: 'telephone', c: { ...d, statut: d.statut || 'LIVRÉE' } });
+  }
+  const contacts = await Promise.all(pl.slice(0, 30).map(p => contactPlancheCache(p.client)));
+  pl.slice(0, 30).forEach((p, i) => {
+    const ct = contacts[i];
+    let par = null;
+    if (tel && ct.tel === tel) par = 'telephone';
+    else if (p.n_devis && cites.includes(String(p.n_devis).toUpperCase())) par = 'devis';
+    else if (ct.email && emails.includes(ct.email)) par = 'email';
+    else if (correspondNom(p.client, motsClient, frequence)) par = 'nom';
+    if (par) out.push({ type: 'planche', par, c: p });
+  });
+  const rang = { telephone: 0, devis: 1, email: 2, nom: 3 };
+  return out.sort((a, b) => rang[a.par] - rang[b.par]);
+}
+
 // Bloc ajouté au prompt système de Leïla
 async function contexteCommandes(tel) {
   try {
-    let devisCites = [];
+    let devisCites = [], emails = [], textes = '';
     if (supabase && tel) {
-      const { data } = await supabase.from('conversations').select('content').eq('phone_number', tel).eq('role', 'user').order('created_at', { ascending: false }).limit(10);
-      devisCites = [...new Set((data || []).flatMap(m => String(m.content || '').toUpperCase().match(/\bDE\s?\d{6,8}(?:-R\d+)?\b/g) || []).map(d => d.replace(/\s/g, '')))];
+      const [{ data }, { data: cl }] = await Promise.all([
+        supabase.from('conversations').select('content').eq('phone_number', tel).eq('role', 'user').order('created_at', { ascending: false }).limit(15),
+        supabase.from('clients').select('name').eq('phone_number', tel).maybeSingle(),
+      ]);
+      textes = (data || []).map(m => String(m.content || '')).join('\n') + '\n' + (cl?.name || '');
+      devisCites = [...new Set((textes.toUpperCase().match(/\bDE\s?\d{6,8}(?:-R\d+)?\b/g) || []).map(d => d.replace(/\s/g, '')))];
+      emails = [...new Set((textes.match(/[\w.+-]+@[\w-]+\.[\w.]+/g) || []).map(e => e.toLowerCase()))];
     }
-    const liste = await commandesDuClient(tel, devisCites);
+    const motsClient = new Set(mots(textes));
+    const liste = await trouverPourClient(tel, { devisCites, emails, motsClient });
     if (!liste.length) {
-      return '\n\nCOMMANDES DU CLIENT : aucune commande trouvée pour ce numéro. Si le client demande où en est sa commande, demande-lui gentiment son numéro de devis (il commence par DE).';
+      return '\n\nCOMMANDES DU CLIENT : aucune commande ni planche en cours retrouvée pour ce numéro, ce nom ou ce contact. Si le client demande où en est sa commande, demande-lui simplement à quel nom (ou quelle entreprise) la commande a été passée, ou son adresse e-mail. Le numéro de devis (il commence par DE) aide aussi s\'il l\'a, mais il ne le connaît pas forcément.';
     }
-    const lignes = liste.slice(0, 6).map(c => `- ${c.n_devis || 'sans devis'}${c.infos ? ' (' + String(c.infos).slice(0, 80) + ')' : ''} : ${statutClair(c)}${c.numero_suivi ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}${(c.bat_envoye_le || (c.bat_info && c.bat_info.bat)) ? (tel && c.telephone === tel ? ' ; BAT disponible' : ' ; BAT existant mais ce numéro n\'est pas celui de la commande : ne le renvoie pas, propose que l\'équipe le renvoie au numéro ou à l\'e-mail de la commande') : ''}`);
-    return `\n\nCOMMANDES DU CLIENT (informations internes à jour, à utiliser UNIQUEMENT si le client demande où en est sa commande, son BAT ou son colis) :
+    const lignes = liste.slice(0, 8).map(({ type, par, c }) => {
+      const sur = par === 'nom' ? 'IDENTIFIÉE PAR LE NOM SEULEMENT (à confirmer)' : par === 'email' ? 'identifiée par l\'e-mail' : par === 'devis' ? 'identifiée par le N° de devis cité' : 'identifiée par le numéro de téléphone';
+      const fort = par === 'telephone' || par === 'email';
+      if (type === 'planche') {
+        return `- Planche DTF ${c.n_devis || ''} au nom de ${c.client}${c.format ? ' (' + c.format + ')' : c.metres ? ' (' + String(c.metres).replace('.', ',') + ' m)' : ''} [${sur}] : ${statutPlanche(c)}${c.numero_suivi && fort ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}`;
+      }
+      return `- Commande ${c.n_devis || 'sans devis'} au nom de ${c.client || '?'}${c.infos ? ' (' + String(c.infos).replace(/\s+/g, ' ').slice(0, 80) + ')' : ''} [${sur}] : ${statutClair(c)}${c.numero_suivi && fort ? ` ; N° de suivi La Poste : ${c.numero_suivi} (${suiviLien(c.numero_suivi)})` : ''}${(c.bat_envoye_le || (c.bat_info && c.bat_info.bat)) ? (tel && c.telephone === tel ? ' ; BAT disponible' : ' ; BAT existant mais ce numéro n\'est pas celui de la commande : ne le renvoie pas, propose que l\'équipe le renvoie au numéro ou à l\'e-mail de la commande') : ''}`;
+    });
+    return `\n\nCOMMANDES DU CLIENT (informations internes À JOUR EN TEMPS RÉEL, seule source fiable sur l'état des commandes ; à utiliser UNIQUEMENT si le client demande où en est sa commande, sa planche, son BAT ou son colis) :
 ${lignes.join('\n')}
-RÈGLES COMMANDES : donne le statut en phrase simple et naturelle, jamais tel quel et jamais de jargon interne. Tu peux donner le N° de suivi avec le lien. Ne donne JAMAIS de date de livraison, de délai précis ni de prix. S'il y a plusieurs commandes et que ce n'est pas clair, demande laquelle (N° de devis). Si le client demande à recevoir (à nouveau) son BAT et que « BAT disponible » est indiqué, dis-lui que tu le lui renvoies tout de suite et ajoute À LA FIN de ton message le marqueur interne ###BAT:N°DEVIS### (ex: ###BAT:DE2601069###), le client ne le voit jamais. Si le BAT n'est pas encore disponible, dis qu'il est en préparation.`;
+RÈGLES COMMANDES :
+- Le client ne connaît pas forcément son numéro de devis : identifie sa commande par son nom, le nom de son entreprise, son e-mail ou son numéro. Ne lui demande le N° de devis qu'en dernier recours.
+- Une ligne « IDENTIFIÉE PAR LE NOM SEULEMENT » peut être celle d'un homonyme : avant de donner le statut, vérifie avec une question simple que c'est bien sa commande (ex : « C'est bien pour la commande au nom de … ? » en reprenant le nom qu'il t'a donné lui-même, ou ce qu'il avait commandé). Ne donne jamais de N° de suivi ni de BAT sur une ligne identifiée par le nom seulement.
+- Donne le statut en phrase simple et naturelle, jamais tel quel et jamais de jargon interne. Tu peux donner le N° de suivi avec le lien quand il est indiqué. Ne donne JAMAIS de date de livraison, de délai précis ni de prix. S'il y a plusieurs commandes et que ce n'est pas clair, demande laquelle (ce qu'il a commandé ou à quel nom).
+- Si le client demande à recevoir (à nouveau) son BAT et que « BAT disponible » est indiqué, dis-lui que tu le lui renvoies tout de suite et ajoute À LA FIN de ton message le marqueur interne ###BAT:N°DEVIS### (ex: ###BAT:DE2601069###), le client ne le voit jamais. Si le BAT n'est pas encore disponible, dis qu'il est en préparation.`;
   } catch (err) {
     console.error('Gestion Leïla contexte :', err.message);
     return '';
@@ -150,4 +241,4 @@ async function question(cle, q, user) {
   return { reponse };
 }
 
-module.exports = { contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
+module.exports = { trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
