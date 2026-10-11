@@ -433,6 +433,44 @@ async function envoyerDevisOdoo(id) {
   return so;
 }
 
+// ---------- Ajout d'articles à une commande en cours ----------
+// Lignes « produit » d'un devis (hors notes, sections et acomptes), pour choisir la ligne dont on reprend le prix
+async function lignesDevis(numero) {
+  const so = await devisParNumero(numero);
+  if (!so) return null;
+  const [o] = await kw('sale.order', 'read', [[so.id]], { fields: ['order_line'] });
+  const ls = o?.order_line?.length ? await kw('sale.order.line', 'read', [o.order_line], { fields: ['id', 'product_id', 'name', 'product_uom_qty', 'price_unit', 'discount', 'display_type', 'is_downpayment'] }) : [];
+  return {
+    id: so.id, numero: so.name, etat: so.state, facturation: so.invoice_status, client: so.partner_id?.[1] || '', lien: lienOdoo('sale.order', so.id),
+    lignes: ls.filter(l => !l.display_type && !l.is_downpayment && l.product_id).map(l => ({ id: l.id, produit: l.product_id[1], libelle: String(l.name || '').split('\n')[0], qte: l.product_uom_qty, prix: l.price_unit, remise: l.discount || 0 })),
+  };
+}
+// « 5 x T-shirt personnalisé » par ligne : même format que la colonne « Informations complémentaires »
+async function infosDevis(soId) {
+  const [o] = await kw('sale.order', 'read', [[soId]], { fields: ['order_line'] });
+  const ls = o?.order_line?.length ? await kw('sale.order.line', 'read', [o.order_line], { fields: ['product_uom_qty', 'name', 'display_type', 'is_downpayment'] }) : [];
+  return ls.filter(l => !l.display_type && !l.is_downpayment).map(l => `${l.product_uom_qty} x ${String(l.name || '').split('\n')[0]}`).join('\r\n');
+}
+// Nouvelle ligne au MÊME prix (et même remise) que la ligne choisie : la remise de quantité d'origine est gardée.
+// Une commande confirmée verrouillée est déverrouillée le temps de l'ajout puis reverrouillée.
+async function ajouterLigneDevis(numero, { ligneId, qte, mention }) {
+  const so = await devisParNumero(numero);
+  if (!so) throw new Error(`Devis ${numero} introuvable dans Odoo`);
+  if (so.state === 'cancel') throw new Error(`Le devis ${numero} est annulé dans Odoo`);
+  const [l] = await kw('sale.order.line', 'read', [[Number(ligneId)]], { fields: ['order_id', 'product_id', 'name', 'price_unit', 'discount'] });
+  if (!l || !l.order_id || l.order_id[0] !== so.id || !l.product_id) throw new Error('Ligne du devis introuvable : actualise et réessaie');
+  let verrouille = false;
+  try { const [x] = await kw('sale.order', 'read', [[so.id]], { fields: ['locked'] }); verrouille = !!x?.locked; } catch {}
+  if (verrouille) await kw('sale.order', 'action_unlock', [[so.id]]);
+  let id;
+  try {
+    id = await kw('sale.order.line', 'create', [{ order_id: so.id, product_id: l.product_id[0], product_uom_qty: Number(qte), price_unit: l.price_unit, discount: l.discount || 0, name: `${String(l.name || '').split('\n')[0]} - ${mention}`.slice(0, 250) }]);
+  } finally { if (verrouille) await kw('sale.order', 'action_lock', [[so.id]]).catch(() => {}); }
+  const [n] = await kw('sale.order.line', 'read', [[typeof id === 'object' ? id.id : id]], { fields: ['price_total'] });
+  const [apres] = await kw('sale.order', 'read', [[so.id]], { fields: ['amount_total', 'invoice_status'] });
+  return { so_id: so.id, facturation_avant: so.invoice_status, etat: so.state, montant_ajout_ttc: n?.price_total || 0, total_ttc: apres?.amount_total, infos: await infosDevis(so.id), lien: lienOdoo('sale.order', so.id) };
+}
+
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
 async function devisEnvoyesDepuis(iso) {
   const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
@@ -611,6 +649,7 @@ async function telephonesOdoo() {
 }
 
 module.exports = {
+  lignesDevis, ajouterLigneDevis, infosDevis,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

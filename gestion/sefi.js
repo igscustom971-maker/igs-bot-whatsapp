@@ -84,13 +84,16 @@ const enFile = fn => { const p = file.then(fn, fn); file = p.catch(() => {}); re
 
 // ---------- Remplissage (réception du formulaire) ----------
 // lignes : [{ produit, couleur, taille, coupe, qte }] lues dans Tailles.xlsx (tableau LignesCommande)
-async function remplir(nDevis, nomClient, lignes) {
+// ajout = articles ajoutés à une commande déjà commandée (ou déjà dans le BDC) : pas d'anti-doublon, lignes marquées « ajout »
+async function remplir(nDevis, nomClient, lignes, { ajout = false } = {}) {
   return enFile(async () => {
     nDevis = nDevis || 'INCONNU'; nomClient = nomClient || 'CLIENT INCONNU';
     const id = await bdc();
     // Anti-doublon : devis déjà dans DEVIS_EN_COURS
     const devisEnCours = await lignesFeuille(id, 'DEVIS_EN_COURS');
-    if (nDevis !== 'INCONNU' && devisEnCours.slice(1).some(r => txt(r[0]) === nDevis)) return { ok: true, deja: true, mouvements: [] };
+    const dejaEnCours = nDevis !== 'INCONNU' && devisEnCours.slice(1).some(r => txt(r[0]) === nDevis);
+    if (dejaEnCours && !ajout) return { ok: true, deja: true, mouvements: [] };
+    const nomDetail = ajout ? `${nomClient} (ajout)` : nomClient;
 
     // Stock de t-shirts vierges (module stock : Excel ou base du dashboard)
     const stockMod = require('./stock');
@@ -148,7 +151,7 @@ async function remplir(nDevis, nomClient, lignes) {
           modifs.set(`${colLettre(iTaille + 1)}${17 + i}`, v);
         } else console.error(`SEFI : BDC plein, ${refComplete} ${taille} x${sefi} non ajouté (devis ${nDevis})`);
       }
-      detail.push([nDevis, nomClient, refComplete, couleur, taille, qte, pris, sefi, prix, sefi * prix]);
+      detail.push([nDevis, nomDetail, refComplete, couleur, taille, qte, pris, sefi, prix, sefi * prix]);
     }
 
     for (const [adr, v] of modifs) await g.patchRange(id, F, adr, [[v]]);
@@ -157,18 +160,18 @@ async function remplir(nDevis, nomClient, lignes) {
       let n = 2; while (n < d.length && txt(d[n][0])) n++; // première ligne libre à partir de la 3e (comme le script)
       await g.patchRange(id, 'DETAIL_COMMANDE', `A${n + 1}:J${n + detail.length}`, detail);
     }
-    if (nDevis !== 'INCONNU') {
+    if (nDevis !== 'INCONNU' && !dejaEnCours) {
       let n = 1; while (n < devisEnCours.length && txt(devisEnCours[n][0])) n++;
       const now = gp();
-      await g.patchRange(id, 'DEVIS_EN_COURS', `A${n + 1}:D${n + 1}`, [[nDevis, nomClient, `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`, 'EN ATTENTE']]);
+      await g.patchRange(id, 'DEVIS_EN_COURS', `A${n + 1}:D${n + 1}`, [[nDevis, nomClient, `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`, ajout ? 'AJOUT' : 'EN ATTENTE']]);
     }
     // Stock décompté (7_DecrementerStock)
     for (const ls of new Set(mouvements.map(m => m._ligne))) {
-      try { await stockMod.mouvementExcel('vierges', { row: ls.row, sig: ls.sig, set: Math.max(0, restant.get(ls)) }, 'BDC SEFI', `Commande ${nDevis} (${nomClient})`); }
+      try { await stockMod.mouvementExcel('vierges', { row: ls.row, sig: ls.sig, set: Math.max(0, restant.get(ls)) }, 'BDC SEFI', `Commande ${nDevis} (${nomDetail})`); }
       catch (err) { console.error(`SEFI : stock ${ls.reference} ${ls.couleur} ${ls.taille} non décompté`, err.message); }
     }
-    console.log(`SEFI : BDC rempli pour ${nDevis} (${detail.length} ligne(s), ${mouvements.length} prise(s) en stock)`);
-    return { ok: true, lignes: detail.length, mouvements: mouvements.map(({ _ligne, ...m }) => m) };
+    console.log(`SEFI : BDC rempli pour ${nDevis}${ajout ? ' (ajout)' : ''} (${detail.length} ligne(s), ${mouvements.length} prise(s) en stock)`);
+    return { ok: true, lignes: detail.length, sefi: detail.reduce((t, d) => t + d[7], 0), stock: detail.reduce((t, d) => t + d[6], 0), mouvements: mouvements.map(({ _ligne, ...m }) => m) };
   });
 }
 
@@ -235,7 +238,8 @@ async function recap(id, L, lot, dateHeure) {
       if (l.stock > 0) lst.push(`<tr>${TD}${esc(l.ref)}</td>${TD}${esc(l.taille)}</td>${TD}${l.stock}</td></tr>`);
     });
     totalSefi += nS; totalStock += nSt;
-    html += `<hr><h3 style="color:#1E1E4B;">Devis : ${esc(d)} - ${esc(L.clients[d] || '')}</h3>`;
+    const estAjout = L.detail.some(l => l.devis === d && /\(ajout\)$/.test(l.client));
+    html += `<hr><h3 style="color:#1E1E4B;">Devis : ${esc(d)} - ${esc(L.clients[d] || '')}${estAjout ? ' <span style="color:#E65C00;">(AJOUT à une commande en cours)</span>' : ''}</h3>`;
     if (ls.length) html += `<p><b>COMMANDE SEFI (${nS} unites) :</b></p>` + tableau('#1E1E4B', ['Reference', 'Taille', 'Qte', 'Prix HT', 'Total HT'], ls);
     if (lst.length) html += `<p><b>PRIS EN STOCK (${nSt} unites) :</b></p>` + tableau('#3A7C22', ['Reference', 'Taille', 'Qte'], lst);
   });

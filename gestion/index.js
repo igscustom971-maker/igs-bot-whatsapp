@@ -317,6 +317,15 @@ module.exports = function mountGestion(app) {
     try { res.json(await duplication.dupliquer(req.params.cle, req.body || {}, req.user.name || req.user.email)); }
     catch (err) { console.error('Gestion duplication :', err.message); res.status(400).json({ error: err.message }); }
   });
+  // Ajout d'articles à une commande en cours (devis Odoo + Tailles.xlsx + BDC SEFI)
+  app.get('/gestion/api/commandes/:cle/ajout', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./ajout').preparer(req.params.cle)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/ajout', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./ajout').ajouter(req.params.cle, req.body || {}, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion ajout :', err.message); res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/commandes/:cle/modifier', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.modifier(req.params.cle, req.body || {}, req.user.name || req.user.email) }); }
     catch (err) { console.error('Gestion commande :', err.message); res.status(400).json({ error: err.message }); }

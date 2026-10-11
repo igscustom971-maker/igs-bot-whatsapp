@@ -2554,6 +2554,59 @@ function ligneDupHtml(l){
     + '<td><input class="d-rem" value="'+esc(l.remarques||'')+'"></td>'
     + '<td><button class="btn d-del" style="padding:3px 8px" title="Supprimer la ligne">✕</button></td></tr>';
 }
+function ajoutUI(c){
+  $('pbody').onclick = null;
+  $('ptitle').textContent = 'Ajouter des articles · ' + (c.n_devis || c.client);
+  $('psub').textContent = c.client;
+  $('pbody').innerHTML = '<div class="card"><div class="note">Chargement du devis…</div></div>';
+  fetch('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/ajout').then(r => r.json()).then(p => {
+    if (p.error) { $('pbody').innerHTML = '<div class="card"><div class="msg err">❌ '+esc(p.error)+'</div><div class="btnrow"><button class="btn" id="aj-cancel">Retour</button></div></div>'; $('aj-cancel').onclick = () => ouvrir(c.cle); return; }
+    const lignes = dernierDossier && dernierDossier.tailles ? dernierDossier.tailles.groupes.flatMap(g => g.lignes) : [];
+    const visuels = dernierDossier ? dernierDossier.visuels.map(v => v.nom.replace(/_/g,' ')) : [];
+    const modele = lignes[0] ? { type: lignes[0].type, couleur: lignes[0].couleur, coupe: lignes[0].coupe, visuel: lignes[0].visuel, quantite: 1 } : { quantite: 1 };
+    const o = p.odoo || {};
+    const lo = o.lignes || [];
+    const eur = n => (Number(n)||0).toFixed(2).replace('.', ',') + ' €';
+    const choixOdoo = o.erreur ? '<div class="msg err">Odoo : '+esc(o.erreur)+' — le devis devra être modifié à la main.</div>'
+      : '<div class="field"><label>Ligne du devis '+esc(o.numero)+' dont on reprend le prix</label><select id="aj-ligne">'
+        + lo.map((l, i) => '<option value="'+l.id+'"'+(i===0?' selected':'')+'>'+esc(l.libelle)+' · '+l.qte+' x '+eur(l.prix)+(l.remise?' (−'+l.remise+' %)':'')+'</option>').join('')
+        + '<option value="">— Ne pas modifier le devis —</option></select></div>'
+        + '<div class="note">Une nouvelle ligne « … - ajout du jj/mm » est créée au même prix unitaire (remise de quantité d\\'origine gardée).</div>';
+    const factureOk = o.etat === 'sale' && o.facturation === 'invoiced';
+    $('pbody').innerHTML = '<div class="card"><h3>1. Articles ajoutés</h3>'
+      + '<div style="overflow-x:auto"><table class="stk" id="d-table"><thead><tr><th>Produit</th><th>Couleur</th><th>Taille</th><th>Coupe</th><th>Qté</th><th>Visuel</th><th>Remarque</th><th></th></tr></thead><tbody>'
+      + ligneDupHtml(modele) + '</tbody></table></div>'
+      + '<datalist id="d-visuels">'+visuels.map(v => '<option>'+esc(v)+'</option>').join('')+'</datalist>'
+      + '<div class="btnrow"><button class="btn" id="d-add">＋ Ligne</button><span class="note" id="d-total"></span></div></div>'
+      + '<div class="card"><h3>2. Devis Odoo</h3>'+choixOdoo
+      + (factureOk ? '<label style="display:block;margin-top:8px"><input type="checkbox" id="aj-fact" checked> Commande déjà entièrement payée : envoyer tout de suite au client la facture de l\\'ajout (avec le lien de paiement)</label>'
+        : o.etat === 'sale' ? '<div class="note" style="margin-top:8px">Commande avec acompte : l\\'ajout sera compris dans la facture du solde.</div>' : '')
+      + '</div><div class="card"><h3>3. Ce qui sera fait</h3><div class="note">'
+      + '• Tableau de la commande (Tailles.xlsx) complété, lignes marquées « Ajout du jj/mm »<br>'
+      + (p.sefi === 'apres_paiement' ? '• Commande pas encore payée : commandé chez SEFI au paiement, avec le reste<br>' : '• Bon de commande SEFI : articles ajoutés (stock de vierges d\\'abord), envoi au prochain créneau (<b>'+esc(p.prochain_envoi)+'</b>), récap marqué « AJOUT »<br>')
+      + '• Remarque « ➕ Ajout » sur la commande pour l\\'atelier</div>'
+      + '<div class="btnrow"><button class="btn primary" id="aj-go">➕ Ajouter à la commande</button><button class="btn" id="aj-cancel">Annuler</button></div><div class="msg" id="a-msg"></div></div>';
+    const tb = $('d-table').querySelector('tbody');
+    const total = () => { const n = [...tb.querySelectorAll('.d-qte')].reduce((t,i) => t + (Number(i.value)||0), 0); $('d-total').textContent = n + ' pièce(s) ajoutée(s)'; };
+    total();
+    tb.addEventListener('input', total);
+    tb.addEventListener('click', e => { if (e.target.closest('.d-del')) { e.target.closest('tr').remove(); total(); } });
+    $('d-add').onclick = () => { const last = tb.querySelector('tr:last-child'); tb.insertAdjacentHTML('beforeend', ligneDupHtml(last ? { type: last.querySelector('.d-type').value, couleur: last.querySelector('.d-couleur').value, coupe: last.querySelector('.d-coupe').value, visuel: last.querySelector('.d-visuel').value, quantite: 1 } : { quantite: 1 })); total(); };
+    $('aj-cancel').onclick = () => ouvrir(c.cle);
+    $('aj-go').onclick = async () => {
+      const lignesOut = [...tb.querySelectorAll('tr')].map(tr => ({ type: tr.querySelector('.d-type').value, couleur: tr.querySelector('.d-couleur').value, taille: tr.querySelector('.d-taille').value, coupe: tr.querySelector('.d-coupe').value, quantite: tr.querySelector('.d-qte').value, visuel: tr.querySelector('.d-visuel').value, remarques: tr.querySelector('.d-rem').value })).filter(l => Number(l.quantite) > 0);
+      if (!lignesOut.length) return msg('Ajoute au moins un article', 'err');
+      const n = lignesOut.reduce((t, l) => t + Number(l.quantite), 0);
+      if (!confirm('Ajouter '+n+' pièce(s) à la commande '+(c.n_devis||c.client)+' ?\\n'+lignesOut.map(l => '• '+l.quantite+' x '+l.type+' '+l.couleur+' '+l.taille).join('\\n'))) return;
+      $('aj-go').disabled = true; msg('Ajout en cours (devis, tableau, SEFI)…', 'info');
+      try {
+        const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/ajout', { lignes: lignesOut, ligneOdoo: $('aj-ligne') ? $('aj-ligne').value : '', facturer: $('aj-fact') ? $('aj-fact').checked : true });
+        msg(j.etapes.map(esc).join('<br>') + (j.lien ? '<br><a href="'+esc(j.lien)+'" target="_blank" rel="noopener">↗ Ouvrir le devis dans Odoo</a>' : ''), j.etapes.some(e => /^❌/.test(e)) ? 'err' : 'ok');
+        await charger(false);
+      } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('aj-go').disabled = false; }
+    };
+  }).catch(e => { $('pbody').innerHTML = '<div class="card"><div class="msg err">❌ '+esc(e.message)+'</div></div>'; });
+}
 function dupliquerUI(c){
   $('pbody').onclick = null;
   const lignes = dernierDossier && dernierDossier.tailles ? dernierDossier.tailles.groupes.flatMap(g => g.lignes) : [];
@@ -2625,7 +2678,7 @@ function cmdActionsHtml(c){
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
-    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(['PAYÉE','EN DEVIS','SANS STATUT'].includes(statutKey(c.statut)) ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
+    + '</div><div class="btnrow"><button class="btn primary" id="c-save">Enregistrer</button><button class="btn" id="cash-btn">💵 Payé en espèces</button>'+(['PAYÉE','EN DEVIS','SANS STATUT'].includes(statutKey(c.statut)) ? '<button class="btn" data-form="'+esc(c.cle)+'" title="Ouvre le formulaire client prérempli pour le remplir à sa place">📝 Remplir le formulaire</button>' : '')+'<button class="btn" id="ajout-btn" title="Le client rajoute des articles : devis, tableau et commande SEFI mis à jour">➕ Ajouter des articles…</button><button class="btn pink" id="dup-btn">⧉ Dupliquer la commande…</button><button class="btn" id="c-suppr" style="margin-left:auto;color:#b91c1c">🗑 Supprimer</button></div><div class="msg" id="a-msg"></div></div>';
 }
 function brancherCmd(c){
   const envoyer = async body => {
@@ -2642,6 +2695,7 @@ function brancherCmd(c){
   };
   document.querySelectorAll('#pbody [data-st]').forEach(b => b.onclick = () => envoyer({ statut: b.dataset.st }));
   $('dup-btn').onclick = () => dupliquerUI(c);
+  $('ajout-btn').onclick = () => ajoutUI(c);
   document.querySelectorAll('#pbody [data-form]').forEach(b => b.onclick = () => ouvrirFormulaire(c.cle));
   $('c-suppr').onclick = async () => { if (await supprimerCmd(c)) fermer(); };
   const espMaj = async (actif, montant) => {
