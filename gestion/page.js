@@ -2733,7 +2733,7 @@ async function ffCharger(){
   const r = await fetch('/gestion/api/factures-fournisseurs'); if (r.status === 401) return location.href = '/gestion/auth/login';
   const j = await r.json(); if (j.error) throw new Error(j.error);
   const l = j.envois || [];
-  $('ff-recents').innerHTML = l.length ? l.map(e => '<div class="ff-r"><div>'+(e.canal === 'odoo' ? '✅' : '✉️')+'</div><div class="t"><b>'+esc(e.description || '—')+'</b><div class="sub">'+fdate(e.le)+(ADMIN ? ' · '+esc(e.par || '') : '')+(e.canal === 'odoo' ? ' · dans Odoo'+(e.fournisseur ? ' ('+esc(e.fournisseur)+')' : '') : ' · par mail à la comptabilité')+'</div></div>'+(e.lien ? '<a class="btn" href="'+esc(e.lien)+'" target="_blank" rel="noopener">↗ Odoo</a>' : '')+'</div>').join('') : '<div class="note">Aucun envoi pour le moment.</div>';
+  $('ff-recents').innerHTML = l.length ? l.map(e => '<div class="ff-r"><div>'+(e.canal === 'odoo' ? '✅' : '✉️')+'</div><div class="t"><b>'+esc(e.description || '—')+'</b><div class="sub">'+(e.le ? new Date(e.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '')+(ADMIN ? ' · '+esc(e.par || '') : '')+(e.canal === 'odoo' ? ' · dans Odoo'+(e.fournisseur ? ' ('+esc(e.fournisseur)+')' : '') : ' · par mail à la comptabilité')+'</div></div>'+(e.lien ? '<a class="btn" href="'+esc(e.lien)+'" target="_blank" rel="noopener">↗ Odoo</a>' : '')+'</div>').join('') : '<div class="note">Aucun envoi pour le moment.</div>';
 }
 function ffEvents(){
   $('ff-photo').addEventListener('change', e => { ffAjouter([...e.target.files]); e.target.value = ''; });
