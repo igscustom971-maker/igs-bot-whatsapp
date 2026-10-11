@@ -199,6 +199,8 @@ function mount(app) {
   const statique = (nom, type, age = 604800) => (req, res) => res.set({ 'Cache-Control': `public, max-age=${age}`, ...(type ? { 'Content-Type': type } : {}) }).sendFile(require('path').join(__dirname, 'static', nom));
   for (const f of ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']) app.get(`/gestion/${f}`, statique(f));
   app.get('/gestion/favicon.ico', statique('favicon.ico', 'image/x-icon'));
+  // Lecture des exports WhatsApp (.txt, .zip, .vcf) dans le navigateur, onglet Leïla
+  app.get('/gestion/import-whatsapp.js', statique('import-whatsapp.js', 'text/javascript; charset=utf-8', 3600));
   app.get('/gestion/manifest.webmanifest', (req, res) => res.set({ 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=3600' }).send(JSON.stringify({
     id: '/gestion/', name: 'IGS Dashboard', short_name: 'IGS', description: 'Commandes, BAT, planches DTF, stock et commercial d\'IGS Custom Bar',
     start_url: '/gestion/', scope: '/gestion/', display: 'standalone', orientation: 'any', lang: 'fr',

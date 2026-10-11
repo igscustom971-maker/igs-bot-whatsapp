@@ -542,7 +542,9 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Importer un historique WhatsApp</h3>
           <div class="field"><label>Numéro WhatsApp</label><input id="lei-imp-num" placeholder="590690XXXXXX"></div>
           <div class="field"><label>Ton nom dans l’export</label><input id="lei-imp-nom" value="Igs Custom bar"></div>
-          <input type="file" id="lei-imp-fichier" accept=".txt" style="margin:8px 0">
+          <input type="file" id="lei-imp-fichier" accept=".txt,.zip,.vcf,text/plain,application/zip,text/vcard,text/x-vcard" style="margin:8px 0">
+          <div id="lei-imp-info" class="note" style="margin-bottom:8px">Choisis l’export WhatsApp : le .zip tel quel (avec ou sans médias), le .txt de la discussion, ou une fiche contact .vcf pour récupérer un numéro.</div>
+          <script src="/gestion/import-whatsapp.js" defer></script>
           <textarea id="lei-imp" class="lei-ta" placeholder="…ou colle ici le contenu du fichier .txt exporté depuis WhatsApp"></textarea>
           <div class="btnrow"><button class="btn primary" data-lei="importer-historique">Importer</button></div>
           <div class="note" style="margin-top:6px">Chaque message garde sa vraie date et se range au bon endroit dans la conversation existante ; ceux déjà enregistrés par Leïla sont ignorés (pas de doublon). Numéro accepté sous la forme 590690…, +590 690… ou 0690….</div></div>
@@ -1171,7 +1173,31 @@ function leiEvents(){
     catalogue: { texte: $('lei-cat') ? $('lei-cat').value : '' }, 'catalogue-defaut': { defaut: true },
     'importer-historique': { numero: v('lei-imp-num'), nomEquipe: v('lei-imp-nom'), texte: v('lei-imp') },
   })[a] || {};
-  if ($('lei-imp-fichier')) $('lei-imp-fichier').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { $('lei-imp').value = rd.result; }; rd.readAsText(f); };
+  if ($('lei-imp-fichier')) $('lei-imp-fichier').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    const info = $('lei-imp-info');
+    info.innerHTML = 'Lecture du fichier…';
+    try {
+      if (!window.lireExportWhatsApp) throw new Error('Outil de lecture pas encore chargé, réessaie dans une seconde');
+      const r = await window.lireExportWhatsApp(f);
+      if (r.texte) $('lei-imp').value = r.texte;
+      if (r.numero && !$('lei-imp-num').value.trim()) $('lei-imp-num').value = r.numero;
+      const equipe = $('lei-imp-nom');
+      if (r.expediteurs.length && !r.expediteurs.includes(equipe.value.trim())) {
+        const igs = r.expediteurs.find(x => /igs/i.test(x));
+        if (igs) equipe.value = igs;
+      }
+      let h = '';
+      if (r.texte) h += '✅ Discussion chargée' + (r.contact ? ' avec <b>'+esc(r.contact)+'</b>' : '') + ' (' + r.texte.split(String.fromCharCode(10)).length + ' lignes)';
+      if (r.expediteurs.length) h += '<br>Personnes dans la discussion : ' + r.expediteurs.slice(0, 6).map(esc).join(', ') + ' · ton nom dans l’export doit être l’une d’elles';
+      if (r.numero) h += '<br>📱 Numéro du client : <b>' + esc(r.numero) + '</b>' + ($('lei-imp-num').value.trim() !== r.numero ? ' <button class="btn" data-imp-tel="'+esc(r.numero)+'">Utiliser</button>' : ' (repris dans le champ Numéro)');
+      if (r.contacts.length) h += '<br>📇 Fiche(s) contact trouvée(s) : ' + r.contacts.slice(0, 10).map(c => esc(c.nom || 'Sans nom') + ' · ' + esc(c.tel) + ' <button class="btn" data-imp-tel="'+esc(c.tel)+'">Utiliser ce numéro</button>').join('<br>');
+      if (!r.numero && r.texte) h += '<br>⚠️ Numéro du client introuvable dans l’export : saisis-le dans le champ Numéro.';
+      info.innerHTML = h || 'Rien de lisible dans ce fichier.';
+    } catch(err) { info.innerHTML = '❌ ' + esc(err.message); }
+    e.target.value = '';
+  };
+  if ($('lei-imp-info')) $('lei-imp-info').addEventListener('click', e => { const b = e.target.closest('[data-imp-tel]'); if (!b) return; $('lei-imp-num').value = b.dataset.impTel; b.replaceWith(document.createTextNode('(repris)')); });
   document.getElementById('v-leila').addEventListener('click', async e => {
     const b = e.target.closest('[data-lei]'); if (!b) return;
     const a = b.dataset.lei;
