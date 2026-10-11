@@ -164,6 +164,50 @@ function extraireBat(texte) {
   return { clean: String(texte || '').replace(/###BAT:[^#]*###/gi, '').trim(), devis: m ? m[1].toUpperCase() : null };
 }
 
+// ###PLANCHE:2|pages 3 et 4 du Canva### retiré de la réponse
+function extrairePlanche(texte) {
+  const t = String(texte || '');
+  const m = t.match(/###PLANCHE:([^|#]+)\|?([^#]*)###/i);
+  const clean = t.replace(/###PLANCHE:[^#]*###/gi, '').trim();
+  if (!m) return { clean, planche: null };
+  const v = m[1].trim().toUpperCase().replace(',', '.');
+  const metres = /^A[34]$/.test(v) ? v : Number(v) > 0 && Number(v) < 100 ? String(Math.round(Number(v) * 100) / 100) : null;
+  return { clean, planche: metres ? { metres, detail: m[2].trim().slice(0, 200) || 'demande WhatsApp' } : null };
+}
+
+// Planche commandée sur WhatsApp : ajoutée au tableau des planches (À PRÉPARER), au nom déjà utilisé pour ce client
+const planchesRecentes = new Map(); // anti-doublon : même client + même demande dans les 6 h
+async function creerPlancheWhatsApp(tel, { metres, detail }) {
+  const cleDoublon = `${tel}|${metres}|${detail}`;
+  if (Date.now() - (planchesRecentes.get(cleDoublon) || 0) < 6 * 3600e3) return;
+  planchesRecentes.set(cleDoublon, Date.now());
+  try {
+    const planches = require('./planches');
+    // 1. Nom de ses planches précédentes (même numéro dans Odoo) : même ligne hebdo, même client Odoo
+    let client = null, sur = '';
+    const pl = ((await planches.listPlanches()).rows || []).slice().reverse();
+    for (const p of pl.slice(0, 60)) {
+      const ct = await contactPlancheCache(p.client);
+      if (ct.tel === tel) { client = p.client; sur = 'retrouvé par son numéro'; break; }
+    }
+    // 2. Sinon le nom connu du client (prénom donné ou nom WhatsApp)
+    if (!client && supabase) {
+      const { data } = await supabase.from('clients').select('name').eq('phone_number', tel).maybeSingle();
+      if (data?.name) { client = data.name; sur = 'nom WhatsApp, client à vérifier'; }
+    }
+    if (!client) throw new Error('client introuvable');
+    const res = await planches.ajouter({ client, metres, statut: 'A PREPARER', remarques: `Demande WhatsApp (Leïla) : ${detail} · ${tel}${sur ? ' · ' + sur : ''}` }, 'Leïla (WhatsApp)');
+    console.log(`Gestion Leïla : planche ${metres} ajoutée pour ${client} (${detail})${res?.compteur ? ' sur son compteur hebdo' : ''}`);
+  } catch (err) {
+    console.error(`Gestion Leïla : planche WhatsApp non ajoutée pour ${tel} :`, err.message);
+    try {
+      const g = require('./graph');
+      const box = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
+      await g.sendMail(box, { to: box, subject: `Planche WhatsApp à ajouter à la main - ${tel}`, html: `<p>Leïla a pris une commande de planche sur WhatsApp mais n'a pas pu l'ajouter au tableau (${String(err.message).replace(/</g, '&lt;')}).</p><p>Numéro : ${tel}<br>Métrage : ${metres}<br>Détail : ${String(detail).replace(/</g, '&lt;')}</p>` });
+    } catch {}
+  }
+}
+
 // Renvoi du BAT demandé par le client à Leïla (uniquement une commande de ce numéro ou citée par lui)
 async function renvoyerBat(tel, devis) {
   try {
@@ -241,4 +285,4 @@ async function question(cle, q, user) {
   return { reponse };
 }
 
-module.exports = { trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
+module.exports = { extrairePlanche, creerPlancheWhatsApp, trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
