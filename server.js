@@ -71,7 +71,7 @@ const URGENT_COOLDOWN_MS = 90 * 60 * 1000;
 // Buffer de messages en attente par client, pour regrouper les messages rapprochés
 // (ex: client qui envoie 3 messages en 20 secondes) en une seule réponse
 const pendingBuffers = {}; // { [from]: { texts: [...], timer } }
-const DEBOUNCE_MS = 8000; // attend 8 sec de silence avant de traiter les messages accumulés
+const DEBOUNCE_MS = 20000; // attend 20 sec de silence avant de traiter les messages accumulés (un client écrit souvent en plusieurs messages)
 
 // Messages reçus pendant que le bot était inactif (jour non actif / désactivé manuellement),
 // à traiter dès que le bot redevient actif. PAS utilisé pendant une fermeture prolongée (congés).
@@ -90,6 +90,7 @@ function mettreEnAttente(from, text, at = Date.now()) {
 }
 
 // Pour savoir si Ismaël a déjà répondu manuellement depuis son app (via l'écho WhatsApp Coexistence)
+const derniereReception = {}; // { [from]: heure serveur de réception du dernier message client }
 const lastInboundAt = {};   // { [from]: timestamp du dernier message client }
 const lastIsmaelReplyAt = {}; // { [from]: timestamp de la dernière réponse manuelle d'Ismaël détectée }
 
@@ -524,8 +525,30 @@ EXEMPLES RÉELS (réponses de l'équipe, à imiter dans le ton et la longueur, p
 - Relance d'un devis : "Toujours pas reçu le devis… c'est la 2e fois que je demande" → "Bonjour, désolée, je pensais que c'était parti ! Je vérifie et je vous l'envoie au plus vite." (+ ###URGENT###)
 - Rendu avant paiement : "Avant de payer je peux voir à quoi ça va ressembler ? Je vous envoie mon logo" → "Bonjour, je comprends ! Le BAT (le visuel de votre commande) est réalisé une fois la commande validée, et vous le validez avant qu'on lance la production."
 
+- Client très énervé (retard) : "C'est une blague ?? Ça fait 10 jours que j'attends, vous êtes des amateurs, je veux être remboursé" → "Bonjour, je comprends votre mécontentement et nous nous en excusons. Nous avons eu un imprévu en production, mais nous faisons le maximum pour vous livrer votre commande au plus vite. Je reviens vers vous très rapidement." (+ ###URGENT###, jamais de date que tu ne connais pas)
+- Plusieurs messages d'affilée ("Bonjour" / "Je voudrais des t-shirts" / "Pour mon entreprise" / "Une trentaine" / "Logo devant et site derrière") → UNE seule réponse : "Bonjour, c'est noté ! Est-ce que je pourrais avoir un nom, un prénom et une adresse mail pour le devis s'il vous plaît ?"
+- Commande pressée (mercredi 16h, "25 t-shirts pour vendredi matin, je paye maintenant") → "Bonjour, le timing va être juste, mais on peut le faire exceptionnellement si tout est validé (paiement et BAT) avant jeudi 9h. Par contre la récupération ne pourra se faire que vendredi après-midi, à partir de 14h30, si ça vous convient." (+ ###RECAP:Commande urgente, à prioriser : ...###)
+- Tenue au lavage : "Le DTF ça tient au lavage ?" → "Bonjour, oui ! Le DTF résiste à plus de 50 lavages s'il est bien entretenu : lavage à froid, à l'envers, et sans repasser directement dessus."
+- Annulation après paiement : "Je voudrais annuler, j'ai payé hier, vous pouvez me rembourser ?" → "Bonjour, c'est noté, on s'occupe du remboursement et on vous envoie un message dès que c'est fait." (+ ###URGENT###)
+- Textiles fournis par le client : "J'ai déjà les maillots, vous pouvez mettre les noms et numéros ? Il y en a 18" → "Bonjour, bien sûr ! Le flocage sera à 8€ par maillot. Je peux avoir un nom et un prénom pour le devis s'il vous plaît ? Une fois validé, on pourra passer en production."
+- Prix d'un concurrent : "On m'a proposé 7€ ailleurs, vous pouvez vous aligner ?" → "Bonjour, je comprends, mais nous n'avons pas les mêmes contraintes techniques et je ne suis pas en mesure de descendre aussi bas." (pas de remise proposée dans ce cas)
+- Candidature / stage : → "Bonjour, merci pour l'intérêt ! Malheureusement l'équipe est complète pour le moment :)"
+- BAT contesté : "Le logo est trop petit et c'est pas la bonne couleur" → "Bonjour, je comprends ! Quelle couleur souhaitiez-vous, et quelle taille pour le logo ? Nous avons appliqué la taille standard de 9 cm, mais on peut passer à 10 ou 11 cm si vous préférez." (+ ###RECAP:Modification du BAT demandée : ...### avec ses précisions)
+- Création de logo : → "Bonjour, nous ne créons malheureusement pas de logo, mais je peux vous mettre en relation avec un partenaire qui s'en occupe si vous le souhaitez." (+ ###RECAP:Mise en relation avec un graphiste partenaire demandée### s'il accepte)
+- Facture et chèque : "Facture au nom de mon entreprise ? Et paiement par chèque ?" → "Oui bien sûr, je peux vous faire la facture et vous l'envoyer par mail. Pour le règlement par chèque, je vois avec le responsable et je reviens vers vous." (+ ###RECAP:Demande de paiement par chèque, à confirmer###)
+- Passage le matin (message du dimanche soir, réponse lundi 8h30) : "Je peux passer récupérer ma commande à 9h ?" → "Bonjour, nous sommes ouverts, mais les retraits se font uniquement l'après-midi de 14h30 à 17h30 : le matin nous sommes chez les fournisseurs et nous préparons les commandes."
+
+INFOS PRATIQUES (à utiliser quand c'est utile) :
+- Entretien DTF : plus de 50 lavages si bien entretenu (lavage à froid, à l'envers, pas de repassage direct sur le visuel)
+- Taille de logo standard : 9 cm (possible 10 ou 11 cm à la demande)
+- Création de logo / graphisme : on ne le fait pas, mise en relation possible avec un partenaire
+- Facture au nom d'une entreprise : oui, envoyée par mail. Paiement par chèque : à confirmer par le responsable (ne promets rien)
+- Le matin, l'équipe est chez les fournisseurs et prépare les commandes : retraits uniquement l'après-midi 14h30-17h30
+- Délai plus court que d'habitude : possible exceptionnellement si tout est validé très vite (paiement + BAT), jamais garanti, récupération l'après-midi seulement
+- Alignement sur le prix d'un concurrent : non
+
 ⚠️ CAS PARTICULIERS :
-- **REMISE / GESTE COMMERCIAL** : uniquement si le client le DEMANDE (jamais de toi-même), et uniquement pour une commande TEXTILE d'au moins 20 pièces, tu peux proposer une remise de 15 % maximum, jamais plus. En dessous de 20 pièces, ou pour les planches DTF (leur remise dégressive à partir de 10 m et 20 m ne bouge pas), pas de remise : explique gentiment que le tarif est déjà au plus juste et, si la quantité s'en approche, que la remise est possible à partir de 20 pièces (ex: "Je peux vous appliquer une remise de 15 %, mais je ne pourrai malheureusement pas aller au-delà, ça vous conviendrait ?"). Ajoute en fin de message ###RECAP:Remise de 15 % proposée au client, à appliquer sur le devis###. S'il insiste pour plus, ne cède pas : c'est une urgence (###URGENT###)
+- **REMISE / GESTE COMMERCIAL** : uniquement si le client DEMANDE un geste ou une remise (jamais de toi-même, et pas quand il demande de s'aligner sur le prix d'un concurrent), et uniquement pour une commande TEXTILE d'au moins 20 pièces, tu peux proposer une remise de 15 % maximum, jamais plus. En dessous de 20 pièces, ou pour les planches DTF (leur remise dégressive à partir de 10 m et 20 m ne bouge pas), pas de remise : explique gentiment que le tarif est déjà au plus juste et, si la quantité s'en approche, que la remise est possible à partir de 20 pièces (ex: "Je peux vous appliquer une remise de 15 %, mais je ne pourrai malheureusement pas aller au-delà, ça vous conviendrait ?"). Ajoute en fin de message ###RECAP:Remise de 15 % proposée au client, à appliquer sur le devis###. S'il insiste pour plus, ne cède pas : c'est une urgence (###URGENT###)
 - **PAIEMENT / VIREMENT ANNONCÉ** ("j'ai fait le virement", "c'est payé") : si la commande figure dans COMMANDES DU CLIENT et qu'elle est payée (ou plus avancée), confirme simplement que c'est bien reçu. Sinon demande-lui le numéro de devis (ou le nom de la commande) pour vérifier, et ajoute ###RECAP:Paiement annoncé par le client, à vérifier###. Ce n'est PAS une urgence
 - **Retard ressenti sur une commande en cours** : excuse-toi simplement, dis où en est la commande (bloc COMMANDES DU CLIENT) et qu'on revient vers lui dès que c'est prêt. Pas d'urgence si la commande est bien en cours
 - **Message ambigu qui pourrait concerner une demande ou un devis plus ancien** (ex: le client dit "merci de me donner la marche à suivre", relance sans préciser quoi, ou revient après un long silence) : dans le doute, demande d'abord poliment si cela concerne une NOUVELLE demande ou une demande/un devis PRÉCÉDENT (ex: "Est-ce que cela concerne une nouvelle demande ou une demande précédente ?"). Ne pars pas dans les questions produit/quantité tant que ce n'est pas clair
@@ -713,6 +736,7 @@ async function traiterMessageEntrant(message, profil) {
   console.log(`Message reçu de ${from}: ${text}`);
   const recuLe = message.timestamp ? Number(message.timestamp) * 1000 : Date.now();
   lastInboundAt[from] = recuLe;
+  derniereReception[from] = Date.now();
 
   // TOUJOURS enregistré dans l'historique, même quand Leïla est éteinte ou fermée :
   // à son retour elle a toute la conversation (et le dashboard aussi)
@@ -892,6 +916,7 @@ async function dejaRepondu(from, depuis) {
 async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   // recuLe = heure du dernier message du client traité ici : si l'équipe répond après, Leïla n'envoie rien
   const thisMessageAt = recuLe;
+  const debutTraitement = Date.now();
 
   // Sépare le vrai texte des marqueurs vocal/image, et fabrique la version lisible pour l'historique
   const { hasAudio, realText, displayText } = normalizeIncoming(rawText);
@@ -1002,6 +1027,11 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   // ce délai d'attente, on annule l'envoi du bot pour éviter une réponse en double
   if (await dejaRepondu(from, thisMessageAt)) {
     console.log(`Envoi annulé pour ${from} : l'équipe a répondu manuellement pendant le délai d'attente`);
+    return;
+  }
+  // Le client a réécrit pendant que Leïla « tapait » : cette réponse est abandonnée, la suivante tiendra compte de tout
+  if ((derniereReception[from] || 0) > debutTraitement) {
+    console.log(`Réponse abandonnée pour ${from} : nouveau message du client entre-temps, une seule réponse couvrira tout`);
     return;
   }
 
