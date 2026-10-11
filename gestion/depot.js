@@ -29,7 +29,7 @@ async function deposer({ devis, client, email, tel, zone, instructions, attachme
   // autre e-mail ET d'un autre téléphone, rien n'est remplacé : les fichiers vont dans « A VERIFIER - date »,
   // pas de BDC SEFI, et l'équipe est prévenue.
   if ((await commandes.contactFormulaireConnu(devis, email, tel).catch(() => null)) === false) {
-    const date = new Date().toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/[/:]/g, '-').replace(/\s+/g, ' ');
+    const date = new Date().toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/[/:]/g, '-').replace(/\s+/g, ' ');
     const q = await g.createFolder(dossier.id, sansCaracteresInterdits(`A VERIFIER - ${date}`));
     for (const a of attachments) await g.uploadFile(q.id, a.name, a.buffer, a.contentType, undefined, 'rename');
     const ligne = await commandes.majFormulaire({ devis, client, email, tel, instructions, zone });

@@ -748,13 +748,13 @@ require('./gestion/assistant-ismael').fournisseurs.urgences = () => [...urgentAl
 require('./gestion/sefi-mails').fournisseurs.envoyerAIsmael = (t, sujet) => envoyerAIsmael(t, sujet);
 
 const rafales = new Map();
-function tropDeMessages(from) {
+function tropDeMessages(from, max) {
   const now = Date.now();
   const l = (rafales.get(from) || []).filter(t => now - t < 10 * 60e3);
   l.push(now);
   rafales.set(from, l);
   if (rafales.size > 5000) for (const [k, v] of rafales) if (!v.length || now - v[v.length - 1] > 10 * 60e3) rafales.delete(k);
-  return l.length > 15;
+  return l.length > max;
 }
 
 async function traiterMessageEntrant(message, profil) {
@@ -779,6 +779,8 @@ async function traiterMessageEntrant(message, profil) {
 
   // PRIORITÉ ABSOLUE : numéro perso d'Ismaël = jamais un client. Seul "récap"/"planning" déclenche le récap production.
   if (RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) {
+    // Même le numéro d'Ismaël est plafonné (60 messages / 10 min) : protège contre un faux expéditeur tant que le webhook n'a pas son adresse secrète
+    if (tropDeMessages(`ismael:${from}`, 60)) { console.warn('Anti-abus : trop de messages au nom d\'Ismaël, ignorés'); return; }
     if (isRecapRequest(text)) {
       console.log(`Demande de récap production reçue d'Ismaël (${from})`);
       await handleProductionRecap(from, sendWhatsAppMessage);
@@ -811,9 +813,11 @@ async function traiterMessageEntrant(message, profil) {
   await db.appendMessage(from, 'user', normalizeIncoming(text).displayText);
   memoriserProfil(from, profil);
 
-  // Anti-abus : au-delà de 15 messages en 10 min depuis un même numéro, les messages sont gardés mais Leïla ne répond plus
-  if (tropDeMessages(from)) {
-    console.warn(`Anti-abus : ${from} dépasse 15 messages en 10 min, pas de réponse automatique`);
+  // Anti-abus : au-delà de 30 messages texte en 10 min depuis un même numéro (photos et vocaux non comptés), les messages
+  // sont gardés dans l'historique et mis en attente pour l'équipe, mais Leïla ne répond plus automatiquement
+  if (!normalizeIncoming(text).hasMedia && !normalizeIncoming(text).hasAudio && tropDeMessages(from, 30)) {
+    console.warn(`Anti-abus : ${from} dépasse 30 messages en 10 min, pas de réponse automatique`);
+    await mettreEnAttente(from, text, recuLe);
     return;
   }
 

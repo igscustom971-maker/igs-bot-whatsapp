@@ -102,7 +102,7 @@ function mount(app) {
       if (total > MAX_TOTAL) return res.status(413).json({ error: 'Fichiers trop lourds (30 Mo max au total)' });
       const fichier = champ => files.find(f => f.fieldname === champ);
       // Types acceptés (le type annoncé par le navigateur ne compte pas) : visuels courants, ZIP et Excel vérifiés par leur signature
-      const VISUELS_OK = /^\.(png|jpe?g|pdf|ai|eps|psd|svg|tiff?|webp|heic|heif|gif|bmp|cdr)$/;
+      const VISUELS_OK = /^\.(png|jpe?g|jfif|pdf|ai|eps|psd|svg|tiff?|webp|avif|heic|heif|gif|bmp|cdr)$/;
       const estZipPk = f => f.buffer.length > 4 && f.buffer[0] === 0x50 && f.buffer[1] === 0x4b;
       const estXls = f => f.buffer.length > 8 && f.buffer.readUInt32BE(0) === 0xD0CF11E0;
       const estCsv = f => /\.csv$/i.test(f.originalname || '') && !/[<\0]/.test(f.buffer.slice(0, 4096).toString('latin1'));
