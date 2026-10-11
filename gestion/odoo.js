@@ -433,6 +433,12 @@ async function envoyerDevisOdoo(id) {
   return so;
 }
 
+// Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
+async function devisEnvoyesDepuis(iso) {
+  const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+  return kw('sale.order', 'search_read', [[...(await igsSeulement()), ['state', '=', 'sent'], ['write_date', '>=', d]]], { fields: ['id', 'name', 'partner_id'], limit: 50 });
+}
+
 // ---------- Relance des factures impayées (module Commercial, onglet Impayés) ----------
 // Factures clients validées, pas (entièrement) payées, échues ou non : le retard se calcule sur l'échéance
 async function facturesImpayees() {
@@ -533,7 +539,7 @@ async function brouillonDemande(d) {
     cree = true;
   }
   const prod = await produitPourDemande(d.produit, d.zone).catch(() => null);
-  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
+  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : d.source === 'mail' ? 'reçue par mail (Leïla)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
   const lines = [];
   if (prod) lines.push([0, 0, { product_id: prod.id, product_uom_qty: Number(d.quantite) > 0 ? Number(d.quantite) : 1 }]);
   lines.push([0, 0, { display_type: 'line_note', name: note + (prod ? '' : ' (produit à choisir)') }]);
@@ -606,5 +612,5 @@ async function telephonesOdoo() {
 
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

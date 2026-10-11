@@ -104,10 +104,11 @@ async function nouvelleDemande(d, par = 'Leïla (WhatsApp)') {
     details: (d.details || '').slice(0, 600) || null, statut: 'nouvelle',
   };
   // Même client, même produit dans les 6 h : on complète la demande existante plutôt que d'en créer une 2e
-  if (row.telephone) {
-    const { data: ex } = await supabase.from('gestion_demandes').select('*').eq('telephone', row.telephone).in('statut', ['nouvelle', 'brouillon']).gte('cree_le', new Date(Date.now() - 6 * 3600e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
+  const cleDoublon = row.telephone ? ['telephone', row.telephone] : row.email ? ['email', row.email] : null;
+  if (cleDoublon) {
+    const { data: ex } = await supabase.from('gestion_demandes').select('*').eq(cleDoublon[0], cleDoublon[1]).in('statut', ['nouvelle', 'brouillon']).gte('cree_le', new Date(Date.now() - 6 * 3600e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
     if (ex && ex[0] && (!row.produit || !ex[0].produit || ex[0].produit.toLowerCase() === row.produit.toLowerCase())) {
-      console.log(`Commercial : demande déjà enregistrée pour ${row.telephone} (${ex[0].devis_numero || 'sans brouillon'})`);
+      console.log(`Commercial : demande déjà enregistrée pour ${cleDoublon[1]} (${ex[0].devis_numero || 'sans brouillon'})`);
       return ex[0];
     }
   }
@@ -142,6 +143,10 @@ async function envoyerDemande(id, user) {
   if (!d || !d.devis_id) throw new Error('Pas de brouillon Odoo pour cette demande');
   const so = await odoo.envoyerDevisOdoo(d.devis_id);
   await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: user, traite_le: new Date().toISOString() }).eq('id', id);
+  // Leïla prévient le client sur WhatsApp (si la tâche est active et la fenêtre de 24 h ouverte)
+  if ((await require('./notifications').reglage('tache_devis_whatsapp', 'off')) === 'on') {
+    odoo.devisParNumero(so.name).then(x => prevenirDevisWhatsApp(x || so, user, d.telephone)).catch(err => console.error(`Commercial : WhatsApp devis ${so.name} :`, err.message));
+  }
   await journal(user, 'demande_devis_envoye', so.name, { demande: id });
   cache.le = 0;
   return { ok: true, numero: so.name };
@@ -169,6 +174,48 @@ async function relancer(numero, user, message) {
   cache.le = 0;
   console.log(`Commercial : relance du devis ${so.name} envoyée à ${p.email} par ${user}`);
   return { ok: true, email: p.email };
+}
+
+// ---------- Devis envoyé : message WhatsApp de Leïla au client (si la fenêtre de 24 h WhatsApp est ouverte) ----------
+// Ton : tutoiement / vouvoiement et prénom selon le profil du client (historique WhatsApp, note client)
+function texteDevisWhatsApp(ton, numero) {
+  const p = ton.prenom ? ' ' + ton.prenom : '';
+  return ton.tu
+    ? `Salut${p} ! Je viens de t'envoyer ton devis ${numero} par mail 📩 Jette un œil (pense à vérifier les spams) et dis-moi si tout te va ou s'il faut ajuster quelque chose. Tu peux le régler directement depuis le lien du mail.`
+    : `Bonjour${p} 👋 Votre devis ${numero} vient de vous être envoyé par mail 📩 N'hésitez pas à le consulter (pensez à vérifier vos spams) et à revenir vers nous pour toute question ou modification. Le règlement peut se faire directement depuis le lien du mail.`;
+}
+async function prevenirDevisWhatsApp(so, user, telDemande) {
+  if (!supabase || !so?.name) return { statut: 'ignore' };
+  const { data: deja } = await supabase.from('gestion_actions').select('id').eq('action', 'devis_whatsapp').eq('cle', so.name).limit(1);
+  if (deja && deja.length) return { statut: 'deja' };
+  const norm = require('./commandes').normalizePhone;
+  let tel = telDemande ? norm(telDemande) : null, nom = so.partner_id ? so.partner_id[1] : '';
+  if (!tel && so.partner_id) { const p = await odoo.readPartner(so.partner_id[0]).catch(() => null); tel = p?.phone ? norm(p.phone) : null; nom = p?.name || nom; }
+  if (!tel) return { statut: 'sans_numero' };
+  // Fenêtre WhatsApp : le client doit avoir écrit dans les dernières 24 h (marge de 15 min)
+  const { data: recents } = await supabase.from('conversations').select('created_at').eq('phone_number', tel).eq('role', 'user').gte('created_at', new Date(Date.now() - 23.75 * 3600e3).toISOString()).limit(1);
+  if (!recents || !recents.length) { await journal(user, 'devis_whatsapp', so.name, { tel, statut: 'hors_fenetre' }); return { statut: 'hors_fenetre' }; }
+  const notif = require('./notifications');
+  const ton = await notif.profilClient(tel, nom).catch(() => ({ tu: false, prenom: '' }));
+  await notif.envoyerTexteWhatsApp(tel, texteDevisWhatsApp(ton, so.name));
+  await journal(user, 'devis_whatsapp', so.name, { tel, statut: 'envoye', tu: !!ton.tu });
+  console.log(`Commercial : Leïla a prévenu ${tel} sur WhatsApp de l'envoi du devis ${so.name}`);
+  return { statut: 'envoye' };
+}
+// Tâche « devis_whatsapp » : devis passés « envoyé » dans Odoo (depuis le dashboard ou directement dans Odoo)
+async function devisEnvoyesWhatsapp() {
+  if (!supabase) return 'base non configurée';
+  const { data: r } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'devis_whatsapp_depuis').maybeSingle();
+  // Premier passage : seulement les devis envoyés à partir de maintenant (pas de message pour les anciens)
+  if (!r) { await supabase.from('gestion_reglages').upsert({ cle: 'devis_whatsapp_depuis', valeur: new Date().toISOString(), updated_at: new Date().toISOString() }); return 'démarrage : les devis envoyés à partir de maintenant seront signalés'; }
+  const depuis = new Date(Math.max(Date.parse(r.valeur) || 0, Date.now() - 3 * 3600e3)).toISOString();
+  const liste = await odoo.devisEnvoyesDepuis(depuis);
+  const bilan = {};
+  for (const so of liste) {
+    try { const x = await prevenirDevisWhatsApp(so, 'Leïla (automatique)'); bilan[x.statut] = (bilan[x.statut] || 0) + 1; }
+    catch (err) { bilan.erreur = (bilan.erreur || 0) + 1; console.error(`Commercial : WhatsApp devis ${so.name} :`, err.message); }
+  }
+  return liste.length ? Object.entries(bilan).map(([k, v]) => `${v} ${k.replace('_', ' ')}`).join(', ') : 'aucun devis envoyé récemment';
 }
 
 // ---------- Relance des factures impayées : J+7 amiable, J+15 ferme, J+30 dernier rappel ----------
@@ -410,4 +457,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, RELANCE_JOURS };
+module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };

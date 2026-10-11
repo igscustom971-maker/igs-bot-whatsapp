@@ -551,7 +551,7 @@ ${view === 'accueil' ? `
       <button data-tab="clients">👥 Clients</button>
       ${user.role === 'admin' ? '<button data-tab="ca">📊 Chiffre d’affaires</button>' : ''}
     </div>
-    <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp ou dans les mails de contact@ : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="devis"><div class="co-filtres"><label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label><label class="filtre">Trier <select id="co-tri"><option value="age">Plus anciens d’abord</option><option value="recent">Plus récents d’abord</option><option value="montant">Montant</option></select></label></div><div id="co-cours"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="facturer"><div class="note co-intro">Commandes signées dont l’acompte est facturé mais pas encore le solde (la 2e partie). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="impayes"><div class="note co-intro">Factures validées et pas encore payées. Relances : amiable à J+7, ferme à J+15, dernier rappel à J+30 après l’échéance. Le mail part de comptabilite@ avec la facture en PDF et un bouton « Payer en ligne ».</div><div id="co-imp"><div class="skel"></div></div></div>
@@ -843,7 +843,7 @@ function coAfficher(){
   $('co-dem').innerHTML = !dem.length ? coVide('✅ Aucune demande en attente.') : '<div class="co-grid">' + dem.slice(0, pl('dem')).map(x =>
     '<div class="co-c" data-dem="'+x.id+'"><div class="t"><b>'+new Date(x.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</b>'
     + (x.devis_numero ? pastille(x.devis_numero + ' prêt', '#eef2ff;color:#3730a3') : x.statut === 'erreur' ? pastille('à faire à la main', '#fee2e2;color:#991b1b') : pastille('en préparation', '#fef3c7;color:#92400e'))+'</div>'
-    + '<div class="cl">'+esc(x.nom || 'Client sans nom')+'</div>'
+    + '<div class="cl">'+esc(x.nom || 'Client sans nom')+(x.source === 'mail' ? ' <span class="mt">· reçue par mail</span>' : x.source === 'manuel' ? ' <span class="mt">· saisie</span>' : '')+'</div>'
     + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
     + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
     + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'
