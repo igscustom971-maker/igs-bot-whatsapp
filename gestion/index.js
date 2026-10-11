@@ -237,13 +237,15 @@ module.exports = function mountGestion(app) {
     try { res.json((await fn(req)) || { ok: true }); }
     catch (err) { console.error('Gestion heures :', err.message); res.status(400).json({ error: err.message }); }
   };
-  // Compte individuel : toujours verrouillé sur son propre nom
-  app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
+  // Compte individuel : toujours verrouillé sur son propre nom. Le compte partagé de l'atelier (Microsoft 365) ne peut
+  // ni saisir, ni voir, ni supprimer les heures ou factures de quelqu'un : il faut se connecter avec son compte personnel.
+  const nominatif = (req, res, next) => (req.user.collab || req.user.role === 'admin') ? next() : res.status(403).json({ error: 'Connecte-toi avec ton compte personnel (prénom + mot de passe) pour tes heures' });
+  app.post('/gestion/api/heures', auth.requireUser, nominatif, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
   // Facture de prestation de la semaine (collaborateurs indépendants : profil technique, et l'admin)
-  app.post('/gestion/api/heures/facture', auth.requireUser, (req, res, next) => (auth.aProfil(req.user, 'technique') ? next() : res.status(403).json({ error: 'Réservé aux techniciens' })),
+  app.post('/gestion/api/heures/facture', auth.requireUser, nominatif, (req, res, next) => (auth.aProfil(req.user, 'technique') ? next() : res.status(403).json({ error: 'Réservé aux techniciens' })),
     (req, res, next) => uploadFacture(req, res, err => err ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (20 Mo maximum)' : err.code === 'LIMIT_FILE_COUNT' ? '8 photos maximum par facture' : err.message }) : next()), actH(req => heures.deposerFacture({ collaborateur: req.user.collab || req.body?.collaborateur, lundi: req.body?.lundi, fichiers: req.files }, quiH(req))));
-  app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role, req.user.collab || null)));
-  app.get('/gestion/api/heures/mes', auth.requireUser, actH(req => heures.mesHeures(String(req.user.collab || req.query.collaborateur || ''), String(req.query.lundi || ''))));
+  app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, nominatif, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role, req.user.collab || null)));
+  app.get('/gestion/api/heures/mes', auth.requireUser, nominatif, actH(req => heures.mesHeures(String(req.user.collab || req.query.collaborateur || ''), String(req.query.lundi || ''))));
   app.get('/gestion/api/heures/semaine', auth.requireUser, auth.requireAdmin, actH(req => heures.semaine(String(req.query.lundi || ''))));
   app.post('/gestion/api/heures/:id(\\d+)/modifier', auth.requireUser, auth.requireAdmin, actH(req => heures.modifier(Number(req.params.id), req.body || {}, quiH(req))));
   app.post('/gestion/api/heures/payer', auth.requireUser, auth.requireAdmin, actH(req => heures.payer(String(req.body?.collaborateur || ''), String(req.body?.lundi || ''), quiH(req))));
@@ -498,7 +500,8 @@ module.exports = function mountGestion(app) {
     const attendu = process.env.SEFI_BOUTON_JETON;
     const recu = String(req.body?.jeton || '');
     const crypto = require('crypto');
-    if (!attendu || recu.length !== attendu.length || !crypto.timingSafeEqual(Buffer.from(recu), Buffer.from(attendu))) return res.status(403).json({ ok: false, message: 'Jeton invalide' });
+    const bR = Buffer.from(recu), bA = Buffer.from(attendu || '');
+    if (!attendu || bR.length !== bA.length || !crypto.timingSafeEqual(bR, bA)) return res.status(403).json({ ok: false, message: 'Jeton invalide' });
     res.json(lancerSefi('Bouton Excel'));
   });
 

@@ -13,7 +13,9 @@ const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase
 const SEFI_EMAIL = (process.env.SEFI_EMAIL || 'sefi2@orange.fr').toLowerCase();
 const MODELE = process.env.SEFI_MAILS_MODELE || process.env.PLANCHES_MODELE || 'claude-haiku-4-5';
 const texte = html => String(html || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
-const estSefi = adr => { const a = String(adr || '').toLowerCase(); return a === SEFI_EMAIL || /(^|[@.])sefi/.test(a.split('@')[1] || '') || /^sefi/.test(a); };
+// Expéditeur reconnu : uniquement l'adresse exacte de SEFI (SEFI_EMAIL, plusieurs possibles séparées par des virgules)
+const SEFI_ADRESSES = new Set([SEFI_EMAIL, ...String(process.env.SEFI_EMAILS_AUTRES || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean)]);
+const estSefi = adr => SEFI_ADRESSES.has(String(adr || '').trim().toLowerCase());
 // On garde le message de SEFI, pas tout l'historique cité en dessous (« De : … Envoyé : … », « Le … a écrit : »)
 const sansCitation = t => String(t).split(/\n\s*(?:-{2,}\s*Message d'origine|De\s*:.*\n\s*Envoy[ée]\s*:|From\s*:.*\n\s*Sent\s*:|Le .{5,80} a [ée]crit\s*:)/i)[0].trim();
 

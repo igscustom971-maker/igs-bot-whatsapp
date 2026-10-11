@@ -15,7 +15,7 @@ const MAX_FICHIER = 25 * 1024 * 1024;
 const MAX_TOTAL = 32 * 1024 * 1024;
 
 let dernierEchec = null;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FICHIER, files: 12, fields: 60, fieldSize: 20000 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FICHIER, files: 10, fields: 60, fieldSize: 20000 } });
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const txt = v => String(v ?? '').trim();
@@ -33,7 +33,7 @@ function tropDEnvois(ip) {
 // Purge horaire des adresses inactives (la table ne grossit pas indéfiniment)
 setInterval(() => { const now = Date.now(); for (const [ip, l] of envois) if (!l.some(t => now - t < 3600e3)) envois.delete(ip); }, 3600e3).unref();
 // Adresse du client : la DERNIÈRE de X-Forwarded-For (ajoutée par le proxy Render), la première pouvant être inventée
-const ipClient = req => { if (req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']); const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
+const ipClient = req => { const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
 
 function cors(req, res) {
   const o = req.headers.origin;
@@ -92,14 +92,27 @@ function mount(app) {
     try {
       const b = req.body || {};
       if (txt(b.site_web)) return res.json({ ok: true }); // champ piège anti-robot
-      const devis = txt(b.devis).toUpperCase().slice(0, 30), client = txt(b.client).slice(0, 100);
+      const devis = txt(b.devis).toUpperCase().replace(/\s+/g, '').slice(0, 30), client = txt(b.client).slice(0, 100);
       const email = txt(b.email).slice(0, 120), tel = txt(b.tel).slice(0, 40);
       if (!devis || !client || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !tel) return res.status(400).json({ error: 'Champs obligatoires manquants' });
+      if (!/^[A-Z0-9][A-Z0-9-]{1,29}$/.test(devis)) return res.status(400).json({ error: 'Numéro de devis invalide (ex. DE2601234)' });
 
       const files = req.files || [];
       const total = files.reduce((t, f) => t + f.size, 0);
       if (total > MAX_TOTAL) return res.status(413).json({ error: 'Fichiers trop lourds (30 Mo max au total)' });
       const fichier = champ => files.find(f => f.fieldname === champ);
+      // Types acceptés (le type annoncé par le navigateur ne compte pas) : visuels courants, ZIP et Excel vérifiés par leur signature
+      const VISUELS_OK = /^\.(png|jpe?g|pdf|ai|eps|psd|svg|tiff?|webp|heic|heif|gif|bmp|cdr)$/;
+      const estZipPk = f => f.buffer.length > 4 && f.buffer[0] === 0x50 && f.buffer[1] === 0x4b;
+      const estXls = f => f.buffer.length > 8 && f.buffer.readUInt32BE(0) === 0xD0CF11E0;
+      const estCsv = f => /\.csv$/i.test(f.originalname || '') && !/[<\0]/.test(f.buffer.slice(0, 4096).toString('latin1'));
+      const archiveDe = f => estZipPk(f) ? '.zip' : f.buffer.slice(0, 4).toString('latin1') === 'Rar!' ? '.rar' : (f.buffer.length > 6 && f.buffer.readUInt32BE(0) === 0x377ABCAF) ? '.7z' : null;
+      for (const f of files) {
+        if (/^file-(avant|arriere)-\d$/.test(f.fieldname) && !VISUELS_OK.test(ext(f.originalname))) return res.status(400).json({ error: `Format de visuel non accepté : ${ext(f.originalname) || 'inconnu'} (PNG, JPG, PDF, AI, EPS, PSD, SVG…)` });
+        if (f.fieldname === 'file-zip' && !archiveDe(f)) return res.status(400).json({ error: 'L\'archive doit être un fichier .zip, .rar ou .7z' });
+        if (f.fieldname === 'file-excel' && !estZipPk(f) && !estXls(f) && !estCsv(f)) return res.status(400).json({ error: 'Le tableau des tailles doit être le fichier Excel fourni (.xlsx)' });
+      }
+      const typeDe = n => ({ '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.gif': 'image/gif', '.tif': 'image/tiff', '.tiff': 'image/tiff' }[ext(n)] || 'application/octet-stream');
 
       // Visuels : nom_visuel_1..4 + file-avant-N / file-arriere-N
       const visuels = [];
@@ -111,14 +124,14 @@ function mount(app) {
         if (!nom && !av && !ar) continue;
         const nomVisuel = nom || `Visuel ${n}`;
         const base = nomFichier(nomVisuel) || `Visuel_${n}`;
-        if (av) { aAvant = true; attachments.push({ name: `${base}_Avant${ext(av.originalname)}`, contentType: av.mimetype, buffer: av.buffer }); }
-        if (ar) { aArriere = true; attachments.push({ name: `${base}_Arriere${ext(ar.originalname)}`, contentType: ar.mimetype, buffer: ar.buffer }); }
+        if (av) { aAvant = true; attachments.push({ name: `${base}_Avant${ext(av.originalname)}`, contentType: typeDe(av.originalname), buffer: av.buffer }); }
+        if (ar) { aArriere = true; attachments.push({ name: `${base}_Arriere${ext(ar.originalname)}`, contentType: typeDe(ar.originalname), buffer: ar.buffer }); }
         visuels.push({ nom: nomVisuel, av: !!av, ar: !!ar });
       }
       const zip = fichier('file-zip');
-      if (zip) attachments.push({ name: zip.originalname || 'Visuels.zip', contentType: zip.mimetype, buffer: zip.buffer });
+      if (zip) attachments.push({ name: `${nomFichier(String(zip.originalname || '').replace(/\.(zip|rar|7z)$/i, '')).replace(/^tailles$/i, 'Visuels') || 'Visuels'}${archiveDe(zip)}`, contentType: 'application/octet-stream', buffer: zip.buffer });
       const excel = fichier('file-excel');
-      if (excel) attachments.push({ name: 'Tailles.xlsx', contentType: excel.mimetype || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: excel.buffer });
+      if (excel) attachments.push({ name: 'Tailles.xlsx', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: excel.buffer });
 
       const instructions = txt(b.instructions);
       const lignesVisuels = visuels.length

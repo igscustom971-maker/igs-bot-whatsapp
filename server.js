@@ -6,6 +6,14 @@
 
 const express = require('express');
 const app = express();
+app.disable('x-powered-by');
+
+// ---------- Sécurité : webhook WhatsApp protégé, en-têtes, CSRF, erreurs (voir securite.js) ----------
+const securite = require('./securite');
+const egalSur = securite.egalSur;
+app.use(securite.webhook);
+app.use(securite.enTetes);
+app.use('/gestion', securite.csrf);
 // Réponses compressées (gzip) : la page du dashboard (~400 Ko) arrive 5 à 8 fois plus légère sur mobile
 app.use(require('compression')({ threshold: 1024 }));
 app.use(express.json({ limit: '10mb' })); // limite augmentée pour accepter les longs historiques importés
@@ -658,9 +666,9 @@ app.get('/webhook', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === DUALHOOK_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && DUALHOOK_VERIFY_TOKEN && egalSur(token || '', DUALHOOK_VERIFY_TOKEN)) {
     console.log('Webhook vérifié avec succès');
-    res.status(200).send(challenge);
+    res.status(200).type('text/plain').send(String(challenge || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 200));
   } else {
     res.sendStatus(403);
   }
@@ -739,6 +747,16 @@ require('./gestion/assistant-ismael').fournisseurs.urgences = () => [...urgentAl
 // Mails de SEFI signalés à Ismaël (WhatsApp, repli mail)
 require('./gestion/sefi-mails').fournisseurs.envoyerAIsmael = (t, sujet) => envoyerAIsmael(t, sujet);
 
+const rafales = new Map();
+function tropDeMessages(from) {
+  const now = Date.now();
+  const l = (rafales.get(from) || []).filter(t => now - t < 10 * 60e3);
+  l.push(now);
+  rafales.set(from, l);
+  if (rafales.size > 5000) for (const [k, v] of rafales) if (!v.length || now - v[v.length - 1] > 10 * 60e3) rafales.delete(k);
+  return l.length > 15;
+}
+
 async function traiterMessageEntrant(message, profil) {
   const from = message.from; // numéro du client
   let text = message.text?.body;
@@ -781,6 +799,8 @@ async function traiterMessageEntrant(message, profil) {
     return;
   }
 
+  // Un client ne peut pas glisser les marqueurs internes de Leïla (###PLANCHE…###, ###DEVIS…###) dans son message
+  text = String(text).replace(/#{3,}/g, '#');
   console.log(`Message reçu de ${from}: ${text}`);
   const recuLe = message.timestamp ? Number(message.timestamp) * 1000 : Date.now();
   lastInboundAt[from] = recuLe;
@@ -790,6 +810,12 @@ async function traiterMessageEntrant(message, profil) {
   // à son retour elle a toute la conversation (et le dashboard aussi)
   await db.appendMessage(from, 'user', normalizeIncoming(text).displayText);
   memoriserProfil(from, profil);
+
+  // Anti-abus : au-delà de 15 messages en 10 min depuis un même numéro, les messages sont gardés mais Leïla ne répond plus
+  if (tropDeMessages(from)) {
+    console.warn(`Anti-abus : ${from} dépasse 15 messages en 10 min, pas de réponse automatique`);
+    return;
+  }
 
   // Fermeture prolongée (congés) : Leïla ne répond à rien et ne met rien en rattrapage
   if (isClosedForBreak(new Date())) {
@@ -1211,7 +1237,15 @@ function isPureAcknowledgment(text) {
 // 3. APPEL CLAUDE API
 // ============================================
 // Renvoie null en cas d'échec (jamais de message d'erreur envoyé au client)
+// Plafond journalier de réponses de Leïla (protège la facture Claude en cas d'abus) : CLAUDE_MAX_REPONSES_JOUR, 600 par défaut
+const plafondClaude = { jour: '', n: 0 };
 async function callClaudeAPI(conversationHistory, isKnownClient, from) {
+  const jourP = new Date().toISOString().slice(0, 10);
+  if (plafondClaude.jour !== jourP) { plafondClaude.jour = jourP; plafondClaude.n = 0; }
+  if (++plafondClaude.n > Number(process.env.CLAUDE_MAX_REPONSES_JOUR || 600)) {
+    if (plafondClaude.n === Number(process.env.CLAUDE_MAX_REPONSES_JOUR || 600) + 1) console.error('Plafond journalier de réponses Claude atteint : Leïla ne répond plus jusqu\'à demain');
+    return null;
+  }
   try {
   const systemPrompt = await buildSystemPrompt(isKnownClient, from);
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1422,7 +1456,7 @@ async function envoyerAIsmael(text, sujet) {
 // (page Leïla du dashboard, qui ajoute le jeton). Le jeton reste vérifié en plus.
 app.use('/admin', (req, res, next) => {
   const ip = req.socket?.remoteAddress || '';
-  if (/^(::1|127\.|::ffff:127\.)/.test(ip)) return next();
+  if (ADMIN_TOKEN && /^(::1|127\.|::ffff:127\.)/.test(ip)) return next();
   res.status(404).send('Introuvable');
 });
 
@@ -1935,6 +1969,9 @@ pretLeila.then(() => {
   setTimeout(() => routine().catch(() => {}), 20e3);
   setInterval(() => routine().catch(() => {}), 60e3);
 });
+// Dernier filet : une erreur non prévue (JSON invalide, fichier refusé…) ne renvoie jamais la pile d'appels
+app.use(securite.erreurs);
+
 app.listen(PORT, () => {
   console.log(`Serveur IGS Bot démarré sur le port ${PORT}`);
 });

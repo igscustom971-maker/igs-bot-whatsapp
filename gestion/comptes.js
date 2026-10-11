@@ -24,6 +24,8 @@ function hacher(mdp) {
   const h = crypto.scryptSync(mdp, sel, 64);
   return `scrypt$${sel.toString('base64')}$${h.toString('base64')}`;
 }
+let factice = null;
+const hashFactice = () => factice || (factice = hacher(crypto.randomBytes(12).toString('hex')));
 function verifierHash(mdp, stocke) {
   const [algo, sel, h] = String(stocke || '').split('$');
   if (algo !== 'scrypt' || !sel || !h) return false;
@@ -38,6 +40,8 @@ function controleMdp(mdp) {
 
 // ---------- Anti-force brute : 8 échecs / 15 min par IP et par identifiant ----------
 const echecs = new Map();
+// Purge régulière : la table des échecs ne grossit pas indéfiniment
+setInterval(() => { const now = Date.now(); for (const [k, l] of echecs) if (!l.some(t => now - t < 15 * 60e3)) echecs.delete(k); }, 10 * 60e3).unref();
 function bloque(k) {
   const l = (echecs.get(k) || []).filter(t => Date.now() - t < 15 * 60e3);
   echecs.set(k, l);
@@ -56,6 +60,8 @@ async function connecter(identifiant, mdp, ip) {
   const id = normIdentifiant(identifiant);
   if (bloque(`ip:${ip}`) || bloque(`id:${id}`)) throw new Error('Trop de tentatives : réessaie dans 15 minutes');
   const c = id ? await parIdentifiant(id) : null;
+  // Identifiant inconnu : on calcule quand même un hachage (même durée de réponse, l'identifiant ne se devine pas au chrono)
+  if (!c || !c.mdp_hash) verifierHash(mdp, hashFactice());
   if (!c || !c.actif || !c.mdp_hash || !verifierHash(mdp, c.mdp_hash)) {
     echec(`ip:${ip}`); echec(`id:${id}`);
     throw new Error('Identifiant ou mot de passe incorrect');

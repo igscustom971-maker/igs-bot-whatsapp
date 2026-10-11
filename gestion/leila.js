@@ -217,15 +217,8 @@ async function creerPlancheWhatsApp(tel, { metres, detail }) {
       const p = await odoo.partnerParTelephone(tel).catch(() => null);
       if (p) { client = p.name; partnerId = p.id; sur = 'client Odoo retrouvé par son numéro'; }
     }
-    // 3. Nom de contact (prénom donné ou nom WhatsApp) reconnu sans ambiguïté dans Odoo
-    if (!client && supabase && odoo.configured()) {
-      const { data } = await supabase.from('clients').select('name').eq('phone_number', tel).maybeSingle();
-      if (data?.name) {
-        const r = await odoo.findPartner(data.name).catch(() => ({}));
-        if (r.partner) { client = r.partner.name; partnerId = r.partner.id; sur = `client Odoo reconnu par son nom (${data.name})`; }
-      }
-    }
-    if (!client) throw new Error('client non reconnu dans Odoo (ni par son numéro, ni par son nom)');
+    // (Pas de rapprochement par le nom WhatsApp : n'importe qui peut prendre le nom d'un client. Sans numéro connu, l'équipe l'ajoute à la main.)
+    if (!client) throw new Error('client non reconnu par son numéro (ni dans les planches, ni dans Odoo)');
     const res = await planches.ajouter({ client, ...(partnerId ? { partnerId } : {}), metres, statut: 'A PREPARER', remarques: `Demande WhatsApp (Leïla) : ${detail} · ${tel}${sur ? ' · ' + sur : ''}` }, 'Leïla (WhatsApp)');
     console.log(`Gestion Leïla : planche ${metres} ajoutée pour ${client} (${detail})${res?.compteur ? ' sur son compteur hebdo' : ''}`);
   } catch (err) {

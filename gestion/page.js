@@ -2860,8 +2860,8 @@ function brancherCmd(c){
 }
 function livBox(c){
   return '<div class="k">Livraison prévue '+(c.date_livraison_manuelle?'<span class="manual">✏️ manuelle</span>':'')+'</div>'
-    + '<div class="dliv"><input type="date" id="dliv" value="'+esc(c.date_livraison||'')+'"><button class="btn" onclick="saveLiv(\\''+esc(c.cle)+'\\')">Enregistrer</button>'
-    + (c.date_livraison_manuelle ? '<button class="btn" onclick="saveLiv(\\''+esc(c.cle)+'\\',true)" title="Revenir à la date calculée (commande + 7 jours)">↺ Date autoel</button>' : '') + '</div>'
+    + '<div class="dliv"><input type="date" id="dliv" value="'+esc(c.date_livraison||'')+'"><button class="btn" onclick="saveLiv('+esc(JSON.stringify(String(c.cle)))+')">Enregistrer</button>'
+    + (c.date_livraison_manuelle ? '<button class="btn" onclick="saveLiv('+esc(JSON.stringify(String(c.cle)))+',true)" title="Revenir à la date calculée (commande + 7 jours)">↺ Date auto</button>' : '') + '</div>'
     + (c.date_livraison_manuelle ? '<div class="note">Par '+esc(c.date_livraison_modifiee_par||'?')+(c.date_livraison_modifiee_le?' le '+new Date(c.date_livraison_modifiee_le).toLocaleDateString('fr-FR'):'')+' · auto : '+(fdate(c.date_livraison_excel)||'—')+'</div>' : '');
 }
 async function saveLiv(cle, reset){

@@ -20,7 +20,7 @@ const estImage = f => /^image\//i.test(f.mimetype || '') || /\.(jpe?g|png|webp|h
 const estPdf = f => /pdf/i.test(f.mimetype || '') || /\.pdf$/i.test(f.originalname || '');
 
 // Photo redressée (orientation du téléphone), 2400 px max, JPEG
-const photo = buf => sharp(buf, { failOn: 'none' }).rotate().resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+const photo = buf => sharp(buf, { failOn: 'none', limitInputPixels: 60e6 }).rotate().resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
 
 // Plusieurs photos -> un PDF (une page A4 par photo)
 async function photosEnPdf(images) {
@@ -30,7 +30,7 @@ async function photosEnPdf(images) {
   doc.on('data', c => parts.push(c));
   const fin = new Promise(r => doc.on('end', r));
   for (const b of images) {
-    const m = await sharp(b).metadata();
+    const m = await sharp(b, { limitInputPixels: 60e6 }).metadata();
     const W = 595.28, H = 841.89;
     doc.addPage({ size: 'A4', margin: 0 });
     const k = Math.min(W / m.width, H / m.height);

@@ -25,6 +25,21 @@ async function actif() {
 async function deposer({ devis, client, email, tel, zone, instructions, attachments }) {
   const nomDossier = sansCaracteresInterdits(`${devis} - ${client}`).slice(0, 120);
   const dossier = await commandes.dossierCommande(nomDossier, devis);
+  // Sécurité (formulaire public, N° de devis devinable) : si la commande a déjà un contact et que l'envoi vient d'un
+  // autre e-mail ET d'un autre téléphone, rien n'est remplacé : les fichiers vont dans « A VERIFIER - date »,
+  // pas de BDC SEFI, et l'équipe est prévenue.
+  if ((await commandes.contactFormulaireConnu(devis, email, tel).catch(() => null)) === false) {
+    const date = new Date().toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/[/:]/g, '-').replace(/\s+/g, ' ');
+    const q = await g.createFolder(dossier.id, sansCaracteresInterdits(`A VERIFIER - ${date}`));
+    for (const a of attachments) await g.uploadFile(q.id, a.name, a.buffer, a.contentType, undefined, 'rename');
+    const ligne = await commandes.majFormulaire({ devis, client, email, tel, instructions, zone });
+    console.warn(`Dépôt formulaire ${devis} : contact différent de celui de la commande, fichiers mis de côté dans « ${q.name} »`);
+    const box = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
+    const esc = x => String(x ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    await g.sendMail(box, { to: box, subject: `⚠️ Formulaire ${devis} reçu d'un autre contact : à vérifier`,
+      html: `<p>Un formulaire pour la commande <b>${esc(devis)}</b> est arrivé avec un e-mail et un téléphone différents de ceux déjà enregistrés (${esc(email)} / ${esc(tel)}).</p><p>Par sécurité, les fichiers n'ont rien remplacé : ils sont dans le sous-dossier « ${esc(q.name)} » du dossier de la commande, et le bon de commande SEFI n'a pas été modifié. Vérifie auprès du client, puis déplace les fichiers si c'est bien lui.</p>` }).catch(() => {});
+    return { dossier: dossier.name, ligne, bdc: null, a_verifier: q.name };
+  }
   const sousDossiers = new Map((await g.children(dossier.id)).filter(i => i.folder).map(i => [i.name.toLowerCase(), i]));
   const contenus = new Map(); // sous-dossier -> fichiers déjà présents
   let tailles = null;

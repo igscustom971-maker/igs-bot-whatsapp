@@ -74,13 +74,13 @@ async function logo(id, sansBlanc) {
 
 // Superpose une image sur une base en la découpant si elle déborde (sharp refuse les débordements)
 async function poser(buf, bw, bh, left, top) {
-  const meta = await sharp(buf).metadata();
+  const meta = await sharp(buf, { limitInputPixels: 100e6 }).metadata();
   let x = Math.round(left), y = Math.round(top), ex = 0, ey = 0, w = meta.width, h = meta.height;
   if (x < 0) { ex = -x; w += x; x = 0; }
   if (y < 0) { ey = -y; h += y; y = 0; }
   w = Math.min(w, bw - x); h = Math.min(h, bh - y);
   if (w <= 0 || h <= 0) return null;
-  const input = (ex || ey || w !== meta.width || h !== meta.height) ? await sharp(buf).extract({ left: ex, top: ey, width: w, height: h }).toBuffer() : buf;
+  const input = (ex || ey || w !== meta.width || h !== meta.height) ? await sharp(buf, { limitInputPixels: 100e6 }).extract({ left: ex, top: ey, width: w, height: h }).toBuffer() : buf;
   return { input, left: x, top: y };
 }
 
@@ -94,9 +94,9 @@ async function vignette(BC, page, a, face, logos) {
     if (!logos.has(k)) logos.set(k, await logo(pl.image, pl.sansBlanc).catch(() => null));
     const lg = logos.get(k); if (!lg) continue;
     const r = BC.rectLogo(pl, a, face, m, lg.w, lg.h);
-    let buf = await sharp(lg.buf).resize(Math.max(1, Math.round(r.w)), Math.max(1, Math.round(r.h)), { fit: 'fill' }).png().toBuffer();
+    let buf = await sharp(lg.buf, { limitInputPixels: 100e6 }).resize(Math.max(1, Math.round(r.w)), Math.max(1, Math.round(r.h)), { fit: 'fill' }).png().toBuffer();
     if (r.rot) buf = await sharp(buf).rotate(r.rot, { background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
-    const md = await sharp(buf).metadata();
+    const md = await sharp(buf, { limitInputPixels: 100e6 }).metadata();
     const c = await poser(buf, m.w, m.h, r.x + r.w / 2 - md.width / 2, r.y + r.h / 2 - md.height / 2);
     if (c) calques.push(c);
   }
@@ -113,7 +113,7 @@ async function cadre(BC, page, logos) {
   const calques = [];
   for (let k = 0; k < items.length; k++) {
     const c = cells[k];
-    const buf = await sharp(items[k].buf).resize(Math.max(1, Math.round(c.w * R)), Math.max(1, Math.round(c.h * R)), { fit: 'fill' }).png().toBuffer();
+    const buf = await sharp(items[k].buf, { limitInputPixels: 100e6 }).resize(Math.max(1, Math.round(c.w * R)), Math.max(1, Math.round(c.h * R)), { fit: 'fill' }).png().toBuffer();
     const pz = await poser(buf, W * R, H * R, c.px * R, c.py * R);
     if (pz) calques.push(pz);
   }
@@ -127,7 +127,7 @@ async function chargerLogoIgs() {
   if (logoIgs.buf && Date.now() - logoIgs.at < 24 * 3600e3) return logoIgs.buf;
   try {
     const r = await fetch(process.env.BAT_LOGO_URL || 'https://igscustom.fr/wp-content/uploads/2026/05/IGS-CUSTOM-BAR-LOGO.png');
-    if (r.ok) { const buf = await sharp(Buffer.from(await r.arrayBuffer())).png().toBuffer(); const md = await sharp(buf).metadata(); logoIgs = { buf, ratio: md.width / md.height, at: Date.now() }; }
+    if (r.ok) { const buf = await sharp(Buffer.from(await r.arrayBuffer())).png().toBuffer(); const md = await sharp(buf, { limitInputPixels: 100e6 }).metadata(); logoIgs = { buf, ratio: md.width / md.height, at: Date.now() }; }
   } catch {}
   return logoIgs.buf ? logoIgs : null;
 }

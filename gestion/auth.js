@@ -37,7 +37,7 @@ function parseCookies(req) {
   const out = {};
   (req.headers.cookie || '').split(';').forEach(p => {
     const i = p.indexOf('=');
-    if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+    if (i > 0) { try { out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); } catch {} }
   });
   return out;
 }
@@ -106,7 +106,8 @@ function requireUser(req, res, next) {
 }
 const comptes = () => require('./comptes');
 const ouvrirSession = (res, s) => setCookie(res, COOKIE, sign({ ...s, exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
-const ipDe = req => (req.headers['x-forwarded-for'] || req.ip || '').split(',')[0].trim();
+// Adresse du visiteur : la DERNIÈRE de X-Forwarded-For (ajoutée par le proxy Render) ; la première peut être inventée
+const ipDe = req => { const x = String(req.headers['x-forwarded-for'] || '').split(',').map(v => v.trim()).filter(Boolean); return x[x.length - 1] || req.ip || ''; };
 
 // ---------- Pages de connexion (Microsoft 365 au bureau, identifiant perso à distance) ----------
 const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

@@ -486,6 +486,18 @@ async function creerCommande(data, user) {
   return { cle: r ? r.cle : cleCree };
 }
 
+// Formulaire public : la personne qui envoie est-elle le contact déjà connu de cette commande ?
+// null = pas de ligne ou pas de contact connu (premier envoi) ; true / false sinon
+async function contactFormulaireConnu(devis, email, tel) {
+  if (!source.estBase()) return null;
+  const cible = String(devis || '').trim().toUpperCase();
+  await syncNow();
+  const r0 = cache.rows.find(r => String(r.n_devis || '').trim().toUpperCase() === cible);
+  if (!r0 || !(r0.email || r0.telephone)) return null;
+  const telN = normalizePhone(tel), mailN = String(email || '').trim().toLowerCase();
+  return !!((mailN && r0.email === mailN) || (telN && r0.telephone === telN));
+}
+
 // Formulaire client reçu (reprend le script Office du flux « Dépôt fichiers commande ») :
 // ligne trouvée par N° de devis -> Contenu mail, Zone, PLANCHE (si vide) mis à jour ; le statut ne bouge pas
 // (PAYÉE + formulaire reçu = BAT à faire ; VALIDÉE = BAT validé par le client) ;
@@ -524,7 +536,7 @@ async function majFormulaire({ devis, client, email, tel, instructions, zone }) 
     const memeClient = !contactConnu || (mailN && r0.email === mailN) || (telN && r0.telephone === telN);
     if (contenu && memeClient) f.contenu_mail = contenu;
     else if (contenu) f.remarque = [`⚠ Formulaire reçu avec un autre contact (${[mailN, t(tel)].filter(Boolean).join(' / ')}) : à vérifier`, r0.remarque].filter(Boolean).join(' | ').slice(0, 500);
-    if (zoneF) f.zone_flocage = zoneF;
+    if (zoneF && memeClient) f.zone_flocage = zoneF;
     if (!t(r0.planche)) f.planche = 'À FAIRE';
     if (Object.keys(f).length) await ecrireBase(r0.cle, f);
     await syncNow();
@@ -1036,4 +1048,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
