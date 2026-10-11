@@ -204,6 +204,25 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/caisse/relever', auth.requireUser, auth.requireAdmin, actC(req => caisse.relever(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/:id/supprimer', auth.requireUser, auth.requireAdmin, actC(req => caisse.supprimer(Number(req.params.id), quiC(req))));
 
+  // ---------- Factures fournisseurs (photo ou PDF -> Odoo) : profils technique, commercial et admin ----------
+  const atelierOuCom = (req, res, next) => (auth.aProfil(req.user, 'technique') || auth.aProfil(req.user, 'commercial')) ? next() : res.status(403).json({ error: 'Accès réservé à l\'équipe' });
+  app.get('/gestion/factures', auth.requireUser, (req, res) => {
+    if (!auth.aProfil(req.user, 'technique') && !auth.aProfil(req.user, 'commercial')) return res.redirect('/gestion');
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'factures'));
+  });
+  const uploadFacture = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 8 } }).array('fichiers', 8);
+  app.post('/gestion/api/factures-fournisseurs', auth.requireUser, atelierOuCom, (req, res, next) => uploadFacture(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (20 Mo maximum)' : err.code === 'LIMIT_FILE_COUNT' ? '8 photos maximum par facture' : err.message });
+    next();
+  }), async (req, res) => {
+    try { res.json(await require('./factures-fournisseurs').envoyer({ fichiers: req.files, description: req.body?.description }, req.user.name || req.user.email)); }
+    catch (err) { console.error('Factures fournisseurs :', err.message); res.status(400).json({ error: err.message }); }
+  });
+  app.get('/gestion/api/factures-fournisseurs', auth.requireUser, atelierOuCom, async (req, res) => {
+    try { res.json({ envois: await require('./factures-fournisseurs').recents(req.user.name || req.user.email, req.user.role === 'admin') }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // ---------- Heures des collaborateurs ----------
   app.get('/gestion/heures', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'heures'));

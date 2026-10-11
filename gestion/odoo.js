@@ -488,6 +488,37 @@ async function liensPaiement(numero) {
   return out;
 }
 
+// ---------- Factures fournisseurs importées depuis le dashboard ----------
+// Même chemin que le bouton « Téléverser » d'Odoo (journal d'achat) : la facture brouillon est créée avec la pièce
+// jointe, et la numérisation (OCR) d'Odoo la lit si elle est activée. Repli : facture brouillon vide + pièce jointe.
+async function journalAchats() {
+  const j = await kw('account.journal', 'search_read', [[...(await igsSeulement()), ['type', '=', 'purchase']]], { fields: ['id', 'name'], limit: 1, order: 'sequence asc, id asc' });
+  if (!j.length) throw new Error('Aucun journal d\'achats dans Odoo pour IGS');
+  return j[0];
+}
+async function importerFactureFournisseur({ nom, mimetype, buffer, note }) {
+  const journal = await journalAchats();
+  const attId = await kw('ir.attachment', 'create', [{ name: nom, datas: buffer.toString('base64'), mimetype, res_model: 'account.journal', res_id: journal.id }]);
+  const att = typeof attId === 'object' ? attId.id : attId;
+  let ids = [];
+  try {
+    const action = await kw('account.journal', 'create_document_from_attachment', [[journal.id], [att]]);
+    if (action && action.res_id) ids = [action.res_id];
+    else if (action && Array.isArray(action.domain)) { const d = action.domain.find(x => Array.isArray(x) && x[0] === 'id'); if (d) ids = [].concat(d[2]); }
+  } catch (err) { console.error('Odoo : téléversement de facture fournisseur, repli sur une facture brouillon :', err.message); }
+  if (!ids.length) {
+    const id = await kw('account.move', 'create', [{ move_type: 'in_invoice', journal_id: journal.id, company_id: companyId }]);
+    const mid = typeof id === 'object' ? id.id : id;
+    await kw('ir.attachment', 'write', [[att], { res_model: 'account.move', res_id: mid }]);
+    try { await kw('account.move', 'write', [[mid], { message_main_attachment_id: att }]); } catch {}
+    ids = [mid];
+  }
+  const id = ids[0];
+  if (note) { try { await kw('account.move', 'message_post', [[id]], { body: note, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note facture fournisseur :', err.message); } }
+  const [m] = await kw('account.move', 'read', [[id]], { fields: ['name', 'state', 'partner_id', 'amount_total'] });
+  return { id, numero: m && m.name && m.name !== '/' ? m.name : null, fournisseur: m?.partner_id ? m.partner_id[1] : null, montant_ttc: m?.amount_total || null, journal: journal.name, lien: lienOdoo('account.move', id) };
+}
+
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
 async function devisEnvoyesDepuis(iso) {
   const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
@@ -666,7 +697,7 @@ async function telephonesOdoo() {
 }
 
 module.exports = {
-  lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement,
+  lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

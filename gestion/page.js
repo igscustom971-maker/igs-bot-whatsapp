@@ -18,7 +18,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin', leila: 'Leïla', bat: 'BAT' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', factures: 'Factures fournisseurs', admin: 'Admin', leila: 'Leïla', bat: 'BAT' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/favicon.ico" sizes="any"><link rel="icon" href="/gestion/icon-192.png" type="image/png">
 <link rel="manifest" href="/gestion/manifest.webmanifest"><meta name="theme-color" content="#1E1E4B">
 <link rel="apple-touch-icon" href="/gestion/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="IGS"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -399,6 +399,9 @@ a.brand:hover h1{color:#FF1E8E}
 #co-res .co-r:hover{background:#FBF6EC}
 .co-fiche{position:fixed;inset:0;background:rgba(30,30,75,.35);z-index:30;display:flex;justify-content:flex-end}
 .co-fiche[hidden]{display:none}
+.ff-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px}.ff-gros{justify-content:center;padding:16px 10px;font-size:15px;cursor:pointer;text-align:center}
+.ff-liste{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.ff-it{position:relative;width:92px;height:92px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#faf7f1;display:flex;align-items:center;justify-content:center;font-size:12px;text-align:center}.ff-it img{width:100%;height:100%;object-fit:cover}.ff-it button{position:absolute;top:3px;right:3px;border:0;border-radius:50%;width:22px;height:22px;background:#1E1E4B;color:#fff;cursor:pointer;line-height:22px;padding:0}
+.ff-r{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}.ff-r:last-child{border-bottom:0}.ff-r .t{flex:1;min-width:0}
 .who a[hidden]{display:none}
 .co-fiche-in{width:min(760px,100%);height:100%;overflow:auto;background:var(--bg);padding:22px 24px 48px;box-shadow:-10px 0 30px rgba(30,30,75,.2)}
 .co-conv{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
@@ -434,6 +437,7 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
     ${COM ? `<a class="${view === 'commercial' ? 'on' : ''}" href="/gestion/commercial"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/></svg><span class="lb" data-m="Commercial">Commercial</span><span class="nn o" id="nav-n-com"></span></a>` : ''}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
+    ${TECH || COM ? `<a class="${view === 'factures' ? 'on' : ''}" href="/gestion/factures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg><span class="lb" data-m="Factures">Factures</span></a>` : ''}
     ${TECH ? `<a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>` : ''}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
   </nav>
@@ -457,6 +461,7 @@ ${view === 'accueil' ? `
           <a class="mod" href="/gestion/stock"><div class="i">🗃</div><div class="t">Stock</div><div class="d">T-shirts, consommables, stocks clients</div></a>
           <a class="mod" href="/gestion/commandes#bat"><div class="i">🖨</div><div class="t">BAT</div><div class="d">À faire, à envoyer, générateur à l'échelle</div></a>
           ${user.role === 'admin' ? '<a class="mod" href="/gestion/admin"><div class="i">⚙️</div><div class="t">Admin</div><div class="d">Collaborateurs, produits, couleurs</div></a>' : ''}
+          <a class="mod" href="/gestion/factures"><div class="i">🧾</div><div class="t">Factures fournisseurs</div><div class="d">Photo ou PDF → directement dans Odoo</div></a>
           <a class="mod" href="/gestion/caisse"><div class="i">💵</div><div class="t">Espèces</div><div class="d">Caisse, relevés, totaux mensuels</div></a>
           <a class="mod" href="/gestion/heures"><div class="i">⏱</div><div class="t">Heures</div><div class="d">${user.role === 'admin' ? 'Saisie, totaux par semaine, paiements' : 'Saisir mes heures du jour'}</div></a>
           <a class="mod" href="/gestion/leila"><div class="i">🤖</div><div class="t">Leïla</div><div class="d">${user.role === 'admin' ? 'Planning, catalogue, contexte' : 'Activer, mettre en pause, statut'}</div></a>
@@ -584,6 +589,26 @@ ${view === 'accueil' ? `
         <div class="card" id="hr-mes"><h3>Mes heures</h3><div class="note">Choisis ton nom pour voir tes heures.</div></div>
       </div>
       ${user.role === 'admin' ? '<div class="stack" id="hr-admin"><div class="card"><div class="skel"></div><div class="skel"></div></div></div>' : ''}
+    </div>
+  </section>` : view === 'factures' ? `
+  <section id="v-factures">
+    <div class="tools"><h2 style="margin:0;font-size:20px">🧾 Factures fournisseurs</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn">↻ Actualiser</button></div>
+    <div class="cols" style="grid-template-columns:minmax(0,560px) minmax(0,1fr)">
+      <div class="stack">
+        <div class="card"><h3>Envoyer une facture</h3>
+          <div class="note" style="margin-bottom:10px">Une facture d'un fournisseur ? Prends-la en photo (ou choisis le PDF), écris une courte description et envoie : elle arrive directement dans Odoo, dans les factures fournisseurs.</div>
+          <div class="ff-btns">
+            <label class="btn primary ff-gros">📷 Prendre une photo<input id="ff-photo" type="file" accept="image/*" capture="environment" hidden></label>
+            <label class="btn ff-gros">📎 Choisir un fichier<input id="ff-fichier" type="file" accept="image/*,application/pdf" multiple hidden></label>
+          </div>
+          <div id="ff-liste" class="ff-liste"></div>
+          <div class="field" style="margin-top:12px"><label for="ff-desc">Description (fournisseur et objet)</label><input id="ff-desc" maxlength="150" placeholder="ex. SEFI – t-shirts commande du 12/10" autocomplete="off"></div>
+          <div class="note">Facture de plusieurs pages : prends une photo par page, elles sont réunies en un seul PDF.</div>
+          <div class="btnrow"><button class="btn pink" id="ff-envoyer" disabled>📤 Envoyer dans Odoo</button></div>
+          <div class="msg" id="ff-msg"></div>
+        </div>
+      </div>
+      <div class="stack"><div class="card"><h3>${user.role === 'admin' ? 'Derniers envois' : 'Mes derniers envois'}</h3><div id="ff-recents"><div class="skel"></div></div></div></div>
     </div>
   </section>` : view === 'caisse' ? `
   <section id="v-caisse">
@@ -753,6 +778,7 @@ async function charger(force, auto){
     if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
     if (VIEW === 'commercial') { await coCharger(force, auto); if (!auto && coTab === 'ca') finCharger(force); if (!auto && coTab === 'clients') coAnnexes(force); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
+    if (VIEW === 'factures') { await ffCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
       const j = await r.json(); if (j.error) throw new Error(j.error);
@@ -2655,6 +2681,62 @@ function dupliquerUI(c){
   };
 }
 
+// ---------- Factures fournisseurs ----------
+let ffFichiers = [];
+const ffMsg = (h, k) => { const m = $('ff-msg'); m.className = 'msg ' + (k || ''); m.innerHTML = h; };
+// Photo réduite dans le navigateur (2200 px, JPEG) : envoi rapide depuis le téléphone, formats iPhone convertis
+function ffReduire(file){
+  return new Promise(res => {
+    if (!/^image\\//.test(file.type)) return res(file);
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 2200 / Math.max(img.naturalWidth, img.naturalHeight));
+      const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => { URL.revokeObjectURL(url); res(b ? new File([b], (file.name || 'photo').replace(/\\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file); }, 'image/jpeg', 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); res(file); };
+    img.src = url;
+  });
+}
+function ffAfficher(){
+  $('ff-liste').innerHTML = ffFichiers.map((f, i) => '<div class="ff-it">' + (/^image\\//.test(f.type) ? '<img src="'+f.apercu+'" alt="">' : '📄<br>'+esc(f.name.slice(0, 24))) + '<button data-ffdel="'+i+'" title="Retirer">✕</button></div>').join('');
+  $('ff-envoyer').disabled = !ffFichiers.length;
+}
+async function ffAjouter(list){
+  for (const f of list) {
+    const g = await ffReduire(f);
+    if (/^image\\//.test(g.type)) g.apercu = URL.createObjectURL(g);
+    ffFichiers.push(g);
+  }
+  ffAfficher();
+}
+async function ffCharger(){
+  const r = await fetch('/gestion/api/factures-fournisseurs'); if (r.status === 401) return location.href = '/gestion/auth/login';
+  const j = await r.json(); if (j.error) throw new Error(j.error);
+  const l = j.envois || [];
+  $('ff-recents').innerHTML = l.length ? l.map(e => '<div class="ff-r"><div>'+(e.canal === 'odoo' ? '✅' : '✉️')+'</div><div class="t"><b>'+esc(e.description || '—')+'</b><div class="sub">'+fdate(e.le)+(ADMIN ? ' · '+esc(e.par || '') : '')+(e.canal === 'odoo' ? ' · dans Odoo'+(e.fournisseur ? ' ('+esc(e.fournisseur)+')' : '') : ' · par mail à la comptabilité')+'</div></div>'+(e.lien ? '<a class="btn" href="'+esc(e.lien)+'" target="_blank" rel="noopener">↗ Odoo</a>' : '')+'</div>').join('') : '<div class="note">Aucun envoi pour le moment.</div>';
+}
+function ffEvents(){
+  $('ff-photo').addEventListener('change', e => { ffAjouter([...e.target.files]); e.target.value = ''; });
+  $('ff-fichier').addEventListener('change', e => { ffAjouter([...e.target.files]); e.target.value = ''; });
+  $('ff-liste').addEventListener('click', e => { const b = e.target.closest('[data-ffdel]'); if (b) { ffFichiers.splice(Number(b.dataset.ffdel), 1); ffAfficher(); } });
+  $('ff-envoyer').addEventListener('click', async () => {
+    const desc = $('ff-desc').value.trim();
+    if (!ffFichiers.length) return ffMsg('Ajoute la photo ou le fichier de la facture', 'err');
+    if (desc.length < 3) { $('ff-desc').focus(); return ffMsg('Écris une courte description : fournisseur et objet', 'err'); }
+    const fd = new FormData(); fd.append('description', desc); ffFichiers.forEach(f => fd.append('fichiers', f, f.name));
+    $('ff-envoyer').disabled = true; ffMsg('Envoi en cours…', 'info');
+    try {
+      const r = await fetch('/gestion/api/factures-fournisseurs', { method: 'POST', body: fd });
+      const j = await r.json(); if (!r.ok || j.error) throw new Error(j.error || ('Erreur ' + r.status));
+      ffMsg(j.canal === 'odoo' ? '✅ Facture envoyée dans Odoo (factures fournisseurs, en brouillon)' + (j.fournisseur ? ' : ' + esc(j.fournisseur) : '') + '. Merci !' : '✉️ Odoo ne répondait pas : la facture est partie par mail à ' + esc(j.destinataire) + '. Merci !', 'ok');
+      ffFichiers = []; ffAfficher(); $('ff-desc').value = '';
+      ffCharger().catch(() => {});
+    } catch(err) { ffMsg('❌ ' + esc(err.message), 'err'); $('ff-envoyer').disabled = !ffFichiers.length; }
+  });
+}
+
 // ---------- Actions commande (écrites dans l'Excel) ----------
 let EQUIPE = ['Ismaël G.', 'Maureen G.', 'Kelhyan V.', 'Ilona C.'];
 const PLANCHE_ETATS = ['A FAIRE', 'A IMPRIMER', 'OK'];
@@ -2782,6 +2864,8 @@ if (VIEW === 'commandes') {
   adEvents();
 } else if (VIEW === 'caisse') {
   csEvents();
+} else if (VIEW === 'factures') {
+  ffEvents();
 } else if (VIEW === 'heures') {
   hrEvents();
 } else if (VIEW === 'stock') {
@@ -2812,7 +2896,7 @@ if (${TECH ? 'true' : 'false'} && !['accueil','commandes','planches'].includes(V
 // Actualisation automatique (pas sur Admin ni Heures : elle effacerait une saisie en cours)
 // Actualisation auto toutes les 2 min (onglet visible seulement) ; au retour sur l'onglet, tout de suite si c'est ancien.
 // Pas sur les pages de réglages (Admin, Leïla, Heures) : une saisie en cours serait effacée.
-if (!['admin', 'heures', 'leila'].includes(VIEW)) {
+if (!['admin', 'heures', 'leila', 'factures'].includes(VIEW)) {
   let dernierAuto = Date.now();
   const tick = () => { if (document.hidden) return; dernierAuto = Date.now(); charger(false, true); };
   setInterval(tick, 120000);
