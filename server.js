@@ -1670,6 +1670,33 @@ app.post('/admin/message-programme-annuler', async (req, res) => {
   res.send(n ? `✅ Message programmé annulé pour ${numero}` : `Aucun message en attente pour ${numero}`);
 });
 
+// Veille des urgences quand Leïla ne répond pas (jour où elle est éteinte, désactivée, ou message de la nuit) :
+// du lundi au vendredi, aux heures d'ouverture, chaque message en attente est vérifié UNE fois (mots-clés + modèle léger).
+// Si c'est urgent, Ismaël est prévenu tout de suite. Pas pendant une fermeture (congés), ni le week-end.
+async function veilleUrgences() {
+  if (isClosedForBreak(new Date())) return;
+  const t = getGuadeloupeTime(new Date());
+  if (['Sat', 'Sun'].includes(t.weekday) || !isWithinBusinessHours(t)) return;
+  if (repondA(new Date())) return; // Leïla répond elle-même : l'urgence est détectée dans sa réponse
+  for (const [from, items] of Object.entries(backlogMessages)) {
+    const aVerifier = (items || []).filter(it => !it.verifie);
+    if (!aVerifier.length || rattrapageEnCours.has(from)) continue;
+    aVerifier.forEach(it => { it.verifie = true; });
+    await sauverAttente();
+    try {
+      const texte = aVerifier.map(it => normalizeIncoming(it.text).realText).filter(Boolean).join('\n');
+      if (!texte || await dejaRepondu(from, Math.max(...aVerifier.map(it => it.at)))) continue;
+      const hist = await db.getHistory(from, (await db.getHistoryLimit(from)) || undefined);
+      let urgent = looksUrgent(texte);
+      if (!urgent) urgent = await checkUrgentOnly(hist.slice(0, -1), hist.length ? hist[hist.length - 1].content : texte).catch(() => false);
+      if (urgent) {
+        console.log(`Veille : message urgent de ${from} pendant que Leïla est en veille`);
+        await triggerUrgentAlert(from, hist, { label: ' (Leïla en veille, personne n\'a encore répondu)', logFallback: false });
+      }
+    } catch (e) { console.error(`Veille urgences ${from} :`, e.message); }
+  }
+}
+
 // Routine périodique : récaps, rattrapage, messages programmés, sauvegarde de l'état.
 // Tourne toute seule chaque minute (plus besoin d'UptimeRobot pour ça) ; UptimeRobot garde juste le serveur éveillé.
 let routineEnCours = false;
@@ -1681,6 +1708,7 @@ async function routine() {
     await checkMorningRecapDue();
     await checkDailyRecapDue();
     await flushBacklogIfActive();
+    await veilleUrgences();
     // Récap d'une session manuelle qui n'avait pas pu partir : nouvel essai toutes les 30 min
     if (manualOverride !== true && manualLog.length && Date.now() - dernierEssaiRecapManuel > 30 * 60e3) { dernierEssaiRecapManuel = Date.now(); await flushManualRecap(); }
     await persistState();

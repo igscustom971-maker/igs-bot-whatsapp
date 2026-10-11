@@ -102,19 +102,21 @@ function pageAuth(titre, corps, script = '') {
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;font-family:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;color:#1E1E4B;background:#F7F0E4}
-.side{flex:1 1 55%;position:relative;overflow:hidden;background:#F7F0E4 url('/gestion/fond-igs.jpg') center/cover no-repeat;color:#1E1E4B;padding:56px 64px;display:flex;flex-direction:column;justify-content:center;gap:34px}
+.side{flex:1 1 55%;position:relative;overflow:hidden;background:#1E1E4B;color:#fff;padding:56px 64px;display:flex;flex-direction:column;justify-content:center;gap:34px}
+.side::before{content:"";position:absolute;width:640px;height:640px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#FF1E8E 0,#B0156B 45%,transparent 70%);opacity:.5;right:-230px;bottom:-250px}
+.side::after{content:"";position:absolute;width:300px;height:300px;border-radius:50%;border:2px solid rgba(255,255,255,.08);right:120px;top:-90px}
 
 .side>*{position:relative;z-index:1}
 .marque{display:flex;align-items:center;gap:14px}
 .marque{flex-direction:column;align-items:flex-start;gap:10px}.marque .lg{width:150px;height:130px;display:flex;align-items:center;justify-content:center;color:#FF1E8E;font-weight:800;filter:drop-shadow(0 14px 30px rgba(30,30,75,.25))}
 .marque .lg img{width:100%;height:100%;object-fit:contain;display:block}
-.marque b{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:34px;letter-spacing:.04em;display:block;line-height:1}.marque small{color:#68677D;font-size:13px;font-weight:700;letter-spacing:.12em}
-.accroche{background:rgba(247,240,228,.9);border-radius:22px;padding:24px 28px;max-width:520px;box-shadow:0 10px 24px rgba(30,30,75,.12)}
+.marque b{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:34px;letter-spacing:.04em;display:block;line-height:1;color:#fff}.marque small{color:#FF8A3D;font-size:13px;font-weight:700;letter-spacing:.12em}
+.accroche{max-width:540px}
 .accroche h2{margin:0;font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:60px;line-height:.92;letter-spacing:.01em}
 .accroche h2 em{font-style:normal;color:#FF1E8E}
-.accroche p{margin:14px 0 0;color:#191936;font-size:15px;line-height:1.6}
+.accroche h2{color:#fff}.accroche p{margin:14px 0 0;color:#C9C8E3;font-size:15px;line-height:1.6}
 .puces{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
-.puces{margin-top:18px}.puces span{background:#1E1E4B;border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;color:#fff}
+.puces{margin-top:18px}.puces span{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;color:#fff}
 .cote{flex:1 1 45%;display:flex;align-items:center;justify-content:center;padding:40px 24px;background:#fff}
 .box{width:100%;max-width:420px}
 .box .lg-m{display:none}
@@ -132,9 +134,9 @@ button.go:hover{background:#E8137D}button.go:disabled{opacity:.6}
 .info{background:#FEF3C7;color:#92400E;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:8px}
 @media (max-width:900px){
   body{flex-direction:column;background:#fff}
-  /* Téléphone : bandeau uni bleu nuit (le fond tropical est réservé à l'ordinateur, trop chargé en petit) */
-  .side{flex:none;padding:22px 20px 26px;min-height:auto;gap:16px;background:#1E1E4B;color:#fff}
-  .side::before{content:"";position:absolute;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#FF1E8E 0,#B0156B 45%,transparent 70%);opacity:.5;right:-150px;bottom:-190px}
+  /* Téléphone : bandeau compact */
+  .side{flex:none;padding:22px 20px 26px;min-height:auto;gap:16px}
+  .side::before{width:340px;height:340px;right:-150px;bottom:-190px}.side::after{display:none}
   .marque{flex-direction:row;align-items:center}
   .marque .lg{width:74px;height:64px;filter:none}
   .marque b{color:#fff;font-size:30px}.marque small{color:#FF8A3D}

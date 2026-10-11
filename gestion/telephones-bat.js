@@ -45,7 +45,22 @@ async function textePdf(buf) {
   await doc.destroy().catch(() => {});
   return t;
 }
-const numerosDans = texte => [...new Set((String(texte).match(RE_TEL) || []).map(norm).filter(n => n && n.length >= 11 && n.length <= 12 && !NUMEROS_IGS.has(n)))];
+// Numéros plausibles : mobiles et fixes des Antilles/Guyane/Réunion, mobiles métropole (06/07). Les fixes de
+// métropole (01-05, 09) ne sont gardés que précédés de « tél », « téléphone », « portable »… (évite les faux numéros
+// pris dans des références, tailles ou SIRET).
+const MOT_TEL = /(t[ée]l[ée]?(phone)?|phone|portable|mobile|gsm|contact|joindre|num[ée]ro)\s*[:.]?\s*$/i;
+function numerosDans(texte) {
+  const t = String(texte), out = new Set();
+  for (const m of t.matchAll(RE_TEL)) {
+    const n = norm(m[0]);
+    if (!n || n.length < 11 || n.length > 12 || NUMEROS_IGS.has(n)) continue;
+    const dom = /^(590(590|690|691|694)|596(596|696|697)|594(594|694)|262(262|692|693))\d{6}$/.test(n);
+    const mobileFr = /^33[67]\d{8}$/.test(n);
+    const fixeFr = /^33[1-59]\d{8}$/.test(n) && MOT_TEL.test(t.slice(Math.max(0, m.index - 30), m.index));
+    if (dom || mobileFr || fixeFr) out.add(n);
+  }
+  return [...out];
+}
 
 async function contenu(item) {
   const r = await g.content(item.id);
@@ -103,12 +118,43 @@ async function analyser(user) {
         } catch (err) { illisibles.push({ dossier: f.name, raison: err.message.slice(0, 120) }); }
         finally { etat.progression.dossiers++; }
       });
-      // 2. Commandes du dashboard (téléphone donné dans le formulaire), y compris l'historique
+      // 2. Boîte contact@ : mails « Nouvelle commande - DE… » du formulaire et mails des clients citant un N° de devis
+      etat.progression.etape = 'mails';
+      try {
+        const box = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
+        const depuis = new Date(Date.now() - 730 * 86400e3).toISOString();
+        let url = `/users/${encodeURIComponent(box)}/messages?$filter=receivedDateTime ge ${depuis}&$select=subject,from,body,receivedDateTime&$orderby=receivedDateTime desc&$top=100`;
+        let pages = 0;
+        etat.progression.mails = 0;
+        while (url && pages < 60) {
+          const r = await g.graph(url);
+          pages++;
+          for (const m of r.value || []) {
+            etat.progression.mails++;
+            const sujet = String(m.subject || '');
+            const devis = (sujet.match(RE_DEVIS) || [''])[0].replace(/\s/g, '');
+            if (!devis) continue;
+            const deIgs = /@igscustom\.fr$/i.test(m.from?.emailAddress?.address || '');
+            const formulaire = /^nouvelle commande/i.test(sujet);
+            if (deIgs && !formulaire) continue; // nos propres réponses : seulement notre numéro et les échanges cités
+            const html = String(m.body?.content || '');
+            let nums = [];
+            const cellule = html.match(/T[ée]l[ée]phone\s*<\/b>\s*<\/td>\s*<td>([^<]{6,40})</i);
+            if (cellule && norm(cellule[1])) nums = [norm(cellule[1])];
+            else nums = numerosDans(html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').split(/De\s*:|From\s*:|Le .{5,60} a écrit/)[0]);
+            const client = formulaire ? sujet.split(/\s+-\s+/).slice(2).join(' - ') : (m.from?.emailAddress?.name || null);
+            for (const n of nums) if (!NUMEROS_IGS.has(n)) ajoute(devis, client, n, `mail « ${sujet.slice(0, 60)} » du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')}`);
+          }
+          url = r['@odata.nextLink'] || null;
+        }
+      } catch (err) { illisibles.push({ dossier: 'Boîte mail contact@', raison: err.message.slice(0, 160) }); }
+
+      // 3. Commandes du dashboard (téléphone donné dans le formulaire), y compris l'historique
       if (supabase) {
         const { data } = await supabase.from('gestion_commandes').select('n_devis, client, telephone').not('telephone', 'is', null).not('n_devis', 'is', null).limit(5000);
         for (const c of data || []) { const n = norm(c.telephone); if (n && !NUMEROS_IGS.has(n)) ajoute(c.n_devis, c.client, n, 'formulaire de commande (dashboard)'); }
       }
-      // 3. Rapprochement avec Odoo (client du devis), regroupé par fiche client
+      // 4. Rapprochement avec Odoo (client du devis), regroupé par fiche client
       const fiches = new Map(); // partnerId -> { partner, numeros: Map(n -> sources), devis: [] }
       const introuvables = [];
       await pool([...sources.values()], 4, async s => {
@@ -123,21 +169,24 @@ async function analyser(user) {
       const lignes = [];
       for (const fi of fiches.values()) {
         const actuel = norm(fi.partner.phone || '');
-        const nums = [...fi.numeros.keys()];
+        // Le numéro trouvé dans le plus de sources passe en premier ; s'il est nettement devant, il est retenu
+        const nums = [...fi.numeros.keys()].sort((a, b) => fi.numeros.get(b).length - fi.numeros.get(a).length);
+        const net = nums.length > 1 && fi.numeros.get(nums[0]).length > fi.numeros.get(nums[1]).length;
         let statut;
         if (actuel && nums.includes(actuel)) statut = 'deja_ok';
         else if (actuel) statut = 'different';
-        else if (nums.length === 1) statut = 'a_ajouter';
+        else if (nums.length === 1 || net) statut = 'a_ajouter';
         else statut = 'plusieurs';
         lignes.push({
           partnerId: fi.partner.id, client: fi.partner.name, telephoneOdoo: fi.partner.phone || null, statut,
           numeros: nums.map(n => ({ numero: n, affiche: odoo.formatTel(n), sources: fi.numeros.get(n).slice(0, 4) })), devis: fi.devis.slice(0, 6),
         });
       }
+      const sansNumeroFinal = sansNumero.filter(x => !x.devis || !sources.has(x.devis.toUpperCase()));
       const ordre = { a_ajouter: 0, plusieurs: 1, different: 2, deja_ok: 3 };
       lignes.sort((a, b) => ordre[a.statut] - ordre[b.statut] || a.client.localeCompare(b.client));
       const resume = lignes.reduce((m, l) => (m[l.statut] = (m[l.statut] || 0) + 1, m), {});
-      await ecrire({ le: new Date().toISOString(), par: user, duree_s: Math.round((Date.now() - t0) / 1000), dossiers: etat.progression.total, pdf: etat.progression.pdf, resume, lignes, introuvables: introuvables.slice(0, 200), sansNumero: sansNumero.slice(0, 300), illisibles: illisibles.slice(0, 100) });
+      await ecrire({ le: new Date().toISOString(), par: user, duree_s: Math.round((Date.now() - t0) / 1000), dossiers: etat.progression.total, pdf: etat.progression.pdf, mails: etat.progression.mails || 0, resume, lignes, introuvables: introuvables.slice(0, 200), sansNumero: sansNumeroFinal.slice(0, 300), illisibles: illisibles.slice(0, 100) });
       console.log(`Gestion téléphones Odoo : analyse terminée (${lignes.length} fiches, ${JSON.stringify(resume)})`);
     } catch (err) {
       console.error('Gestion téléphones Odoo (analyse) :', err.message);

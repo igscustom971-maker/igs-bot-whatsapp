@@ -1224,16 +1224,16 @@ async function adTel(){
   const box = $('ad-tel'); if (!box) return;
   let e; try { const r = await fetch('/gestion/api/admin/telephones'); e = await r.json(); if (!r.ok) throw new Error(e.error || 'Erreur'); } catch(err){ box.innerHTML = '<h3>📞 Numéros clients dans Odoo</h3><div class="note">Indisponible : '+esc(err.message)+'</div>'; return; }
   const r = e.rapport, lib = { a_ajouter: ['À ajouter', '#dcfce7;color:#065f46'], plusieurs: ['Plusieurs numéros', '#fef3c7;color:#92400e'], different: ['Différent dans Odoo', '#fee2e2;color:#991b1b'], deja_ok: ['Déjà bon', '#eef2ff;color:#3730a3'], ajoute: ['Ajouté ✓', '#dcfce7;color:#065f46'] };
-  let h = '<h3>📞 Numéros clients dans Odoo</h3><div class="note">Lit les BAT et PDF des dossiers de commande (y compris ARCHIVES) et les formulaires reçus, puis les compare aux fiches clients Odoo. L’analyse ne modifie rien. Ensuite, seuls les numéros <b>manquants</b> sont ajoutés : un numéro déjà présent dans Odoo n’est jamais remplacé.</div>';
+  let h = '<h3>📞 Numéros clients dans Odoo</h3><div class="note">Lit les BAT et PDF des dossiers de commande (y compris ARCHIVES), les mails de la boîte contact@ (formulaires « Nouvelle commande », mails des clients avec un N° de devis) et les formulaires reçus, puis les compare aux fiches clients Odoo. L’analyse ne modifie rien. Ensuite, seuls les numéros <b>manquants</b> sont ajoutés : un numéro déjà présent dans Odoo n’est jamais remplacé.</div>';
   if (e.enCours) {
     const p = e.progression || {};
-    h += '<div class="msg on">⏳ Analyse en cours : '+(p.dossiers||0)+' / '+(p.total||'?')+' dossiers, '+(p.pdf||0)+' PDF lus…</div>';
+    h += '<div class="msg on">⏳ Analyse en cours : '+(p.dossiers||0)+' / '+(p.total||'?')+' dossiers, '+(p.pdf||0)+' PDF lus'+(p.mails ? ', '+p.mails+' mails parcourus' : '')+'…</div>';
     clearTimeout(adTelTimer); adTelTimer = setTimeout(adTel, 4000);
   } else if (r && r.erreur) {
     h += '<div class="msg on err">❌ Dernière analyse en erreur : '+esc(r.erreur)+'</div>';
   } else if (r && r.lignes) {
     const res = r.resume || {};
-    h += '<div class="note" style="margin:8px 0">Analyse du '+new Date(r.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : '+r.dossiers+' dossiers, '+r.pdf+' PDF lus, '+r.lignes.length+' fiches clients.</div>';
+    h += '<div class="note" style="margin:8px 0">Analyse du '+new Date(r.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' : '+r.dossiers+' dossiers, '+r.pdf+' PDF lus, '+(r.mails||0)+' mails parcourus, '+r.lignes.length+' fiches clients.</div>';
     h += '<div class="btnrow" style="margin:0 0 10px">'+Object.keys(lib).filter(k => res[k]).map(k => '<span class="esp" style="background:'+lib[k][1]+'">'+lib[k][0]+' : '+res[k]+'</span>').join('')+'</div>';
     const aVoir = r.lignes.filter(l => l.statut !== 'deja_ok');
     if (aVoir.length) {
@@ -1241,7 +1241,7 @@ async function adTel(){
         + aVoir.map(l => {
           const choix = l.statut === 'a_ajouter' ? '<input type="checkbox" class="tel-c" data-p="'+l.partnerId+'" data-n="'+l.numeros[0].numero+'" checked>'
             : l.statut === 'plusieurs' ? '<select class="tel-s" data-p="'+l.partnerId+'"><option value="">— choisir —</option>'+l.numeros.map(n => '<option value="'+n.numero+'">'+esc(n.affiche)+'</option>').join('')+'</select>' : '';
-          return '<tr><td>'+choix+'</td><td><b>'+esc(l.client)+'</b><div><span class="esp" style="background:'+lib[l.statut][1]+'">'+lib[l.statut][0]+'</span></div></td><td>'+l.numeros.map(n => esc(n.affiche)).join('<br>')+'</td><td>'+esc(l.telephoneOdoo || '—')+'</td><td class="note" style="max-width:340px">'+l.numeros.flatMap(n => n.sources).slice(0, 3).map(esc).join('<br>')+'</td></tr>';
+          return '<tr><td>'+choix+'</td><td><b>'+esc(l.client)+'</b><div><span class="esp" style="background:'+lib[l.statut][1]+'">'+lib[l.statut][0]+'</span></div></td><td>'+(l.statut === 'a_ajouter' ? '<b>'+esc(l.numeros[0].affiche)+'</b>'+(l.numeros.length > 1 ? '<div class="note">aussi vu : '+l.numeros.slice(1).map(n => esc(n.affiche)).join(', ')+'</div>' : '') : l.numeros.map(n => esc(n.affiche)).join('<br>'))+'</td><td>'+esc(l.telephoneOdoo || '—')+'</td><td class="note" style="max-width:340px">'+l.numeros.flatMap(n => n.sources).slice(0, 3).map(esc).join('<br>')+'</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
     const autres = (r.sansNumero || []).length + (r.introuvables || []).length + (r.illisibles || []).length;
