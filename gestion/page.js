@@ -5,6 +5,8 @@
 const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function render(user, view = 'accueil') {
+  const batSeul = view === 'bat';
+  if (batSeul) view = 'commandes';
   // Compte perso (collaborateur ou admin) : son prénom ; compte d'équipe contact@ : « l'équipe »
   const prenom = user.collab ? String(user.collab).split(' ')[0]
     : (user.role === 'admin' || String(user.email || '').startsWith('local:')) ? (user.name || '').split(' ')[0] || 'l\'équipe'
@@ -17,7 +19,7 @@ function render(user, view = 'accueil') {
 <title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin' })[view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/logo-igs.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --ink:#1e1b4b; --pink:#e91e8c; --bg:#f6f4fb; --card:#fff; --line:#e7e3f1; --muted:#6b6880;
@@ -238,24 +240,25 @@ td.c-x{width:30px;text-align:right;padding-left:0}
   .lines th:nth-child(3),.lines td:nth-child(3),.lines th:nth-child(6),.lines td:nth-child(6){display:none}
 }
 
-/* ===== Nouvelle interface : menu latéral, Plus Jakarta Sans, cartes arrondies ===== */
-:root{--ink:#1E1E4B;--pink:#E91E8C;--bg:#F4F3F8;--line:#ECEAF3;--muted:#7A7899;--soft:#F1EFF7;--radius:18px;--side:248px}
-html,body{background:var(--bg);font:14px/1.5 'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif}
+/* ===== Nouvelle interface : menu latéral, couleurs de l'afficheur (Bebas Neue + Poppins) ===== */
+:root{--ink:#1E1E4B;--pink:#FF1E8E;--orange:#FF8A3D;--green:#5BBE72;--blue:#3E63F0;--bg:#F7F0E4;--line:#EADFCC;--muted:#68677D;--soft:#FBF6EC;--radius:18px;--side:248px}
+html,body{background:var(--bg);color:#191936;font:14px/1.5 'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif}
+.hello h2,.kpi .n,.bar h1,.titre-page,.phead h2{font-family:'Bebas Neue','Poppins',sans-serif;font-weight:400;letter-spacing:.8px}
 header{position:fixed;top:0;left:0;bottom:0;width:var(--side);background:#1E1E4B;border:none;z-index:6;overflow-y:auto}
 .bar{max-width:none;height:100%;flex-direction:column;align-items:stretch;gap:4px;padding:22px 14px 16px}
 .bar .brand{display:flex;align-items:center;gap:10px;padding:2px 8px 20px}
 .bar .brand .logo img{display:block;width:100%;height:100%;object-fit:contain}
-.bar .brand .logo{overflow:visible;width:52px;height:46px;border-radius:0;background:none;padding:0;box-sizing:border-box;color:#E91E8C;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none}
-.bar h1{color:#fff;font-size:15px;letter-spacing:.3px}
+.bar .brand .logo{overflow:visible;width:52px;height:46px;border-radius:0;background:none;padding:0;box-sizing:border-box;color:#FF1E8E;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex:none}
+.bar h1{color:#fff;font-size:22px;line-height:1;white-space:nowrap}
 .bar .brand small{display:block;color:#8D8BB8;font-size:12px;font-weight:600}
 
 .bar nav{flex-direction:column;gap:3px;margin:0}
 .bar nav a{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;color:#C9C8E3;font-weight:600;font-size:14px}
 .bar nav a svg{flex:none;opacity:.9}
 .bar nav a:hover{background:rgba(255,255,255,.07);color:#fff}
-.bar nav a.on{background:#E91E8C;color:#fff}
+.bar nav a.on{background:#FF1E8E;color:#fff}
 .bar nav a .nn{margin-left:auto;background:rgba(255,255,255,.18);color:#fff;border-radius:999px;padding:0 8px;font-size:12px;font-weight:800}
-.bar nav a .nn.o{background:#FFB020;color:#1E1E4B}
+.bar nav a .nn.o{background:#FF8A3D;color:#1E1E4B}
 .bar nav a .nn:empty{display:none}
 .bar nav a.off{display:none}
 .who{margin:auto 0 0;flex-direction:column;align-items:stretch;gap:6px;background:rgba(255,255,255,.06);border-radius:14px;padding:12px;color:#8D8BB8}
@@ -267,7 +270,7 @@ a.btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 .who a{color:#C9C8E3;text-decoration:none;font-size:12px;padding:2px 0}
 .who a:hover{color:#fff}
 main{max-width:1680px;margin:0 0 0 var(--side);padding:26px 34px 48px}
-.hello h2{font-size:30px;letter-spacing:-.6px}
+.hello h2{font-size:40px;line-height:1.05}
 .btn{border-radius:12px;padding:9px 14px;font-weight:700;border-color:#E3E1EE;min-height:40px}
 .btn.primary{background:#1E1E4B;border-color:#1E1E4B}
 .search{border-radius:12px;padding:10px 14px;border-color:#E3E1EE;min-height:42px}
@@ -276,25 +279,27 @@ main{max-width:1680px;margin:0 0 0 var(--side);padding:26px 34px 48px}
 .card,.tablewrap,.kpi,.mod{border-radius:var(--radius);border-color:var(--line)}
 .card{padding:18px 20px}
 .card h3{font-size:12px;font-weight:800;letter-spacing:.7px;color:#8D8BA8}
-th{background:#fff;color:#8D8BA8;font-weight:800;letter-spacing:.6px;padding:14px 10px 10px}
-td{border-bottom-color:#F1EFF6;padding:11px 10px}
-tr.row:hover td{background:#FBFAFE}
+th{background:#fff;color:#8D8BA8;font-weight:800;letter-spacing:.6px;padding:14px 8px 10px}
+td{border-bottom-color:#F3ECDF;padding:11px 8px}
+td.c-x,.tablewrap th:last-child{position:sticky;right:0;background:#fff;z-index:1;width:34px;min-width:34px;padding-right:10px;text-align:center}
+tr.row:hover td.c-x{background:#FFFBF4}
+tr.row:hover td{background:#FFFBF4}
 .kpi{padding:18px 20px}
 .kpi::before{display:none}
 .kpi .l{display:flex;align-items:center;gap:8px;font-weight:700;color:#5B5A7E}
 .kpi .l::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--accent,var(--ink));flex:none}
-.kpi .n{font-size:34px;letter-spacing:-1px}
+.kpi .n{font-size:44px;line-height:1}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px}
 .badge::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 .esp{border-radius:999px;font-size:11.5px}
 .panel{width:min(820px,100%)}
 .phead{padding:18px 22px}
-.phead h2{font-size:21px;font-weight:800;letter-spacing:-.3px}
+.phead h2{font-size:28px}
 .pbody{padding:18px 22px 48px;gap:14px}
 .steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .steps .st{display:flex;flex-direction:column;gap:6px;min-width:0}
 .steps .st i{display:block;height:6px;border-radius:99px;background:#E6E4EF}
-.steps .st.d i{background:#E91E8C}.steps .st.c i{background:#1E1E4B}
+.steps .st.d i{background:#FF1E8E}.steps .st.c i{background:#1E1E4B}
 .steps .st span{font-size:11.5px;font-weight:800;color:#A7A5BF;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steps .st.d span,.steps .st.c span{color:#1E1E4B}
 @media (min-width:761px) and (max-width:1240px){ .cols{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(2,1fr)} main{padding:22px 22px 40px} }
@@ -308,26 +313,45 @@ tr.row:hover td{background:#FBFAFE}
   .bar nav{justify-content:stretch;overflow-x:hidden}
   .bar nav a .lb{font-size:0;line-height:1}.bar nav a .lb::after{content:attr(data-m);font-size:10px}
   .cols{grid-template-columns:1fr!important}
-  .bar nav a.on{background:none;color:#E91E8C}
+  .bar nav a.on{background:none;color:#FF1E8E}
   .bar nav a .nn{display:none}
   .who{margin:0 0 0 auto;flex-direction:row;background:none;padding:0}
   .who .me{display:none}
   main{margin:0;padding:16px 14px 90px}
   .steps .st span{font-size:10px}
+  td.c-x{position:static;width:auto;min-width:0;background:none}
+  .titre-page{font-size:32px}
 }
+
+a.brand{text-decoration:none;color:inherit}
+a.brand:hover h1{color:#FF1E8E}
+.bar .brand small{color:#FF8A3D;letter-spacing:1.2px;font-size:11px;font-weight:700}
+.filtre{display:inline-flex;align-items:center;gap:8px;font-weight:700;color:var(--muted);font-size:13px}
+.filtre select{appearance:none;-webkit-appearance:none;border:1px solid #E3D8C4;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%231E1E4B' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center;border-radius:12px;padding:9px 34px 9px 12px;font:600 14px 'Poppins',sans-serif;color:#1E1E4B;min-height:40px;cursor:pointer}
+.filtre select:focus{outline:2px solid #FF1E8E;outline-offset:1px}
+.titre-page{font-size:40px;margin:0 0 14px;color:#1E1E4B;line-height:1}
+.lei-statut{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:700;margin-bottom:12px}
+.lei-pt{width:12px;height:12px;border-radius:50%;background:#C9C3B5;flex:none}
+.lei-pt.on{background:#5BBE72;box-shadow:0 0 0 4px rgba(91,190,114,.2)}
+.lei-pt.off{background:#FF1E8E;box-shadow:0 0 0 4px rgba(255,30,142,.15)}
+.lei-pt.auto{background:#3E63F0;box-shadow:0 0 0 4px rgba(62,99,240,.15)}
+.lei-ta{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #E3D8C4;border-radius:12px;padding:10px 12px;font:13px/1.45 'Poppins',sans-serif;resize:vertical;background:#fff}
+#lei-out{white-space:pre-wrap;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:#FBF6EC;border-radius:12px;padding:12px;max-height:420px;overflow:auto;margin:0}
+.btn.pink:hover{background:#E6127C}
 </style>
 </head>
 <body>
 <header><div class="bar">
-  <div class="brand"><div class="logo"><img src="/gestion/logo-igs.png" alt="IGS" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><h1>IGS DASHBOARD</h1><small>Custom Bar</small></div></div>
+  <a class="brand" href="/gestion" title="Retour à l’accueil"><div class="logo"><img src="/gestion/logo-igs.png" alt="IGS" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><h1>IGS DASHBOARD</h1><small>IGS CUSTOM BAR</small></div></a>
   <nav>
     <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span class="lb" data-m="Accueil">Aujourd'hui</span></a>
-    <a class="${view === 'commandes' ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg><span class="lb" data-m="Cmdes">Commandes</span><span class="nn" id="nav-n-cmd"></span></a>
-    <a href="/gestion/commandes#bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg><span class="lb" data-m="BAT">BAT</span><span class="nn o" id="nav-n-bat"></span></a>
+    <a class="${view === 'commandes' && !batSeul ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg><span class="lb" data-m="Cmdes">Commandes</span><span class="nn" id="nav-n-cmd"></span></a>
+    <a class="${batSeul ? 'on' : ''}" href="/gestion/bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg><span class="lb" data-m="BAT">BAT</span><span class="nn o" id="nav-n-bat"></span></a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span class="lb" data-m="Planches">Planches DTF</span></a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg><span class="lb" data-m="Stock">Stock</span></a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
+    <a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
@@ -385,6 +409,47 @@ ${view === 'accueil' ? `
         <button class="btn pink" id="ad-save-listes" style="padding:12px">💾 Enregistrer les listes</button>
         <div class="msg" id="a-msg"></div>
       </div>
+    </div>
+  </section>` : view === 'leila' ? `
+  <section id="v-leila">
+    <div class="hello"><div><h2>Leïla</h2><div class="sub">L’assistante WhatsApp d’IGS : planning, activation, contexte et outils.</div></div>
+      <div class="tools" style="margin:0"><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div></div>
+    <div class="cols" style="grid-template-columns:minmax(280px,1fr) 1.4fr">
+      <div class="stack">
+        <div class="card"><h3>Statut</h3>
+          <div id="lei-statut" class="lei-statut">…</div>
+          <div class="btnrow"><button class="btn pink" data-lei="activer">▶ Activer</button><button class="btn" data-lei="desactiver">⏸ Désactiver</button><button class="btn" data-lei="auto">🔄 Planning automatique</button></div>
+          <div class="note" style="margin-top:8px">Automatique : Leïla répond selon son planning (lundi et jeudi matin). Activer / Désactiver force son état jusqu’au retour en automatique.</div>
+        </div>
+        ${user.role === 'admin' ? `<div class="card"><h3>Fermeture</h3>
+          <div class="field"><label>Fermée jusqu’au (inclus)</label><input type="date" id="lei-date"></div>
+          <div class="btnrow"><button class="btn" data-lei="fermer">🔒 Fermer</button><button class="btn" data-lei="lever-fermeture">Lever la fermeture</button></div></div>
+        <div class="card"><h3>Tests</h3><div class="btnrow" style="margin-top:0"><button class="btn" data-lei="test-recap">Récap de test</button><button class="btn" data-lei="backlog">Messages en attente</button><button class="btn" data-lei="test-horaires-on">Simuler heures d’ouverture</button><button class="btn" data-lei="test-horaires-off">Fin de simulation</button></div></div>` : ''}
+        <div class="card"><h3>Réponse</h3><div id="lei-out" class="note pre" style="min-height:40px">—</div></div>
+      </div>
+      ${user.role === 'admin' ? `<div class="stack">
+        <div class="card"><h3>Contexte du moment</h3><div class="note" style="margin-bottom:6px">Ex. rupture de stock sur les polos noirs cette semaine. Leïla en tient compte dans ses réponses.</div>
+          <textarea id="lei-ctx" class="lei-ta" placeholder="Contexte général…"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="contexte">Remplacer</button><button class="btn" data-lei="contexte-ajouter">Ajouter</button><button class="btn" data-lei="contexte-voir">Voir l’actuel</button></div></div>
+        <div class="card"><h3>Note sur un client</h3>
+          <div class="field"><label>Numéro WhatsApp</label><input id="lei-note-num" placeholder="590690XXXXXX"></div>
+          <textarea id="lei-note" class="lei-ta" placeholder="Ex. cliente régulière, tutoiement ok…"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="note-client">Enregistrer</button><button class="btn" data-lei="note-client-voir">Voir la note</button></div></div>
+        <div class="card"><h3>Message programmé</h3>
+          <div class="field"><label>Numéro WhatsApp</label><input id="lei-prog-num" placeholder="590690XXXXXX"></div>
+          <textarea id="lei-prog" class="lei-ta" placeholder="Message exact à envoyer une seule fois"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="message-programme">Programmer</button><button class="btn" data-lei="messages-programmes">Voir les messages programmés</button><button class="btn" data-lei="message-programme-annuler">Annuler pour ce numéro</button></div></div>
+        <div class="card"><h3>Tester une réponse (rien n’est envoyé)</h3>
+          <div class="field"><label>Numéro WhatsApp</label><input id="lei-sim-num" placeholder="590690XXXXXX"></div>
+          <textarea id="lei-sim" class="lei-ta" placeholder="Message fictif du client"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="simuler">Simuler</button></div></div>
+        <div class="card"><h3>Importer un historique WhatsApp</h3>
+          <div class="field"><label>Numéro WhatsApp</label><input id="lei-imp-num" placeholder="590690XXXXXX"></div>
+          <div class="field"><label>Ton nom dans l’export</label><input id="lei-imp-nom" value="Igs Custom bar"></div>
+          <input type="file" id="lei-imp-fichier" accept=".txt" style="margin:8px 0">
+          <textarea id="lei-imp" class="lei-ta" placeholder="…ou colle ici le contenu du fichier .txt exporté depuis WhatsApp"></textarea>
+          <div class="btnrow"><button class="btn primary" data-lei="importer-historique">Importer</button></div></div>
+      </div>` : '<div class="card"><h3>Accès</h3><div class="note">Tu peux activer ou désactiver Leïla. Le reste des réglages est réservé à l’administrateur.</div></div>'}
     </div>
   </section>` : view === 'heures' ? `
   <section id="v-heures">
@@ -498,6 +563,7 @@ const PL_COULEURS = {
 };
 let planches = [];
 const VIEW = '${view}';
+const BAT_SEUL = ${batSeul ? 'true' : 'false'};
 // Bonjour / Bonsoir selon l'heure (à partir de 18 h : bonsoir)
 (() => { const el = document.getElementById('salut'); if (el) { const h = new Date().getHours(); el.textContent = (h >= 18 || h < 5) ? 'Bonsoir' : 'Bonjour'; } })();
 const MOI = ${JSON.stringify(user.collab || null).replace(/</g, '\\u003c')};
@@ -553,6 +619,7 @@ async function charger(force, auto){
   $('refresh').disabled = true; $('refresh').textContent = '↻ …';
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
+    if (VIEW === 'leila') { await leiStatut(); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -599,11 +666,47 @@ async function hrHome(){
     }
   } catch(e){ box.innerHTML = '<span class="sub">Heures indisponibles</span>'; }
 }
+// ---------- Leïla ----------
+async function leiAppel(action, corps){
+  const r = await fetch('/gestion/api/leila/'+action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+  return j.texte || '';
+}
+async function leiStatut(){
+  try {
+    const t = await leiAppel('statut');
+    const actif = /FORCÉ ACTIF/.test(t), inactif = /FORCÉ INACTIF|FERMETURE/.test(t);
+    $('lei-statut').innerHTML = '<span class="lei-pt '+(actif ? 'on' : inactif ? 'off' : 'auto')+'"></span><div><b>'+(actif ? 'Activée' : inactif ? (/FERMETURE/.test(t) ? 'Fermée' : 'Désactivée') : 'Planning automatique')+'</b><div class="note">'+esc(t.replace(/^Statut actuel : /, ''))+'</div></div>';
+    $('sync').className = 'sync'; $('sync').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  } catch(e){ $('lei-statut').textContent = '⚠️ ' + e.message; }
+}
+function leiEvents(){
+  const v = id => ($(id) ? $(id).value.trim() : '');
+  const corpsDe = a => ({
+    fermer: { date: v('lei-date') }, contexte: { texte: v('lei-ctx') }, 'contexte-ajouter': { texte: v('lei-ctx') },
+    'note-client': { numero: v('lei-note-num'), texte: v('lei-note') }, 'note-client-voir': { numero: v('lei-note-num') },
+    'message-programme': { numero: v('lei-prog-num'), texte: v('lei-prog') }, 'message-programme-annuler': { numero: v('lei-prog-num') },
+    simuler: { numero: v('lei-sim-num'), message: v('lei-sim') },
+    'importer-historique': { numero: v('lei-imp-num'), nomEquipe: v('lei-imp-nom'), texte: v('lei-imp') },
+  })[a] || {};
+  if ($('lei-imp-fichier')) $('lei-imp-fichier').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { $('lei-imp').value = rd.result; }; rd.readAsText(f); };
+  document.getElementById('v-leila').addEventListener('click', async e => {
+    const b = e.target.closest('[data-lei]'); if (!b) return;
+    const a = b.dataset.lei;
+    if (a === 'contexte' && !confirm('Remplacer tout le contexte actuel ?')) return;
+    b.disabled = true;
+    try { const t = await leiAppel(a, corpsDe(a)); $('lei-out').textContent = t || '✅ Fait'; if (['activer','desactiver','auto','fermer','lever-fermeture'].includes(a)) await leiStatut(); }
+    catch(err){ $('lei-out').textContent = '❌ ' + err.message; }
+    finally { b.disabled = false; }
+  });
+}
 function navCompteurs(){
   try {
     if (!Array.isArray(data) || !data.length) return;
     const enCours = data.filter(c => statutKey(c.statut) !== 'LIVRÉE').length;
-    const bat = data.filter(c => AVANT_BAT(c) && ['modif','faire','envoyer'].includes(batEtape(c))).length;
+    // BAT : à faire, à envoyer (dont BAT auto à vérifier), modification demandée, en attente de validation du client
+    const bat = data.filter(c => AVANT_BAT(c) && ['modif','faire','envoyer','client'].includes(batEtape(c))).length;
     if ($('nav-n-cmd')) $('nav-n-cmd').textContent = enCours || '';
     if ($('nav-n-bat')) $('nav-n-bat').textContent = bat || '';
   } catch(e){}
@@ -646,7 +749,7 @@ function plListe(){
   const chips = [['ACTIFS','En cours',st.act.length],['TOUS','Toutes',planches.length],['NONPAYEES','Non payées',st.nonPay.length],['HEBDO','Hebdo',st.hebdo.length]]
     .concat(PL_STATUTS.map(s=>[s,s,counts[s]||0]))
     .concat(Object.keys(counts).filter(s => !PL_STATUTS.includes(s)).map(s=>[s,s,counts[s]]));
-  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('');
+  $('chips').innerHTML = '<label class="filtre">Afficher <select id="f-sel">'+chips.map(([k,l,n]) => '<option value="'+esc(k)+'"'+(filtre===k?' selected':'')+'>'+esc(l.charAt(0)+l.slice(1).toLowerCase())+' ('+n+')</option>').join('')+'</select></label>';
 
   const q = norm(recherche);
   let rows = planches.filter(p => filtre==='TOUS' || (filtre==='ACTIFS' ? plActive(p) : filtre==='NONPAYEES' ? nonPayee(p) : filtre==='HEBDO' ? p.hebdo
@@ -1573,7 +1676,7 @@ function liste(){
   const actifs = data.filter(c => !FINIS.includes(statutKey(c.statut))).length;
   if (filtre === 'TOUS') filtre = 'ACTIFS';
   const chips = [['ACTIFS','En cours',actifs]].concat(STATUTS.map(s=>[s,s,counts[s]||0]));
-  $('chips').innerHTML = chips.map(([k,l,n]) => '<button class="chip'+(filtre===k?' on':'')+'" data-f="'+esc(k)+'">'+esc(l)+' <span class="n">'+n+'</span></button>').join('')
+  $('chips').innerHTML = '<label class="filtre">Afficher <select id="f-sel">'+chips.map(([k,l,n]) => '<option value="'+esc(k)+'"'+(filtre===k?' selected':'')+'>'+esc(l.charAt(0)+l.slice(1).toLowerCase())+' ('+n+')</option>').join('')+'</select></label>'
     + (filtre === 'LIVRÉE' ? '<span class="note" style="align-self:center">Les commandes livrées passent dans l\\'historique chaque nuit : retrouve les plus anciennes dans l\\'onglet Historique.</span>' : '');
 
   const q = norm(recherche);
@@ -2065,6 +2168,7 @@ if (VIEW === 'commandes') {
     const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrir(panelCle); } });
   $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
+  $('chips').addEventListener('change', e => { if (e.target.id === 'f-sel') { filtre = e.target.value; afficher(); } });
   let th; $('q').addEventListener('input', e => { recherche = e.target.value; clearTimeout(th); th = setTimeout(modeHisto ? chargerHisto : afficher, modeHisto ? 350 : 150); });
   const onglet = m => {
     modeHisto = m === 'histo'; modeBat = m === 'bat';
@@ -2074,10 +2178,17 @@ if (VIEW === 'commandes') {
   };
   $('nv-cmd').onclick = nouvelleCommande;
   $('tab-cours').onclick = () => onglet('cours'); $('tab-histo').onclick = () => onglet('histo'); $('tab-bat').onclick = () => onglet('bat');
-  if (location.hash === '#bat') onglet('bat');
-  window.addEventListener('hashchange', () => { if (location.hash === '#bat') onglet('bat'); });
+  if (BAT_SEUL || location.hash === '#bat') {
+    // Page BAT : uniquement le suivi des BAT
+    onglet('bat');
+    ['tab-cours','tab-histo','tab-bat','nv-cmd'].forEach(id => { if ($(id)) $(id).style.display = 'none'; });
+    if ($('q')) $('q').style.display = 'none';
+    const t = document.querySelector('#v-commandes .tools'); if (t) t.insertAdjacentHTML('afterbegin', '<h2 class="titre-page">BAT</h2>');
+  } else if ($('tab-bat')) $('tab-bat').style.display = 'none';
   $('batbox').addEventListener('click', batClic);
   if (location.hash === '#historique') onglet('histo');
+} else if (VIEW === 'leila') {
+  leiEvents();
 } else if (VIEW === 'admin') {
   adEvents();
 } else if (VIEW === 'caisse') {
@@ -2094,6 +2205,7 @@ if (VIEW === 'commandes') {
     const a = e.target.closest('a.open'); if (a){ e.preventDefault(); panelCle = a.closest('tr.row').dataset.k; ouvrirPlanche(panelCle); } });
   $('rows').addEventListener('change', e => { if (e.target.matches('select.inl')) saveInline(e.target); });
   $('chips').addEventListener('click', e => { const b = e.target.closest('.chip'); if (b){ filtre = b.dataset.f; afficher(); } });
+  $('chips').addEventListener('change', e => { if (e.target.id === 'f-sel') { filtre = e.target.value; afficher(); } });
   $('plkpis').addEventListener('click', e => { const a = e.target.closest('.kpi'); if (a){ e.preventDefault(); filtre = a.dataset.f; afficher(); } });
   { let tq; $('q').addEventListener('input', e => { recherche = e.target.value; clearTimeout(tq); tq = setTimeout(afficher, 150); }); }
   chargerAuto();

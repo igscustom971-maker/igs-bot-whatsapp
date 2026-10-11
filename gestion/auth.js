@@ -98,45 +98,45 @@ function pageAuth(titre, corps, script = '') {
 <title>${escH(titre)} · IGS DASHBOARD</title><meta name="robots" content="noindex">
 <link rel="icon" href="/gestion/logo-igs.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;font-family:'Plus Jakarta Sans',system-ui,-apple-system,'Segoe UI',sans-serif;color:#1E1E4B;background:#F4F3F8}
-.side{flex:1 1 52%;position:relative;overflow:hidden;background:#1E1E4B;color:#fff;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between}
-.side::before{content:"";position:absolute;width:620px;height:620px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#E91E8C 0,#B0156B 45%,transparent 70%);opacity:.55;right:-220px;bottom:-240px}
-.side::after{content:"";position:absolute;width:300px;height:300px;border-radius:50%;border:2px solid rgba(255,255,255,.08);right:120px;top:-90px}
+body{margin:0;min-height:100vh;display:flex;font-family:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;color:#1E1E4B;background:#F7F0E4}
+.side{flex:1 1 55%;position:relative;overflow:hidden;background:#F7F0E4 url('/gestion/fond-igs.jpg') center/cover no-repeat;color:#1E1E4B;padding:56px 64px;display:flex;flex-direction:column;justify-content:center;gap:34px}
+
 .side>*{position:relative;z-index:1}
 .marque{display:flex;align-items:center;gap:14px}
-.marque .lg{width:112px;height:98px;display:flex;align-items:center;justify-content:center;color:#E91E8C;font-weight:800;filter:drop-shadow(0 10px 30px rgba(233,30,140,.35))}
+.marque{flex-direction:column;align-items:flex-start;gap:10px}.marque .lg{width:150px;height:130px;display:flex;align-items:center;justify-content:center;color:#FF1E8E;font-weight:800;filter:drop-shadow(0 14px 30px rgba(30,30,75,.25))}
 .marque .lg img{width:100%;height:100%;object-fit:contain;display:block}
-.marque b{font-size:20px;letter-spacing:.4px;display:block}.marque small{color:#B9B8DB;font-size:13px;font-weight:600}
-.accroche h2{margin:0;font-size:44px;line-height:1.08;font-weight:800;letter-spacing:-1.2px;max-width:520px}
-.accroche h2 em{font-style:normal;color:#F472B6}
-.accroche p{margin:18px 0 0;color:#C9C8E3;font-size:16px;line-height:1.6;max-width:460px}
+.marque b{font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:34px;letter-spacing:.04em;display:block;line-height:1}.marque small{color:#68677D;font-size:13px;font-weight:700;letter-spacing:.12em}
+.accroche{background:rgba(247,240,228,.9);border-radius:22px;padding:24px 28px;max-width:520px;box-shadow:0 10px 24px rgba(30,30,75,.12)}
+.accroche h2{margin:0;font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:60px;line-height:.92;letter-spacing:.01em}
+.accroche h2 em{font-style:normal;color:#FF1E8E}
+.accroche p{margin:14px 0 0;color:#191936;font-size:15px;line-height:1.6}
 .puces{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
-.puces span{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;color:#E4E3F5}
-.pied{color:#8D8BB8;font-size:12.5px}
-.cote{flex:1 1 48%;display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.puces{margin-top:18px}.puces span{background:#1E1E4B;border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;color:#fff}
+.cote{flex:1 1 45%;display:flex;align-items:center;justify-content:center;padding:40px 24px;background:#fff}
 .box{width:100%;max-width:420px}
 .box .lg-m{display:none}
-h1{margin:0 0 6px;font-size:30px;font-weight:800;letter-spacing:-.6px}.sub{color:#7A7899;font-size:15px;margin:0 0 28px}
+h1{margin:0 0 6px;font-family:'Bebas Neue',sans-serif;font-weight:400;font-size:46px;letter-spacing:.02em;line-height:1}.sub{color:#7A7899;font-size:15px;margin:0 0 28px}
 .ms{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:52px;padding:12px;border:1px solid #E3E1EE;border-radius:14px;background:#fff;color:#1E1E4B;font:inherit;font-weight:700;font-size:15px;text-decoration:none;box-shadow:0 1px 2px rgba(30,30,75,.04);transition:.15s}
 .ms:hover{border-color:#C9C6DC;box-shadow:0 6px 18px rgba(30,30,75,.08)}
 .sep{display:flex;align-items:center;gap:12px;color:#A3A1BC;font-size:12.5px;font-weight:600;margin:24px 0 8px}.sep:before,.sep:after{content:"";flex:1;height:1px;background:#E6E4EF}
 label{display:block;font-size:13px;font-weight:700;color:#5B5A7E;margin:16px 0 6px}
 input{width:100%;min-height:50px;padding:12px 14px;border:1px solid #E3E1EE;border-radius:14px;font:inherit;font-size:16px;background:#fff;color:#1E1E4B;transition:.15s}
-input:focus{outline:none;border-color:#E91E8C;box-shadow:0 0 0 4px rgba(233,30,140,.12)}
-button.go{width:100%;margin-top:24px;min-height:52px;padding:13px;border:0;border-radius:14px;background:#E91E8C;color:#fff;font:inherit;font-weight:800;font-size:16px;cursor:pointer;box-shadow:0 10px 24px rgba(233,30,140,.28);transition:.15s}
-button.go:hover{background:#D0177C}button.go:disabled{opacity:.6}
-.lien{display:block;text-align:center;margin-top:18px;color:#7A7899;font-size:14px;font-weight:600;text-decoration:none}.lien:hover{color:#E91E8C}
+input:focus{outline:none;border-color:#FF1E8E;box-shadow:0 0 0 4px rgba(255,30,142,.12)}
+button.go{width:100%;margin-top:24px;min-height:52px;padding:13px;border:0;border-radius:14px;background:#FF1E8E;color:#fff;font:inherit;font-weight:800;font-size:16px;cursor:pointer;box-shadow:0 10px 24px rgba(255,30,142,.28);transition:.15s}
+button.go:hover{background:#E8137D}button.go:disabled{opacity:.6}
+.lien{display:block;text-align:center;margin-top:18px;color:#7A7899;font-size:14px;font-weight:600;text-decoration:none}.lien:hover{color:#FF1E8E}
 .msg{display:none;margin-top:16px;padding:12px 14px;border-radius:12px;font-size:14px;font-weight:600}.msg.err{display:block;background:#FFE4E6;color:#9F1239}.msg.ok{display:block;background:#DCFCE7;color:#166534}
 .info{background:#FEF3C7;color:#92400E;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:8px}
 @media (max-width:900px){
   body{flex-direction:column;background:#fff}
-  .side{flex:none;padding:24px 22px 28px;min-height:auto}
-  .marque .lg{width:72px;height:63px}
-  .side::before{width:360px;height:360px;right:-160px;bottom:-200px}
-  .accroche h2{font-size:28px;margin-top:22px}.accroche p,.puces,.pied{display:none}
+  .side{flex:none;padding:22px 20px 24px;min-height:auto;gap:14px}
+  .marque{flex-direction:row;align-items:center}
+  .marque .lg{width:76px;height:66px}
+  .accroche{padding:14px 18px}.cote{background:#fff}
+  .accroche h2{font-size:36px}.accroche p,.puces{display:none}
   .cote{padding:28px 20px 40px;align-items:flex-start}
 }
 </style></head><body>
@@ -144,7 +144,6 @@ button.go:hover{background:#D0177C}button.go:disabled{opacity:.6}
   <div class="marque"><div class="lg"><img src="/gestion/logo-igs.png" alt="IGS CUSTOM BAR" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><b>IGS DASHBOARD</b><small>IGS CUSTOM BAR</small></div></div>
   <div class="accroche"><h2>Tout l'atelier,<br><em>au même endroit.</em></h2><p>Commandes, BAT, planches DTF, stock, espèces et heures : tout se suit ici, et les messages aux clients partent tout seuls.</p>
   <div class="puces"><span>Commandes</span><span>BAT</span><span>Planches DTF</span><span>Stock</span><span>Heures</span></div></div>
-  <div class="pied">62 rue Louis Vatable · Pointe-à-Pitre</div>
 </aside>
 <div class="cote"><main class="box">${corps}</main></div>
 <script>
@@ -169,6 +168,7 @@ function requireAdmin(req, res, next) {
 
 function mount(app) {
   // Logo IGS (public : page de connexion, icône d'onglet)
+  app.get('/gestion/fond-igs.jpg', (req, res) => res.set('Cache-Control', 'public, max-age=86400').sendFile(require('path').join(__dirname, 'static', 'fond-igs.jpg')));
   app.get('/gestion/logo-igs.png', (req, res) => res.set('Cache-Control', 'public, max-age=86400').sendFile(require('path').join(__dirname, 'static', 'logo-igs.png')));
   app.get('/gestion/auth/login', (req, res) => {
     if (getUser(req)) return res.redirect('/gestion');

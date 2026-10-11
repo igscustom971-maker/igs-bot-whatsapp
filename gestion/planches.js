@@ -79,10 +79,13 @@ function rowsFromRange(range) {
 // Formules reprises de l'Excel : Réduction -15 % dès 10 m, -20 % dès 20 m ; Montant HT = A3 13 €, A4 10 €, sinon m × 25 € × (1 + réduction)
 const reductionDe = (metres, format) => (format || !(metres > 0) ? 0 : metres >= 20 ? -0.2 : metres >= 10 ? -0.15 : 0);
 const montantDe = (metres, format) => (format === 'A3' ? 13 : format === 'A4' ? 10 : metres > 0 ? Math.round(metres * 25 * (1 + reductionDe(metres)) * 100) / 100 : null);
-const CHAMPS_PL = ['cle', 'n_devis', 'client', 'date_commande', 'metres', 'format', 'frequence', 'hebdo', 'paiement', 'remarques', 'statut', 'excel_id', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye'];
+const CHAMPS_PL = ['cle', 'n_devis', 'client', 'date_commande', 'metres', 'format', 'frequence', 'hebdo', 'paiement', 'remarques', 'statut', 'statut_le', 'excel_id', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye'];
 const cleDe = (o, id) => o.n_devis || `SANS-DEVIS-${key(o.client || '')}-${id || ''}`;
+let sansStatutLe = false; // colonne statut_le pas encore créée dans Supabase : on fait sans
 async function lireBase() {
-  const { data, error } = await supabase.from('gestion_planches').select(CHAMPS_PL.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
+  const champs = sansStatutLe ? CHAMPS_PL.filter(c => c !== 'statut_le') : CHAMPS_PL;
+  const { data, error } = await supabase.from('gestion_planches').select(champs.join(',')).eq('present', true).order('excel_id', { ascending: true, nullsFirst: false }).limit(2000);
+  if (error && !sansStatutLe && /statut_le/.test(error.message)) { sansStatutLe = true; return lireBase(); }
   if (error) throw new Error(`Supabase : ${error.message}`);
   return data.map(o => {
     const metres = o.metres === null ? null : Number(o.metres);
@@ -105,13 +108,17 @@ function versBase(fields, actuel) {
     else if (['n_devis', 'client', 'paiement', 'remarques', 'statut', 'mail_envoye', 'numero_suivi', 'mail_expedition_envoye'].includes(f)) o[f] = v === '' ? null : v;
   }
   if ('n_devis' in o || 'client' in o) o.cle = cleDe({ ...actuel, ...o }, actuel.excel_id);
+  // Date du changement de statut : une planche hebdo repassée « prête » déclenche un nouveau message
+  if ('statut' in o && o.statut !== actuel.statut) o.statut_le = new Date().toISOString();
   return o;
 }
 async function ecrireBase(cle, fields) {
   const actuel = cache.rows.find(r => r.cle === cle) || (await lireBase()).find(r => r.cle === cle);
   if (!actuel) throw new Error('Planche introuvable : actualise et réessaie');
   const o = versBase(fields, actuel);
-  const { error } = await supabase.from('gestion_planches').update(o).eq('cle', cle);
+  if (sansStatutLe) delete o.statut_le;
+  let { error } = await supabase.from('gestion_planches').update(o).eq('cle', cle);
+  if (error && /statut_le/.test(error.message)) { sansStatutLe = true; delete o.statut_le; ({ error } = await supabase.from('gestion_planches').update(o).eq('cle', cle)); }
   if (error) throw new Error(`Supabase : ${error.message}`);
 }
 async function insererBase(fields) {
@@ -119,6 +126,7 @@ async function insererBase(fields) {
   const id = ((mx && mx[0] && mx[0].excel_id) || 0) + 1;
   const o = { ...versBase(fields, { excel_id: id }), excel_id: id, present: true, synced_at: new Date().toISOString() };
   o.cle = cleDe(o, id);
+  delete o.statut_le;
   const { error } = await supabase.from('gestion_planches').insert(o);
   if (error) throw new Error(`Supabase : ${error.message}`);
   return id;

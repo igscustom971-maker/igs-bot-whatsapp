@@ -61,6 +61,40 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/planches', auth.requireUser, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
   });
+  app.get('/gestion/bat', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'bat'));
+  });
+  app.get('/gestion/leila', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'leila'));
+  });
+  // ---------- Leïla (assistante WhatsApp) : pilotage depuis le dashboard ----------
+  // Relais vers les commandes /admin/* du bot (jeton ADMIN_TOKEN ajouté côté serveur, jamais envoyé au navigateur).
+  // Équipe : activer / désactiver / automatique / statut. Admin : tout.
+  const LEILA_GET = ['activer', 'desactiver', 'auto', 'statut', 'fermer', 'lever-fermeture', 'test-horaires-on', 'test-horaires-off', 'contexte-voir', 'note-client-voir', 'backlog', 'test-recap', 'messages-programmes'];
+  const LEILA_POST = ['contexte', 'contexte-ajouter', 'note-client', 'message-programme', 'message-programme-annuler', 'importer-historique', 'simuler'];
+  const LEILA_EQUIPE = ['activer', 'desactiver', 'auto', 'statut'];
+  app.post('/gestion/api/leila/:action', auth.requireUser, async (req, res) => {
+    const action = String(req.params.action);
+    if (![...LEILA_GET, ...LEILA_POST].includes(action)) return res.status(404).json({ error: 'Action inconnue' });
+    if (req.user.role !== 'admin' && !LEILA_EQUIPE.includes(action)) return res.status(403).json({ error: 'Réservé à l\'administrateur' });
+    const jeton = process.env.ADMIN_TOKEN;
+    if (!jeton) return res.status(500).json({ error: 'ADMIN_TOKEN non configuré sur Render' });
+    const base = `http://127.0.0.1:${process.env.PORT || 3000}/admin/${action}`;
+    const corps = req.body || {};
+    try {
+      let r;
+      if (LEILA_GET.includes(action)) {
+        const q = new URLSearchParams({ token: jeton });
+        for (const k of ['date', 'numero']) if (corps[k]) q.set(k, String(corps[k]));
+        r = await fetch(`${base}?${q}`);
+      } else {
+        r = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...corps, token: jeton }) });
+      }
+      const texte = await r.text();
+      if (['activer', 'desactiver', 'auto'].includes(action)) console.log(`Leïla : ${action} par ${req.user.name || req.user.email}`);
+      res.status(r.ok ? 200 : 400).json(r.ok ? { ok: true, texte } : { error: texte.slice(0, 300) });
+    } catch (err) { res.status(502).json({ error: err.message }); }
+  });
 
   // ---------- Admin : collaborateurs et listes ----------
   app.get('/gestion/admin', auth.requireUser, (req, res) => {

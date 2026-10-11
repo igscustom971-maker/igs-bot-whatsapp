@@ -30,11 +30,12 @@ async function sousDossier(nom) {
   if (!f) throw new Error(`Dossier Technique/Planches/${nom} introuvable`);
   return { f, D, root };
 }
-// « Archivage planches imp » : tous les fichiers de PLANCHES A IMPRIMER -> Archives (toutes les 48 h)
+// « Archivage planches imp » : chaque nuit du lundi au vendredi, les fichiers de PLANCHES A IMPRIMER déposés depuis plus
+// de 24 h partent dans Archives. Rien le week-end : une planche envoyée le vendredi soir reste là jusqu'au lundi.
 async function archiverPlanches() {
   const { f, D } = await sousDossier('PLANCHES A IMPRIMER');
   const { f: arch } = await sousDossier('ARCHIVES');
-  const fichiers = (await g.children(f.id, D)).filter(i => i.file);
+  const fichiers = (await g.children(f.id, D)).filter(i => i.file && Date.parse(i.lastModifiedDateTime) < Date.now() - 24 * 3600e3);
   for (const i of fichiers) await g.moveItem(i.id, arch.id, D);
   return `${fichiers.length} fichier(s) archivé(s)`;
 }
@@ -158,8 +159,9 @@ const TACHES = [
     quand: (h, d) => !d || Date.now() - d > 110e3 },
   { id: 'paiement_planches', nom: 'Paiement des planches (devis confirmé → PAYÉE)', flux: 'IGS - statut paiement planche', rythme: 'toutes les 15 min', fn: paiementPlanches,
     quand: (h, d) => !d || Date.now() - d > 14 * 60e3 },
-  { id: 'archiver_planches', nom: 'Archivage des planches imprimées', flux: 'IGS - Archivage planches imp', rythme: 'toutes les 48 h (10 h)', fn: archiverPlanches,
-    quand: (h, d) => h.getHours() >= 10 && (!d || Date.now() - d > 47 * 3600e3) },
+  { id: 'archiver_planches', nom: 'Archivage des planches imprimées (fichiers de plus de 24 h)', flux: 'IGS - Archivage planches imp', rythme: 'chaque nuit du lundi au vendredi', fn: archiverPlanches,
+    // nuits de lundi à vendredi = passages du mardi au samedi vers minuit ; rien dimanche ni lundi
+    quand: (h, d) => [2, 3, 4, 5, 6].includes(h.getDay()) && h.getHours() <= 1 && (!d || Date.now() - d > 20 * 3600e3) },
   { id: 'vider_racine_planches', nom: 'Nettoyage du dossier Planches (fichiers de plus de 48 h)', flux: 'IGS - Vider dossier planches', rythme: 'chaque nuit (minuit)', fn: viderRacinePlanches,
     quand: (h, d) => !d || Date.now() - d > 23 * 3600e3 },
   { id: 'vider_archives_planches', nom: 'Vidage mensuel des archives de planches', flux: 'IGS - vider archive planche', rythme: 'le 8 de chaque mois (10 h)', fn: viderArchivesPlanches,

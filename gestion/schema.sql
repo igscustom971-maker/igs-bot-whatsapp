@@ -273,3 +273,7 @@ create table if not exists gestion_stock_conso (
 alter table gestion_stock_conso enable row level security;
 create index if not exists gestion_commandes_present_idx on gestion_commandes (present);
 create index if not exists gestion_planches_present_idx on gestion_planches (present);
+
+-- Planches : date du dernier changement de statut (clients hebdo : un message « prête » à chaque fois)
+alter table gestion_planches add column if not exists statut_le timestamptz;
+notify pgrst, 'reload schema';
