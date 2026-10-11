@@ -769,7 +769,7 @@ async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = f
   let sent = false;
 
   if (canSendUrgentNow()) {
-    sent = await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`);
+    sent = await envoyerAIsmael(`🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`, 'Alerte Leïla');
     if (sent) {
       urgentCountToday++;
       console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
@@ -1244,13 +1244,31 @@ async function flushManualRecap() {
 // Envoi effectif du récap (WhatsApp vers le numéro perso d'Ismaël)
 async function sendRecap(text) {
   if (!text) return true;
-  if (RECAP_PHONE_NUMBER) {
-    const ok = await sendWhatsAppMessage(RECAP_PHONE_NUMBER, text);
-    console.log(ok ? `Récap envoyé par WhatsApp à ${RECAP_PHONE_NUMBER}` : `RÉCAP NON ENVOYÉ à ${RECAP_PHONE_NUMBER} (voir erreur ci-dessus), nouvelle tentative au prochain passage`);
-    return ok;
+  return envoyerAIsmael(text, 'Récap Leïla');
+}
+
+// Message pour Ismaël (récaps, alertes) : WhatsApp d'abord. WhatsApp refuse un message libre quand Ismaël n'a pas
+// écrit au numéro IGS depuis 24 h (règle Meta) : dans ce cas le message part par e-mail, pour ne plus rien perdre.
+async function envoyerAIsmael(text, sujet) {
+  if (RECAP_PHONE_NUMBER && await sendWhatsAppMessage(RECAP_PHONE_NUMBER, text)) {
+    console.log(`${sujet} envoyé par WhatsApp à ${RECAP_PHONE_NUMBER}`);
+    return true;
   }
-  console.log('RECAP_PHONE_NUMBER non configuré — récap ci-dessous:\n', text);
-  return true;
+  try {
+    const cfg = require('./gestion/config');
+    const dest = (process.env.RECAP_EMAIL || cfg.ADMIN_EMAILS[0] || 'contact@igscustom.fr').split(',').map(x => x.trim()).filter(Boolean);
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const titre = String(text).split('\n')[0].replace(/[*_]/g, '').slice(0, 120);
+    await require('./gestion/graph').sendMail((process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase(), {
+      to: dest, subject: `${sujet} - ${titre}`,
+      html: `<div style="font:14px/1.5 Arial,sans-serif;white-space:pre-wrap">${esc(text)}</div><p style="color:#888;font-size:12px">Envoyé par e-mail car WhatsApp a refusé le message (pas de message de ta part au numéro IGS depuis 24 h). Écris « récap » au numéro IGS pour rouvrir la fenêtre WhatsApp.</p>`,
+    });
+    console.log(`${sujet} envoyé par e-mail à ${dest.join(', ')} (WhatsApp refusé)`);
+    return true;
+  } catch (err) {
+    console.error(`${sujet} NON ENVOYÉ (WhatsApp et e-mail) : ${err.message} — nouvelle tentative au prochain passage`);
+    return false;
+  }
 }
 
 // ============================================
@@ -1554,7 +1572,7 @@ async function processScheduledMessages() {
         await saveScheduled(list);
         console.error(`Message programmé ÉCHEC pour ${m.to} — à renvoyer manuellement`);
         if (RECAP_PHONE_NUMBER) {
-          await sendWhatsAppMessage(RECAP_PHONE_NUMBER, `⚠️ Le message programmé pour ${m.to} n'a pas pu partir (fenêtre WhatsApp 24h dépassée ?). À envoyer manuellement.`);
+          await envoyerAIsmael(`⚠️ Le message programmé pour ${m.to} n'a pas pu partir (fenêtre WhatsApp 24h dépassée ?). À envoyer manuellement.`, 'Alerte Leïla');
         }
       }
     }
