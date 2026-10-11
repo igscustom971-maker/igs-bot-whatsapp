@@ -119,7 +119,8 @@ async function tresorerie(annee, banqueOdoo = []) {
 // Valeurs données par Ismaël le 11/10/2026 ; modifiables dans l'onglet Chiffre d'affaires.
 const PARAMS_DEFAUT = {
   taux_variables: 51.5,                                    // % du CA (ratio de juin 2026)
-  charges_fixes: [{ depuis: '2026-09', montant: 1600 }],
+  // Charges fixes : un poste par ligne (loyer, électricité, abonnements…), actif à partir de « depuis » (et jusqu'à « jusqua » si renseigné)
+  charges_fixes: [{ nom: 'Charges fixes (total)', depuis: '2026-09', montant: 1600 }],
   main_oeuvre: [{ depuis: '2026-08', montant: 1061, note: 'Maureen + Kelhyan' }, { depuis: '2026-10', montant: 1506, note: 'alternant + Maureen' }],
   cca: [{ depuis: '2026-01', montant: 600 }, { depuis: '2027-01', montant: 1000 }],
   phases: [
@@ -157,16 +158,19 @@ async function enregistrerParametres({ params, caSaisi, produits }) {
   cache.le = 0;
   return { ok: true };
 }
-// Valeur en vigueur un mois donné (dernière entrée dont « depuis » est passé ; avant la 1re, la 1re s'applique)
-const enVigueur = (liste, mois) => { const l = (liste || []).slice().sort((a, b) => a.depuis.localeCompare(b.depuis)); let v = l[0] ? l[0].montant : 0; for (const x of l) if (x.depuis <= mois) v = x.montant; return Number(v) || 0; };
+// Valeur en vigueur un mois donné : dernière période commencée (0 avant la première)
+const enVigueur = (liste, mois) => { const l = (liste || []).slice().sort((a, b) => a.depuis.localeCompare(b.depuis)); let v = 0; for (const x of l) if (x.depuis <= mois) v = x.montant; return Number(v) || 0; };
+// Postes de charges fixes actifs ce mois-là (ils s'additionnent)
+const postesDuMois = (liste, mois) => (liste || []).filter(x => (!x.depuis || x.depuis <= mois) && (!x.jusqua || x.jusqua >= mois)).map(x => ({ nom: x.nom || 'Charges fixes', montant: Number(x.montant) || 0 }));
 const phaseDe = (phases, mois) => (phases || []).slice().sort((a, b) => a.jusqua.localeCompare(b.jusqua)).find(ph => mois <= ph.jusqua) || (phases || [])[phases.length - 1] || null;
 function gestionDuMois(params, mois, ca) {
   const taux = (Number(params.taux_variables) || 0) / 100;
-  const fixes = enVigueur(params.charges_fixes, mois), mo = enVigueur(params.main_oeuvre, mois), cca = enVigueur(params.cca, mois);
+  const postes = postesDuMois(params.charges_fixes, mois);
+  const fixes = postes.reduce((x, y) => x + y.montant, 0), mo = enVigueur(params.main_oeuvre, mois), cca = enVigueur(params.cca, mois);
   const couts = fixes + mo + cca;
   const ph = phaseDe(params.phases, mois);
   return {
-    charges_fixes: fixes, main_oeuvre: mo, cca, charges_variables: r2(ca * taux),
+    charges_fixes: r2(fixes), postes_fixes: postes, main_oeuvre: mo, cca, charges_variables: r2(ca * taux),
     seuil: taux < 1 ? Math.round(couts / (1 - taux)) : null,
     resultat: r2(ca * (1 - taux) - couts),
     phase: ph ? { nom: ph.nom, cible: ph.cible, minimum: ph.minimum || null, recommande: ph.recommande || null } : null,
