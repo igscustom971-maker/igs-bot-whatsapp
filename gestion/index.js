@@ -239,6 +239,9 @@ module.exports = function mountGestion(app) {
   };
   // Compte individuel : toujours verrouillé sur son propre nom
   app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
+  // Facture de prestation de la semaine (collaborateurs indépendants : profil technique, et l'admin)
+  app.post('/gestion/api/heures/facture', auth.requireUser, (req, res, next) => (auth.aProfil(req.user, 'technique') ? next() : res.status(403).json({ error: 'Réservé aux techniciens' })),
+    (req, res, next) => uploadFacture(req, res, err => err ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (20 Mo maximum)' : err.code === 'LIMIT_FILE_COUNT' ? '8 photos maximum par facture' : err.message }) : next()), actH(req => heures.deposerFacture({ collaborateur: req.user.collab || req.body?.collaborateur, lundi: req.body?.lundi, fichiers: req.files }, quiH(req))));
   app.post('/gestion/api/heures/:id(\\d+)/supprimer', auth.requireUser, actH(req => heures.supprimer(Number(req.params.id), quiH(req), req.user.role, req.user.collab || null)));
   app.get('/gestion/api/heures/mes', auth.requireUser, actH(req => heures.mesHeures(String(req.user.collab || req.query.collaborateur || ''), String(req.query.lundi || ''))));
   app.get('/gestion/api/heures/semaine', auth.requireUser, auth.requireAdmin, actH(req => heures.semaine(String(req.query.lundi || ''))));

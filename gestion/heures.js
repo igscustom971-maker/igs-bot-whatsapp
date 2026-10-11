@@ -114,11 +114,13 @@ async function mesHeures(nom, lundiDemande) {
     if (!map.has(k)) map.set(k, { lundi: k, numero: semaineIso(k).semaine, minutes: 0, jours: 0, payees: 0 });
     const s = map.get(k); s.minutes += l.minutes; s.jours++; if (l.paiement_id) s.payees++;
   }
+  const semaines = [...map.values()].sort((a, b) => b.lundi.localeCompare(a.lundi));
+  const factures = await facturesDeposees(collaborateur, [...new Set([lundi, ...semaines.map(x => x.lundi)])]).catch(() => ({}));
   return {
-    collaborateur, lundi, dimanche: plusJours(lundi, 6), numero: semaineIso(lundi).semaine,
+    collaborateur, lundi, dimanche: plusJours(lundi, 6), numero: semaineIso(lundi).semaine, facture: factures[lundi] || null,
     lignes: semaineLignes.map(l => ({ id: l.id, jour: l.jour, duree: fh(l.minutes), minutes: l.minutes, remarque: l.remarque, payee: !!l.paiement_id })),
     total: fh(semaineLignes.reduce((t, l) => t + l.minutes, 0)),
-    semaines: [...map.values()].sort((a, b) => b.lundi.localeCompare(a.lundi)).map(s => ({ ...s, duree: fh(s.minutes), payee: s.payees === s.jours })),
+    semaines: semaines.map(s => ({ ...s, duree: fh(s.minutes), payee: s.payees === s.jours, facture: !!factures[s.lundi] })),
   };
 }
 
@@ -326,4 +328,37 @@ function startRecap() {
   setInterval(() => recapSiDu().catch(() => {}), 10 * 60e3);
 }
 
-module.exports = { mesHeures, saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };
+// ---------- Facture de prestation du collaborateur (techniciens indépendants) ----------
+// Depuis « Mes heures », le collaborateur dépose la facture de sa semaine (photo ou PDF) : elle arrive dans Odoo comme
+// une facture fournisseur, avec la référence « Facture S41-2026 – Prénom » et ses heures de la semaine en note.
+const cleFacture = (collab, lundi) => `prestation:${collab}:${lundi}`;
+const jm = s => { const d = parseIso(s); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`; };
+async function facturesDeposees(collab, lundis) {
+  if (!supabase || !lundis.length) return {};
+  const { data } = await supabase.from('gestion_actions').select('cle, cree_le, details').eq('action', 'facture_fournisseur').in('cle', lundis.map(l => cleFacture(collab, l))).order('cree_le', { ascending: false });
+  const out = {};
+  for (const a of data || []) { const l = a.cle.split(':').pop(); if (!out[l]) out[l] = { le: a.cree_le, canal: a.details?.canal || null, n: 0 }; out[l].n++; }
+  return out;
+}
+async function deposerFacture({ collaborateur, lundi: lundiDemande, fichiers }, user) {
+  needDb();
+  const collab = await verifierCollab(collaborateur);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lundiDemande || '')) throw new Error('Semaine manquante');
+  const lundi = lundiDe(lundiDemande), dimanche = plusJours(lundi, 6);
+  if (lundi > aujourdhui()) throw new Error('Cette semaine n\'a pas encore commencé');
+  const { data, error } = await supabase.from('gestion_heures').select('jour, minutes').eq('collaborateur', collab).gte('jour', lundi).lte('jour', dimanche).order('jour');
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  const { annee, semaine: num } = semaineIso(lundi);
+  const sNum = String(num).padStart(2, '0');
+  const total = (data || []).reduce((t, l) => t + l.minutes, 0);
+  const description = `Facture ${collab} – semaine ${sNum} (${jm(lundi)} au ${jm(dimanche)}/${annee})`;
+  const ref = `Facture S${sNum}-${annee} – ${collab}`;
+  const noteExtra = `⏱ Heures saisies par ${esc(collab)} pour la semaine ${sNum} : <b>${fh(total)}</b>${data && data.length ? ` (${data.map(l => `${fdate(l.jour)} ${fh(l.minutes)}`).join(', ')})` : ' — aucune heure saisie'}.`;
+  const r = await require('./factures-fournisseurs').envoyer({ fichiers, description }, user, {
+    ref, noteExtra, cle: cleFacture(collab, lundi), details: { prestation: { collaborateur: collab, lundi, semaine: `${annee}-S${sNum}`, minutes: total } },
+  });
+  console.log(`Gestion heures : facture de ${collab} pour la semaine ${sNum} déposée (${r.canal})`);
+  return { ...r, collaborateur: collab, semaine: num, ref, heures: fh(total) };
+}
+
+module.exports = { deposerFacture, mesHeures, saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };

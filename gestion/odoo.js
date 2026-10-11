@@ -496,7 +496,7 @@ async function journalAchats() {
   if (!j.length) throw new Error('Aucun journal d\'achats dans Odoo pour IGS');
   return j[0];
 }
-async function importerFactureFournisseur({ nom, mimetype, buffer, note }) {
+async function importerFactureFournisseur({ nom, mimetype, buffer, note, ref }) {
   const journal = await journalAchats();
   const attId = await kw('ir.attachment', 'create', [{ name: nom, datas: buffer.toString('base64'), mimetype, res_model: 'account.journal', res_id: journal.id }]);
   const att = typeof attId === 'object' ? attId.id : attId;
@@ -514,6 +514,7 @@ async function importerFactureFournisseur({ nom, mimetype, buffer, note }) {
     ids = [mid];
   }
   const id = ids[0];
+  if (ref) { try { await kw('account.move', 'write', [[id], { ref }]); } catch (err) { console.error('Odoo référence facture fournisseur :', err.message); } }
   if (note) { try { await kw('account.move', 'message_post', [[id]], { body: note, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note facture fournisseur :', err.message); } }
   const [m] = await kw('account.move', 'read', [[id]], { fields: ['name', 'state', 'partner_id', 'amount_total'] });
   return { id, numero: m && m.name && m.name !== '/' ? m.name : null, fournisseur: m?.partner_id ? m.partner_id[1] : null, montant_ttc: m?.amount_total || null, journal: journal.name, lien: lienOdoo('account.move', id) };

@@ -217,6 +217,7 @@ td.c-x{width:30px;text-align:right;padding-left:0}
 @media (max-width:640px){.hrl{grid-template-columns:1fr 1fr auto}.hrl .rem{grid-column:1/-1;order:5}}
 .hrnav{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .hrnav h3{margin:0;flex:1;min-width:200px}
+.hrfac{margin-top:12px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px}
 .hrtot{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .hrtot b.m{font-size:18px}
 .paid{display:inline-block;padding:3px 10px;border-radius:999px;background:#dcfce7;color:#166534;font-weight:700;font-size:12px}
@@ -1398,6 +1399,13 @@ async function hrMes(){
         + (l.payee ? '<span class="paid">Payée</span>' : '<button class="xdel" data-mes-del="'+l.id+'" title="Supprimer cette saisie">×</button>') + '</td></tr>').join('') + '</tbody></table>'
       : '<div class="note" style="margin-top:8px">Aucune heure saisie cette semaine.</div>';
     h += '<div class="hrtot"><span>Total de la semaine</span><b class="m">'+d.total+'</b></div>';
+    if (${TECH ? 'true' : 'false'} && d.lundi <= auj) {
+      h += '<div class="hrfac"><div class="k" style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase">🧾 Ma facture de la semaine '+d.numero+'</div>'
+        + (d.facture ? '<div class="note">✅ Facture déposée le '+new Date(d.facture.le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+(d.facture.n > 1 ? ' ('+d.facture.n+' envois)' : '')+'. Une erreur ? Tu peux en déposer une nouvelle.</div>' : '<div class="note">Dépose la facture de ta prestation pour cette semaine (photo ou PDF) : elle arrive directement dans Odoo, nommée « Facture S'+String(d.numero).padStart(2,'0')+' ».</div>')
+        + '<div class="btnrow" style="margin-top:6px"><button class="btn" data-fac-pick="photo">📷 Photo</button><button class="btn" data-fac-pick="fichier">📄 PDF ou image</button></div>'
+        + '<input type="file" id="hr-fac-photo" accept="image/*" capture="environment" multiple hidden><input type="file" id="hr-fac-fichier" accept="application/pdf,image/*" multiple hidden>'
+        + '<div class="msg" id="hr-fac-msg"></div></div>';
+    }
     if (d.semaines.length) h += '<div class="k" style="margin-top:14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase">8 dernières semaines</div>'
       + d.semaines.map(x => '<div class="cand" style="cursor:pointer" data-mes-goto="'+x.lundi+'"><div>Semaine '+x.numero+' <span class="sub">('+jourFr(x.lundi)+')</span><div class="sub">'+x.jours+' jour(s)</div></div><div><b>'+x.duree+'</b> '+(x.payee?'<span class="paid">Payée</span>':'')+'</div></div>').join('');
     box.innerHTML = h;
@@ -1472,7 +1480,25 @@ function hrEvents(){
     } catch(e){ hrMsg('❌ ' + esc(e.message), 'err'); }
     finally { $('hr-ok').disabled = false; }
   };
+  $('hr-mes').addEventListener('change', async e => {
+    if (!['hr-fac-photo','hr-fac-fichier'].includes(e.target.id) || !e.target.files.length) return;
+    const m = $('hr-fac-msg'), list = [...e.target.files];
+    const ok = (h, k) => { m.className = 'msg ' + (k || ''); m.innerHTML = h; };
+    if (!confirm('Déposer '+(list.length > 1 ? 'ces '+list.length+' photos (une seule facture)' : 'ce fichier')+' comme facture de la semaine '+hrMesLundi.split('-').reverse().join('/')+' ?')) { e.target.value = ''; return; }
+    ok('Envoi en cours…', 'info');
+    try {
+      const fd = new FormData();
+      fd.append('collaborateur', $('hr-collab').value); fd.append('lundi', hrMesLundi);
+      for (const f of list) { const g = await ffReduire(f); fd.append('fichiers', g, g.name || 'facture'); }
+      const r = await fetch('/gestion/api/heures/facture', { method: 'POST', body: fd });
+      if (r.status === 401) return location.href = '/gestion/auth/login';
+      const j = await r.json(); if (j.error) throw new Error(j.error);
+      await hrMes();
+      ok(j.canal === 'odoo' ? '✅ Facture « '+esc(j.ref)+' » arrivée dans Odoo ('+esc(j.heures)+' saisies cette semaine)' : '✅ Facture envoyée à la comptabilité par mail', 'ok');
+    } catch(err){ ok('❌ ' + esc(err.message), 'err'); }
+  });
   $('hr-mes').addEventListener('click', async e => {
+    const pk = e.target.closest('[data-fac-pick]'); if (pk) { $(pk.dataset.facPick === 'photo' ? 'hr-fac-photo' : 'hr-fac-fichier').click(); return; }
     const t = e.target.closest('[data-mes-nav],[data-mes-goto],[data-mes-del]'); if (!t) return;
     const ds = t.dataset;
     if (ds.mesNav) { const d0 = new Date(hrMesLundi+'T12:00:00'); d0.setDate(d0.getDate()+Number(ds.mesNav)); hrMesLundi = isoLocal(d0); return hrMes(); }

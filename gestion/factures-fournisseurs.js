@@ -57,11 +57,12 @@ async function preparer(fichiers, description) {
   return { nom: `${base}.pdf`, mimetype: 'application/pdf', buffer: await photosEnPdf(jpgs) };
 }
 
-async function journal(user, details) {
-  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'facture_fournisseur', cle: details.odoo_id ? `move-${details.odoo_id}` : null, details }).then(() => {}, () => {});
+async function journal(user, details, cle = null) {
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'facture_fournisseur', cle: cle || (details.odoo_id ? `move-${details.odoo_id}` : null), details }).then(() => {}, () => {});
 }
 
-async function envoyer({ fichiers, description }, user) {
+// extra (facture de prestation d'un collaborateur, depuis Heures) : { ref, noteExtra, cle, details }
+async function envoyer({ fichiers, description }, user, extra = {}) {
   const desc = txt(description).slice(0, 150);
   if (desc.length < 3) throw new Error('Écris une courte description (fournisseur et objet, ex. « SEFI – t-shirts commande 12/10 »)');
   const doc = await preparer(fichiers, desc);
@@ -69,8 +70,8 @@ async function envoyer({ fichiers, description }, user) {
   const odoo = require('./odoo');
   if (odoo.configured()) {
     try {
-      const r = await odoo.importerFactureFournisseur({ ...doc, note: `📥 Facture fournisseur importée depuis IGS Dashboard par <b>${esc(user)}</b> le ${esc(date)} : « ${esc(desc)} »` });
-      await journal(user, { description: desc, canal: 'odoo', odoo_id: r.id, fournisseur: r.fournisseur, montant_ttc: r.montant_ttc, fichier: doc.nom });
+      const r = await odoo.importerFactureFournisseur({ ...doc, ref: extra.ref || null, note: `📥 Facture fournisseur importée depuis IGS Dashboard par <b>${esc(user)}</b> le ${esc(date)} : « ${esc(desc)} »${extra.noteExtra ? `<br>${extra.noteExtra}` : ''}` });
+      await journal(user, { description: desc, canal: 'odoo', odoo_id: r.id, fournisseur: r.fournisseur, montant_ttc: r.montant_ttc, fichier: doc.nom, ...(extra.details || {}) }, extra.cle);
       console.log(`Factures fournisseurs : « ${desc} » importée dans Odoo par ${user} (facture ${r.id})`);
       return { canal: 'odoo', ...r, description: desc };
     } catch (err) {
@@ -80,10 +81,10 @@ async function envoyer({ fichiers, description }, user) {
   // Repli : mail à la comptabilité (la boîte comptabilite@ transmet à Odoo)
   await require('./graph').sendMail(MAILBOX, {
     to: COMPTA, subject: desc,
-    html: `<p>Facture fournisseur envoyée depuis IGS Dashboard par <b>${esc(user)}</b> le ${esc(date)}.</p><p>Description : ${esc(desc)}</p>`,
+    html: `<p>Facture fournisseur envoyée depuis IGS Dashboard par <b>${esc(user)}</b> le ${esc(date)}.</p><p>Description : ${esc(desc)}</p>${extra.noteExtra ? `<p>${extra.noteExtra}</p>` : ''}`,
     attachments: [{ name: doc.nom, contentType: doc.mimetype, buffer: doc.buffer }],
   });
-  await journal(user, { description: desc, canal: 'mail', destinataire: COMPTA, fichier: doc.nom });
+  await journal(user, { description: desc, canal: 'mail', destinataire: COMPTA, fichier: doc.nom, ...(extra.details || {}) }, extra.cle);
   return { canal: 'mail', destinataire: COMPTA, description: desc };
 }
 
