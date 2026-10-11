@@ -273,8 +273,10 @@ async function whatsappNonRattaches() {
     if (error) throw new Error(error.message);
     for (const m of data || []) {
       const cle = telValide(m.phone_number) || String(m.phone_number);
-      const st = stats.get(cle) || { numero: m.phone_number, formats: new Set(), messages: 0, dernier: m.created_at, extrait: null };
+      const st = stats.get(cle) || { numero: m.phone_number, formats: new Set(), messages: 0, dernier: m.created_at, extrait: null, secondes: new Map() };
       st.messages++; st.formats.add(m.phone_number);
+      // Historique importé (export WhatsApp collé dans Leïla) : des dizaines de messages enregistrés à la même seconde
+      const sec = String(m.created_at).slice(0, 19); st.secondes.set(sec, (st.secondes.get(sec) || 0) + 1);
       if (!st.extrait && m.role === 'user' && m.content && !/^\[|^<m[ée]dias? omis>$/i.test(m.content.trim())) st.extrait = String(m.content).slice(0, 140);
       stats.set(cle, st);
     }
@@ -282,7 +284,8 @@ async function whatsappNonRattaches() {
   }
   const dejaOdoo = new Map();
   for (const p of await odoo.telephonesOdoo()) { const n = telValide(p.phone) || norm(p.phone); if (n) dejaOdoo.set(n, p); }
-  let liste = [...stats.values()].filter(x => { const n = telValide(x.numero) || x.numero; return !NUMEROS_IGS.has(n) && !dejaOdoo.has(n); })
+  const ignores = new Set(JSON.parse((await supabase.from('gestion_reglages').select('valeur').eq('cle', 'whatsapp_ignores').maybeSingle()).data?.valeur || '[]'));
+  let liste = [...stats.values()].filter(x => { const n = telValide(x.numero) || x.numero; return !NUMEROS_IGS.has(n) && !dejaOdoo.has(n) && !ignores.has(n); })
     .sort((a, b) => b.messages - a.messages).slice(0, 80);
   // Noms connus (nom WhatsApp ou prénom donné à Leïla)
   const noms = new Map();
@@ -302,8 +305,15 @@ async function whatsappNonRattaches() {
       const x = liste[i++];
       x.nom = noms.get(x.numero) || null;
       x.valide = !!telValide(x.numero);
+      // Messages arrivés par WhatsApp vs historique importé à la main
+      let importes = 0, dateImport = null;
+      for (const [sec, n] of x.secondes) if (n >= 5) { importes += n; if (!dateImport || sec > dateImport) dateImport = sec; }
+      x.importes = importes; x.date_import = dateImport; x.recus = x.messages - importes;
+      delete x.secondes;
+      x.wa = 'https://wa.me/' + (telValide(x.numero) || String(x.numero).replace(/\D/g, ''));
       x.affiche = odoo.formatTel(telValide(x.numero) || x.numero);
       const formats = [...x.formats]; delete x.formats;
+      x.enregistre_sous = formats;
       if (!x.nom) for (const f of formats) if (noms.get(f)) x.nom = noms.get(f);
       x.suggestions = [];
       const pl = formats.map(f => plParTel.get(f)).find(Boolean);
@@ -330,4 +340,14 @@ async function rattacherWhatsapp(numero, partnerId, remplacer, user) {
   return { ok: true, client: p.name, telephone: phone };
 }
 
-module.exports = { whatsappNonRattaches, rattacherWhatsapp, analyser, appliquer, rapport, telValide, _test: { numerosDans, textePdf, telValide } };
+
+// Numéro écarté de la liste (faux numéro, perso, déjà géré autrement)
+async function ignorerWhatsapp(numero, user) {
+  const n = telValide(numero) || String(numero);
+  const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'whatsapp_ignores').maybeSingle();
+  const l = new Set(JSON.parse(data?.valeur || '[]')); l.add(n);
+  await supabase.from('gestion_reglages').upsert({ cle: 'whatsapp_ignores', valeur: JSON.stringify([...l]), updated_at: new Date().toISOString() });
+  return { ok: true, par: user };
+}
+
+module.exports = { ignorerWhatsapp, whatsappNonRattaches, rattacherWhatsapp, analyser, appliquer, rapport, telValide, _test: { numerosDans, textePdf, telValide } };

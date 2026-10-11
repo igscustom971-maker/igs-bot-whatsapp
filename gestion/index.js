@@ -146,6 +146,7 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/telephones/analyser', auth.requireUser, auth.requireAdmin, actA(req => telBat.analyser(req.user.name || req.user.email)));
   app.get('/gestion/api/admin/telephones/whatsapp', auth.requireUser, auth.requireAdmin, actA(() => telBat.whatsappNonRattaches()));
   app.post('/gestion/api/admin/telephones/whatsapp', auth.requireUser, auth.requireAdmin, actA(req => telBat.rattacherWhatsapp(req.body?.numero, req.body?.partnerId, !!req.body?.remplacer, req.user.name || req.user.email)));
+  app.post('/gestion/api/admin/telephones/whatsapp/ignorer', auth.requireUser, auth.requireAdmin, actA(req => telBat.ignorerWhatsapp(req.body?.numero, req.user.name || req.user.email)));
   app.get('/gestion/api/admin/clients-odoo', auth.requireUser, auth.requireAdmin, actA(async req => ({ clients: String(req.query.q || '').trim().length < 2 ? [] : (await require('./odoo').searchPartners(req.query.q)).map(p => ({ id: p.id, nom: p.name, telephone: p.phone, ville: p.ville })) })));
   app.post('/gestion/api/admin/telephones/appliquer', auth.requireUser, auth.requireAdmin, actA(req => telBat.appliquer(req.body?.choix, req.user.name || req.user.email)));
   // Source des données : Excel (historique) ou base du dashboard ; bascule définitive depuis Admin

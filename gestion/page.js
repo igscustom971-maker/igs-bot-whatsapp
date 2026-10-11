@@ -1609,13 +1609,17 @@ async function telWhatsapp(){
     if (!j.numeros.length) { box.innerHTML = '<div class="note" style="margin-top:8px">✅ Tous les numéros WhatsApp sont rattachés à une fiche Odoo.</div>'; return; }
     box.innerHTML = '<div class="note" style="margin:8px 0">'+j.numeros.length+' numéro(s) à rattacher (les plus actifs d’abord).</div><div class="co-grid">' + j.numeros.map(x =>
       '<div class="co-c" data-wa="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.affiche)+'</b><span class="mt">'+x.messages+' message(s)</span></div><div class="cl">'+esc(x.nom || 'Nom inconnu')+'</div>'
-      + (x.extrait ? '<div class="mt">« '+esc(x.extrait)+' »</div>' : '') + '<div class="mt">dernier message le '+new Date(x.dernier).toLocaleDateString('fr-FR')+'</div>'
+      + (x.extrait ? '<div class="mt">« '+esc(x.extrait)+' »</div>' : '')
+      + '<div class="mt">'+(x.recus ? x.recus+' message(s) reçu(s) sur WhatsApp, dernier le '+new Date(x.dernier).toLocaleDateString('fr-FR') : '<b style="color:#9a3412">Aucun message reçu sur WhatsApp</b>')+(x.importes ? ' · '+x.importes+' importé(s) à la main le '+new Date(x.date_import + 'Z').toLocaleDateString('fr-FR')+' (numéro saisi lors de l’import)' : '')+'</div>'
+      + '<div class="mt">Enregistré sous : '+esc((x.enregistre_sous || [x.numero]).join(', '))+' · <a href="'+esc(x.wa)+'" target="_blank" rel="noopener">ouvrir dans WhatsApp ↗</a> · <a href="#" data-wa-ign="1">ignorer</a></div>'
       + (x.suggestions.length ? '<div class="mt" style="margin-top:4px"><b>C’est peut-être :</b></div>' + x.suggestions.map(sg => '<button class="btn" style="justify-content:flex-start;text-align:left" data-wa-p="'+sg.id+'" data-wa-tel="'+(sg.telephone ? 1 : '')+'">→ '+esc(sg.nom)+(sg.telephone ? ' <span class="mt">(a déjà '+esc(sg.telephone)+')</span>' : '')+'</button>').join('') : '<div class="mt">Aucune suggestion : cherche le client ci-dessous.</div>')
       + (x.valide ? '' : '<div class="mt" style="color:#9a3412">Numéro au format inhabituel : vérifie-le avant de le rattacher.</div>')
       + '<div style="position:relative"><input class="search wa-q" placeholder="Autre client Odoo…" autocomplete="off" style="min-height:38px;padding:8px 10px;margin-top:4px"><div class="wa-res"></div></div><div class="msg wa-msg"></div></div>').join('') + '</div>';
   } catch(err){ box.innerHTML = '<div class="msg on err">❌ '+esc(err.message)+'</div>'; }
 }
 document.addEventListener('click', async e => {
+  const ig = e.target.closest('[data-wa-ign]');
+  if (ig) { e.preventDefault(); const carte = ig.closest('[data-wa]'); if (!confirm('Retirer ce numéro de la liste ? (faux numéro, numéro perso…)')) return; try { await post('/gestion/api/admin/telephones/whatsapp/ignorer', { numero: carte.dataset.wa }); carte.remove(); } catch(err){ alert(err.message); } return; }
   if (!e.target.closest('.wa-res') && !e.target.closest('.wa-q')) document.querySelectorAll('.wa-res').forEach(x => { x.innerHTML = ''; });
   const b = e.target.closest('[data-wa-p]'); if (!b) return;
   const carte = b.closest('[data-wa]'); const m = carte.querySelector('.wa-msg');
