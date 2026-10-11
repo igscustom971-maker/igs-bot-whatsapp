@@ -433,6 +433,49 @@ async function envoyerDevisOdoo(id) {
   return so;
 }
 
+// ---------- Relance des factures impayées (module Commercial, onglet Impayés) ----------
+// Factures clients validées, pas (entièrement) payées, échues ou non : le retard se calcule sur l'échéance
+async function facturesImpayees() {
+  return kw('account.move', 'search_read', [[...(await igsSeulement()), ['move_type', '=', 'out_invoice'], ['state', '=', 'posted'], ['payment_state', 'in', ['not_paid', 'partial']], ['amount_residual', '>', 0.5]]],
+    { fields: ['id', 'name', 'partner_id', 'invoice_date', 'invoice_date_due', 'amount_total', 'amount_residual', 'invoice_origin', 'payment_state'], order: 'invoice_date_due asc', limit: 300 });
+}
+// Lien du portail client (page de la facture avec le bouton « Payer ») ; pdf = lien de téléchargement du PDF
+async function lienPortailFacture(id, pdf = false) {
+  try {
+    const u = await kw('account.move', 'get_portal_url', [[id]], pdf ? { report_type: 'pdf', download: true } : {});
+    if (typeof u === 'string' && u) return u.startsWith('http') ? u : `${URL_}${u}`;
+  } catch (err) { console.error('Odoo lien portail facture :', err.message); }
+  return null;
+}
+async function factureRelance(id) {
+  const [f] = await kw('account.move', 'read', [[Number(id)]], { fields: ['name', 'partner_id', 'invoice_date', 'invoice_date_due', 'amount_total', 'amount_residual', 'state', 'payment_state', 'move_type', 'company_id'] });
+  if (!f || f.move_type !== 'out_invoice' || f.state !== 'posted') throw new Error('Facture introuvable ou non validée');
+  await ctx();
+  if (f.company_id && f.company_id[0] !== companyId) throw new Error('Facture d\'une autre société');
+  const [p] = f.partner_id ? await kw('res.partner', 'read', [[f.partner_id[0]]], { fields: ['name', 'email'] }) : [];
+  return { ...f, client: p?.name || f.partner_id?.[1] || '', email: p?.email || null, lien: await lienPortailFacture(f.id), odoo: lienOdoo('account.move', f.id) };
+}
+// PDF de la facture : téléchargé par le portail (lien avec jeton) ; à défaut, le PDF déjà généré par Odoo
+async function pdfFacture(id) {
+  const url = await lienPortailFacture(id, true);
+  if (url) {
+    try {
+      const r = await fetch(url, { redirect: 'follow' });
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (r.ok && buf.slice(0, 4).toString() === '%PDF') return buf;
+    } catch (err) { console.error('Odoo PDF facture (portail) :', err.message); }
+  }
+  try {
+    const [f] = await kw('account.move', 'read', [[id]], { fields: ['invoice_pdf_report_id'] });
+    const att = f?.invoice_pdf_report_id?.[0];
+    if (att) { const [a] = await kw('ir.attachment', 'read', [[att]], { fields: ['datas'] }); if (a?.datas) return Buffer.from(a.datas, 'base64'); }
+  } catch (err) { console.error('Odoo PDF facture (pièce jointe) :', err.message); }
+  return null;
+}
+async function noteFacture(id, texte) {
+  try { await kw('account.move', 'message_post', [[id]], { body: texte, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note facture :', err.message); }
+}
+
 // Facture du SOLDE d'une commande dont l'acompte est déjà facturé : facture « reste à facturer » d'Odoo
 // (acompte déduit), validée puis envoyée au client par mail. exigerAcompte : seulement si une facture existe déjà.
 async function facturerSolde(numero, { exigerAcompte = true } = {}) {
@@ -563,5 +606,5 @@ async function telephonesOdoo() {
 
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

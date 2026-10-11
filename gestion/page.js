@@ -358,6 +358,7 @@ a.brand:hover h1{color:#FF1E8E}
 .field .lei-j,.lei-j{flex-direction:row;text-transform:none;letter-spacing:0;margin:0;color:#1E1E4B;display:inline-flex;align-items:center;gap:5px;border:1px solid #E3D8C4;border-radius:10px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;background:#fff}
 .lei-j:has(input:checked){border-color:#FF1E8E;background:#FFF0F7;color:#1E1E4B}
 #co-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.imp-ed{margin-top:10px;display:grid;gap:8px}.imp-ed[hidden]{display:none}.imp-ed textarea{width:100%;font:inherit;font-size:13px;padding:10px;border:1px solid var(--line);border-radius:10px;resize:vertical;box-sizing:border-box}.imp-ed select{font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px}
 .co-tuiles .kpi{cursor:pointer;text-decoration:none;color:inherit;transition:.15s}
 .co-tuiles .kpi:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(30,30,75,.10);border-color:#FF1E8E}
 .co-onglets{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px;border-bottom:1px solid var(--line);padding-bottom:0}
@@ -545,6 +546,7 @@ ${view === 'accueil' ? `
       <button data-tab="demandes">📝 Demandes <span class="nb" id="nb-demandes"></span></button>
       <button data-tab="devis">📤 Devis en cours <span class="nb" id="nb-devis"></span></button>
       <button data-tab="facturer">💶 À facturer <span class="nb" id="nb-facturer"></span></button>
+      <button data-tab="impayes">🔔 Impayés <span class="nb" id="nb-impayes"></span></button>
       <button data-tab="signes">✅ Signés</button>
       <button data-tab="clients">👥 Clients</button>
       ${user.role === 'admin' ? '<button data-tab="ca">📊 Chiffre d’affaires</button>' : ''}
@@ -552,6 +554,7 @@ ${view === 'accueil' ? `
     <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="devis"><div class="co-filtres"><label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label><label class="filtre">Trier <select id="co-tri"><option value="age">Plus anciens d’abord</option><option value="recent">Plus récents d’abord</option><option value="montant">Montant</option></select></label></div><div id="co-cours"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="facturer"><div class="note co-intro">Commandes signées dont l’acompte est facturé mais pas encore le solde (la 2e partie). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="impayes"><div class="note co-intro">Factures validées et pas encore payées. Relances : amiable à J+7, ferme à J+15, dernier rappel à J+30 après l’échéance. Le mail part de comptabilite@ avec la facture en PDF et un bouton « Payer en ligne ».</div><div id="co-imp"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="signes"><div id="co-signes"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="clients"><div class="cols" style="grid-template-columns:1.6fr 1fr">
       <div class="card"><h3>🔁 Clients à réactiver</h3><div class="note" style="margin-bottom:8px">Ont commandé il y a 3 à 18 mois, plus rien depuis. Une petite relance avant une saison (rentrée, carnaval, fêtes) marche souvent.</div><div id="co-reac"><div class="skel"></div></div></div>
@@ -798,7 +801,7 @@ const ETATS_DEVIS = { draft: ['Brouillon', '#eef2ff;color:#3730a3'], sent: ['Env
 const pastille = (t, c) => '<span class="esp" style="background:'+c+'">'+esc(t)+'</span>';
 let coEnCours = 0; // actions en cours : l'actualisation automatique ne redessine pas (bouton réactivé, saisie perdue)
 async function coCharger(force, auto){
-  if (auto && (coEnCours || (document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-commercial input, #v-commercial textarea, #v-commercial select')))) return;
+  if (auto && (coEnCours || document.querySelector('#v-commercial .imp-ed:not([hidden])') || (document.activeElement && document.activeElement.closest && document.activeElement.closest('#v-commercial input, #v-commercial textarea, #v-commercial select')))) return;
   const r = await fetch('/gestion/api/commercial' + (force ? '?force=1' : ''));
   if (r.status === 401) return location.href = '/gestion/auth/login';
   const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Erreur');
@@ -831,8 +834,9 @@ function coAfficher(){
     ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ht), '#68677D', 'clients'],
   ];
   $('co-kpis').innerHTML = tuiles.map(([l, n, sub, c, go]) => '<a class="kpi" href="#" data-go="'+go+'" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></a>').join('');
-  if ($('nav-n-com')) $('nav-n-com').textContent = (nDem + k.a_relancer) || '';
+  if ($('nav-n-com')) $('nav-n-com').textContent = (nDem + k.a_relancer + ((k.impayes && k.impayes.a_relancer) || 0)) || '';
   $('nb-demandes').textContent = nDem || ''; $('nb-devis').textContent = k.a_relancer || ''; $('nb-facturer').textContent = k.reste_a_facturer.n || '';
+  if ($('nb-impayes')) $('nb-impayes').textContent = (k.impayes && k.impayes.a_relancer) || '';
   const pl = id => coLimite[id] || 12;
   // Demandes
   const dem = d.demandes;
@@ -861,6 +865,19 @@ function coAfficher(){
     + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à facturer (TTC)</span></div>'
     + '<div class="mt">Total '+eur2(x.montant_ttc)+' TTC · '+(x.factures.length ? 'déjà : '+x.factures.map(f => esc(f.numero || 'brouillon')+(f.paiement === 'paid' ? ' ✓' : '')).join(', ') : 'aucune facture')+'</div>'
     + '<div class="ac"><button class="btn pink" data-co="solde">Facturer le solde</button><a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('reste', reste.length);
+  // Impayés : relances J+7 / J+15 / J+30
+  const imp = d.impayes, NIV = ['', '1 · Relance amiable (J+7)', '2 · Relance ferme (J+15)', '3 · Dernier rappel (J+30)'];
+  const jour = v => v ? new Date(String(v).slice(0, 10) + 'T12:00:00').toLocaleDateString('fr-FR') : '';
+  if ($('co-imp')) $('co-imp').innerHTML = imp == null ? coVide('Factures Odoo indisponibles pour le moment : réessaie avec « Actualiser ».') : !imp.length ? coVide('✅ Aucune facture impayée.') : '<div class="co-grid">' + imp.slice(0, pl('imp')).map(x =>
+    '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-imp="'+x.id+'"><div class="t"><b>'+esc(x.numero)+'</b>'
+    + (x.retard == null ? '' : x.retard > 0 ? pastille(x.retard + ' j de retard', x.retard >= 30 ? '#fee2e2;color:#991b1b' : x.retard >= 15 ? '#ffedd5;color:#9a3412' : '#fef3c7;color:#92400e') : pastille('pas encore échue', '#f3f4f6;color:#374151'))+'</div>'
+    + '<div class="cl">'+esc(x.client)+'</div><div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à payer (TTC)</span></div>'
+    + '<div class="mt">'+(x.echeance ? 'échéance ' + jour(x.echeance) : '')+(x.partiel ? ' · paiement partiel' : '')+(x.origine ? ' · ' + esc(x.origine) : '')+'</div>'
+    + '<div class="mt">'+(x.relances ? 'Relancée ' + x.relances + ' fois (niveau ' + x.niveau_fait + ', le ' + jour(x.derniere_relance) + ')' : 'Jamais relancée')+(x.a_relancer ? ' · <b style="color:#9a3412">' + esc(x.nom_niveau.toLowerCase()) + ' à envoyer</b>' : '')+'</div>'
+    + '<div class="ac">'+(x.niveau_fait < 3 ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-imp-ouvrir>✉️ '+esc(x.nom_niveau)+'</button>' : '<span class="mt">3 relances faites : décision d’Ismaël</span>')+(x.lien ? '<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a>' : '')+'</div>'
+    + '<div class="imp-ed" hidden><select class="imp-niv">'+[1, 2, 3].map(n => '<option value="'+n+'"'+(n === x.niveau_propose ? ' selected' : '')+'>'+NIV[n]+'</option>').join('')+'</select>'
+    + '<textarea class="imp-txt" rows="10">'+esc(x.texte)+'</textarea><div class="note">La facture en PDF et le bouton « Payer en ligne » sont ajoutés au mail.</div>'
+    + '<div class="ac"><button class="btn pink" data-imp-envoyer>Envoyer la relance</button><button class="btn" data-imp-fermer>Annuler</button></div></div></div>').join('') + '</div>' + coPlus('imp', imp.length);
   // Signés
   $('co-signes').innerHTML = !d.signes.length ? coVide('Aucun devis signé récemment.') : '<div class="co-grid">' + d.signes.slice(0, pl('signes')).map(x =>
     '<div class="co-c"><div class="t"><b>'+esc(x.numero)+'</b>'+(x.atelier ? badge(x.atelier) : '<span class="mt">pas encore dans l’atelier</span>')+'</div><div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
@@ -1017,6 +1034,27 @@ function coEvents(){
   }, 300); });
   document.getElementById('v-commercial').addEventListener('click', e => { const f = e.target.closest('[data-fiche]'); if (f) { e.preventDefault(); coFiche(f.dataset.fiche); } });
   const msg = (t, k) => { $('co-msg').className = 'msg on ' + k; $('co-msg').innerHTML = t; setTimeout(() => { $('co-msg').className = 'msg'; }, 8000); };
+  // Impayés : ouvrir l'éditeur de relance, changer de niveau, envoyer
+  document.getElementById('v-commercial').addEventListener('change', e => {
+    const s = e.target.closest('.imp-niv'); if (!s) return;
+    const c = s.closest('[data-imp]'), x = ((coData && coData.impayes) || []).find(y => String(y.id) === c.dataset.imp);
+    if (x && x.textes) c.querySelector('.imp-txt').value = x.textes[s.value] || '';
+  });
+  document.getElementById('v-commercial').addEventListener('click', async e => {
+    const c = e.target.closest('[data-imp]'); if (!c) return;
+    const ed = c.querySelector('.imp-ed');
+    if (e.target.closest('[data-imp-ouvrir]')) { ed.hidden = !ed.hidden; if (!ed.hidden) c.querySelector('.imp-txt').focus(); return; }
+    if (e.target.closest('[data-imp-fermer]')) { ed.hidden = true; return; }
+    const b = e.target.closest('[data-imp-envoyer]'); if (!b || b.disabled) return;
+    const niveau = Number(c.querySelector('.imp-niv').value);
+    if (niveau === 3 && !confirm('Dernier rappel avant procédure de recouvrement : Ismaël est d’accord ?')) return;
+    b.disabled = true; coEnCours++;
+    try {
+      const j = await post('/gestion/api/commercial/factures/' + c.dataset.imp + '/relance', { niveau, message: c.querySelector('.imp-txt').value });
+      msg('✅ Relance envoyée à ' + esc(j.email) + (j.pdf ? ' avec la facture en PDF' : ' (PDF indisponible : facture non jointe)') + (j.lien ? '' : ', sans lien de paiement'), 'ok');
+      ed.hidden = true; coEnCours--; await coCharger(true);
+    } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
+  });
   document.getElementById('v-commercial').addEventListener('click', async e => {
     const b = e.target.closest('[data-co]'); if (!b) return;
     const a = b.dataset.co, tr = b.closest('[data-num],[data-dem],[data-pid]'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;

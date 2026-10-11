@@ -80,7 +80,9 @@ async function tableauDeBord({ force = false } = {}) {
     signes: signes.slice(0, 80),
     reste_a_facturer: resteAFacturer,
     demandes: await demandes(),
+    impayes: await impayes().catch(err => { console.error('Commercial impayés :', err.message); return null; }),
   };
+  if (data.impayes) data.kpi.impayes = { n: data.impayes.length, a_relancer: data.impayes.filter(x => x.a_relancer).length, ttc: Math.round(data.impayes.reduce((t, x) => t + (x.reste_ttc || 0), 0) * 100) / 100 };
   cache = { le: Date.now(), data };
   return data;
 }
@@ -167,6 +169,84 @@ async function relancer(numero, user, message) {
   cache.le = 0;
   console.log(`Commercial : relance du devis ${so.name} envoyée à ${p.email} par ${user}`);
   return { ok: true, email: p.email };
+}
+
+// ---------- Relance des factures impayées : J+7 amiable, J+15 ferme, J+30 dernier rappel ----------
+// Le mail part de comptabilite@ avec la facture en PDF et le lien de paiement en ligne (portail Odoo)
+const RELANCE_MAILBOX = (process.env.RELANCE_MAILBOX || 'comptabilite@igscustom.fr').toLowerCase();
+const NIVEAUX = [
+  { n: 1, jours: 7, nom: 'Relance amiable' },
+  { n: 2, jours: 15, nom: 'Relance ferme' },
+  { n: 3, jours: 30, nom: 'Dernier rappel' },
+];
+const eurFr = n => Number(n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+const dateFr = d => (d ? new Date(String(d).slice(0, 10) + 'T12:00:00Z').toLocaleDateString('fr-FR') : '');
+function texteRelance(niveau, f, retard) {
+  const ech = f.invoice_date_due ? ` (échéance le ${dateFr(f.invoice_date_due)})` : '';
+  const montant = eurFr(f.amount_residual);
+  const fin = '\n\nVous trouverez la facture en pièce jointe ainsi qu\'un lien pour la régler en ligne par carte bancaire. Le virement reste bien sûr possible.\n\nCordialement,\nService comptabilité - IGS CUSTOM BAR';
+  if (niveau === 1) return `Bonjour,\n\nSauf erreur de notre part, la facture ${f.name}${ech} d'un montant de ${montant} reste à régler à ce jour.\n\nSi le règlement a été effectué entre-temps, merci de ne pas tenir compte de ce message.` + fin;
+  if (niveau === 2) return `Bonjour,\n\nMalgré notre précédent rappel, la facture ${f.name}${ech} d'un montant de ${montant} demeure impayée${retard ? `, avec ${retard} jours de retard` : ''}.\n\nNous vous remercions de bien vouloir procéder à son règlement sous 8 jours, ou de nous contacter si une difficulté se présente.` + fin;
+  return `Bonjour,\n\nNous constatons que la facture ${f.name}${ech} d'un montant de ${montant} n'est toujours pas réglée${retard ? ` (${retard} jours de retard)` : ''}, malgré nos relances.\n\nCe message constitue un dernier rappel amiable : sans règlement ou prise de contact de votre part sous 8 jours, nous serons contraints d'engager une procédure de recouvrement.` + fin;
+}
+const SUJETS = { 1: n => `Rappel : facture ${n} à régler - IGS CUSTOM BAR`, 2: n => `2e relance : facture ${n} impayée - IGS CUSTOM BAR`, 3: n => `Dernier rappel : facture ${n} - IGS CUSTOM BAR` };
+
+async function relancesFactures(noms) {
+  const out = {};
+  if (!supabase || !noms.length) return out;
+  for (let i = 0; i < noms.length; i += 150) {
+    const { data } = await supabase.from('gestion_actions').select('cle, cree_le, details').eq('action', 'facture_relance').in('cle', noms.slice(i, i + 150));
+    for (const r of data || []) {
+      const o = out[r.cle] || (out[r.cle] = { niveau: 0, n: 0, derniere: null });
+      o.n++; o.niveau = Math.max(o.niveau, Number(r.details?.niveau) || 1);
+      if (!o.derniere || r.cree_le > o.derniere) o.derniere = r.cree_le;
+    }
+  }
+  return out;
+}
+async function impayes() {
+  const fs = await odoo.facturesImpayees();
+  const rel = await relancesFactures(fs.map(f => f.name));
+  const liste = fs.map(f => {
+    const retard = f.invoice_date_due ? jours(f.invoice_date_due) : null;
+    const r = rel[f.name] || { niveau: 0, n: 0, derniere: null };
+    const du = NIVEAUX.filter(x => (retard ?? -1) >= x.jours).reduce((m, x) => Math.max(m, x.n), 0);
+    const propose = Math.min(3, Math.max(1, r.niveau + 1));
+    return {
+      id: f.id, numero: f.name, client: f.partner_id ? f.partner_id[1] : '—', origine: f.invoice_origin || null,
+      date: f.invoice_date, echeance: f.invoice_date_due, total_ttc: f.amount_total, reste_ttc: f.amount_residual, partiel: f.payment_state === 'partial',
+      retard, niveau_fait: r.niveau, relances: r.n, derniere_relance: r.derniere,
+      a_relancer: du > r.niveau && r.niveau < 3, niveau_propose: propose, nom_niveau: NIVEAUX.at(propose - 1).nom,
+      texte: texteRelance(propose, f, retard), textes: { 1: texteRelance(1, f, retard), 2: texteRelance(2, f, retard), 3: texteRelance(3, f, retard) }, lien: odoo.lienOdoo ? odoo.lienOdoo('account.move', f.id) : null,
+    };
+  });
+  return liste.sort((a, b) => (b.a_relancer - a.a_relancer) || ((b.retard ?? -999) - (a.retard ?? -999)));
+}
+async function relancerFacture(id, user, { niveau, message } = {}) {
+  const f = await odoo.factureRelance(Number(id));
+  if (!(f.amount_residual > 0.5) || f.payment_state === 'paid' || f.payment_state === 'in_payment') throw new Error(`La facture ${f.name} est déjà réglée`);
+  if (!f.email) throw new Error(`Pas d'e-mail sur la fiche Odoo de ${f.client} : ajoute-le dans Odoo puis réessaie`);
+  const n = [1, 2, 3].includes(Number(niveau)) ? Number(niveau) : 1;
+  const retard = f.invoice_date_due ? jours(f.invoice_date_due) : null;
+  const texte = String(message || '').trim() || texteRelance(n, f, retard);
+  const pdf = await odoo.pdfFacture(f.id);
+  const html = `<div style="font:14px/1.6 Arial,sans-serif;color:#1E1E4B">${esc(texte).replace(/\n/g, '<br>')}`
+    + (f.lien ? `<p style="margin:22px 0"><a href="${esc(f.lien)}" style="background:#FF1E8E;color:#fff;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Payer la facture ${esc(f.name)} en ligne</a></p>` : '')
+    + `<p style="font-size:12px;color:#68677D">Reste à payer : ${esc(eurFr(f.amount_residual))}${f.invoice_date_due ? ' · échéance ' + esc(dateFr(f.invoice_date_due)) : ''}</p></div>`;
+  const mail = { to: f.email, subject: SUJETS[n](f.name), html, replyTo: RELANCE_MAILBOX, attachments: pdf ? [{ name: `${f.name.replace(/[\\/:*?"<>|]/g, '-')}.pdf`, contentType: 'application/pdf', buffer: pdf }] : [] };
+  let depuis = RELANCE_MAILBOX;
+  try { await g.sendMail(RELANCE_MAILBOX, mail); }
+  catch (err) {
+    // Boîte comptabilité inaccessible à l'application : envoi depuis contact@, réponses toujours vers comptabilite@
+    if (RELANCE_MAILBOX === MAILBOX || !/^Graph (4\d\d)\b/.test(err.message)) throw err;
+    console.error(`Commercial : relance ${f.name} depuis ${RELANCE_MAILBOX} refusée (${err.message.slice(0, 80)}), envoi depuis ${MAILBOX}`);
+    await g.sendMail(MAILBOX, mail); depuis = MAILBOX;
+  }
+  await odoo.noteFacture(f.id, `${NIVEAUX.at(n - 1).nom} envoyée par mail à ${esc(f.email)} depuis le dashboard (${esc(user)})${pdf ? ', facture en pièce jointe' : ''}.`);
+  await journal(user, 'facture_relance', f.name, { niveau: n, email: f.email, client: f.client, reste_ttc: f.amount_residual, depuis, pdf: !!pdf });
+  cache.le = 0;
+  console.log(`Commercial : ${NIVEAUX.at(n - 1).nom.toLowerCase()} de la facture ${f.name} envoyée à ${f.email} par ${user}`);
+  return { ok: true, email: f.email, niveau: n, pdf: !!pdf, lien: !!f.lien, depuis };
 }
 
 // ---------- Facture du solde ----------
@@ -284,4 +364,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, RELANCE_JOURS };
+module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, relancer, facturerSolde, surStatutCommande, impayes, relancerFacture, RELANCE_JOURS };

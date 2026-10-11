@@ -890,6 +890,16 @@ async function modifier(cle, champs, user) {
   if (fields.statut && row.n_devis && key(fields.statut) !== key(row.statut || '')) {
     require('./commercial').surStatutCommande(row, fields.statut, user).catch(() => {});
   }
+  // EN DEVIS (ou sans statut) -> PAYÉE / VALIDÉE, à la main ou au paiement Odoo : le BDC SEFI est rempli à ce moment-là
+  // avec le Tailles.xlsx déjà déposé (une commande n'est jamais commandée chez SEFI avant d'être payée)
+  if (fields.statut && row.n_devis && ['PAYEE', 'VALIDEE'].includes(key(fields.statut).toUpperCase()) && ['', 'ENDEVIS'].includes(key(row.statut || '').toUpperCase())) {
+    (async () => {
+      const depot = require('./depot');
+      if (!(await depot.actif().catch(() => false))) return;
+      const b = await depot.remplirApresPaiement(row.n_devis, row.client);
+      console.log(`Gestion ${row.n_devis} passée en ${fields.statut} par ${user} : BDC ${b.ok ? (b.deja ? 'déjà rempli' : (b.lignes || 0) + ' ligne(s)') : b.raison}`);
+    })().catch(err => console.error(`Gestion ${row.n_devis} : BDC SEFI non rempli`, err.message));
+  }
   // Rangement du dossier SharePoint selon le statut (n'empêche pas l'enregistrement en cas d'échec)
   let dossierInfo = null;
   if (fields.statut && row.n_devis && key(fields.statut) !== key(row.statut || '')) {
