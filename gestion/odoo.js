@@ -471,6 +471,23 @@ async function ajouterLigneDevis(numero, { ligneId, qte, mention }) {
   return { so_id: so.id, facturation_avant: so.invoice_status, etat: so.state, montant_ajout_ttc: n?.price_total || 0, total_ttc: apres?.amount_total, infos: await infosDevis(so.id), lien: lienOdoo('sale.order', so.id) };
 }
 
+// Liens de paiement d'un devis / d'une commande : factures restant à payer (lien de paiement de chaque facture),
+// sinon le devis lui-même (le client le signe et le paie en ligne)
+async function liensPaiement(numero) {
+  const so = await devisParNumero(String(numero || '').trim().toUpperCase());
+  if (!so) return null;
+  const out = { numero: so.name, client: so.partner_id?.[1] || '', etat: so.state, total_ttc: so.amount_total, factures: [] };
+  if (so.invoice_ids?.length) {
+    const fs = await kw('account.move', 'read', [so.invoice_ids], { fields: ['id', 'name', 'state', 'move_type', 'payment_state', 'amount_total', 'amount_residual'] });
+    for (const f of fs.filter(x => x.move_type === 'out_invoice' && x.state === 'posted')) {
+      const paye = ['paid', 'in_payment'].includes(f.payment_state);
+      out.factures.push({ numero: f.name, ttc: f.amount_total, reste: f.amount_residual, payee: paye, lien: paye ? null : await lienPortailFacture(f.id) });
+    }
+  }
+  if (so.state !== 'cancel' && (so.state !== 'sale' || !out.factures.length)) out.lien_devis = await lienPortailDevis(so.id);
+  return out;
+}
+
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
 async function devisEnvoyesDepuis(iso) {
   const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
@@ -649,7 +666,7 @@ async function telephonesOdoo() {
 }
 
 module.exports = {
-  lignesDevis, ajouterLigneDevis, infosDevis,
+  lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

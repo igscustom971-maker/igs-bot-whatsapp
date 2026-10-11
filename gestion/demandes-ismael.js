@@ -9,7 +9,9 @@ const MODELE = process.env.DEMANDES_MAIL_MODELE || process.env.PLANCHES_MODELE |
 
 // Le message commence par « devis », « demande de devis », « dde devis »… (le récap/planning reste à part)
 const DECLENCHEUR = /^\s*(?:nouvelle\s+)?(?:demande\s+de\s+devis|dde\s+(?:de\s+)?devis|devis)\b/i;
-const estDemande = texte => DECLENCHEUR.test(String(texte || ''));
+// Raccourci direct (sans l'assistante) seulement pour « Devis pour … » / « Demande de devis : … » ; « devis en cours ? » est une question
+const RACCOURCI = /^\s*(?:nouvelle\s+)?(?:demande\s+de\s+devis|dde\s+(?:de\s+)?devis|devis)\s*(?:pour\b|:)/i;
+const estDemande = texte => RACCOURCI.test(String(texte || ''));
 
 const SYSTEME = `Ismaël, gérant d'IGS CUSTOM BAR (personnalisation textile et impression DTF en Guadeloupe), transmet une demande de devis d'un client en quelques mots.
 Réponds uniquement avec un objet JSON, sans texte autour.

@@ -43,6 +43,7 @@ let manualLog = [];
 // Dédoublonnage des alertes (urgence / récap) par conversation : reste en mémoire,
 // se réinitialise au redéploiement (impact mineur : au pire une alerte reposée après redéploiement)
 const urgentAlertedAt = new Map(); // { [from]: timestamp de la dernière alerte urgente envoyée }
+const urgencesInfos = new Map(); // { [from]: { display, summary, at } } : pour l'assistante d'Ismaël (« combien d'urgences en cours ? »)
 const loggedForRecapAt = new Map(); // { [from]: timestamp du dernier log récap }
 const DEDUPE_COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12h : au-delà, on considère que c'est une nouvelle situation
 
@@ -730,6 +731,11 @@ async function traiterEcho(echo) {
   console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
 }
 
+// Urgences encore sans réponse de l'équipe (une réponse manuelle retire le client de urgentAlertedAt) : vues par l'assistante d'Ismaël
+require('./gestion/assistant-ismael').fournisseurs.urgences = () => [...urgentAlertedAt.entries()]
+  .filter(([, t]) => Date.now() - t < 24 * 3600e3)
+  .map(([from, t]) => { const i = urgencesInfos.get(from) || {}; return `${i.display || from} – ${String(i.summary || '').slice(0, 160)} (depuis ${new Date(t).toLocaleTimeString('fr-FR', { timeZone: 'America/Guadeloupe', hour: '2-digit', minute: '2-digit' })})`; });
+
 async function traiterMessageEntrant(message, profil) {
   const from = message.from; // numéro du client
   let text = message.text?.body;
@@ -763,7 +769,11 @@ async function traiterMessageEntrant(message, profil) {
       catch (err) { console.error('Demande de devis d\'Ismaël :', err.message); reponse = `⚠️ Demande non enregistrée : ${err.message}. Saisis-la dans Commercial > Demandes.`; }
       await sendWhatsAppMessage(from, reponse);
     } else {
-      console.log(`Message d'Ismaël sur son propre numéro (hors récap / devis), ignoré par le bot client`);
+      // Tout le reste : Leïla assistante d'Ismaël (questions sur les commandes, planches, stock, SEFI ; actions après « oui »)
+      let reponse;
+      try { reponse = await require('./gestion/assistant-ismael').traiter(text); }
+      catch (err) { console.error('Assistante Ismaël :', err.message); reponse = `⚠️ Je n'arrive pas à traiter ta demande pour le moment (${err.message.slice(0, 100)}). Réessaie dans une minute ou passe par le dashboard.`; }
+      await sendWhatsAppMessage(from, reponse);
     }
     return;
   }
@@ -848,6 +858,7 @@ async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = f
 
   const display = await resolveClientDisplay(from, fullHistory);
   const summary = await summarizeForRecap(fullHistory);
+  urgencesInfos.set(from, { display, summary, at: Date.now() });
   let sent = false;
 
   if (canSendUrgentNow()) {

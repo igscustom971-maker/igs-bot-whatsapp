@@ -349,7 +349,7 @@ async function envoyer(par = 'Envoi automatique') {
       try { await commandes.modifier(c.cle, { statut: 'EN COMMANDE' }, par); passes.push(d); }
       catch (err) { console.error(`SEFI : ${d} non passé EN COMMANDE`, err.message); }
     }
-    const res = { ok: true, lot, devis: L.devis, enCommande: passes, bdcVide: vide };
+    const res = { ok: true, lot, devis: L.devis, enCommande: passes, bdcVide: vide, contenu: contenuLot(L) };
     await setReglage('sefi_dernier_envoi', JSON.stringify({ le: new Date().toISOString(), par, ...res }));
     if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: par, action: 'bdc_sefi_envoye', cle: lot, details: res });
     console.log(`SEFI : lot ${lot} envoyé (${L.devis.join(', ')})${vide ? '' : ' — BDC NON vidé (modifié pendant l\'envoi)'}`);
@@ -357,9 +357,24 @@ async function envoyer(par = 'Envoi automatique') {
   });
 }
 
+// Résumé d'un lot par devis (pièces commandées chez SEFI / prises en stock, ajouts) : gardé avec l'envoi pour pouvoir dire « parti avec quoi »
+function contenuLot(L) {
+  return L.devis.map(d => {
+    const ls = L.detail.filter(l => l.devis === d);
+    const parRef = {};
+    ls.forEach(l => { if (l.sefi > 0) parRef[`${l.ref} ${l.taille}`] = (parRef[`${l.ref} ${l.taille}`] || 0) + l.sefi; });
+    return { devis: d, client: L.clients[d] || '', sefi: ls.reduce((t, l) => t + l.sefi, 0), stock: ls.reduce((t, l) => t + l.stock, 0), ajout: ls.some(l => /\(ajout\)$/.test(l.client)), articles: Object.entries(parRef).map(([k, n]) => `${n} x ${k}`).slice(0, 15) };
+  });
+}
+// Ce qui est dans le bon de commande en ce moment (partira au prochain créneau)
+async function contenuActuel() {
+  const L = await lireLot(await bdc());
+  return { vide: L.vide, devis: contenuLot(L), total_sefi: L.detail.reduce((t, l) => t + l.sefi, 0) };
+}
+
 async function debloquer() { await setReglage('sefi_verrou', ''); return { ok: true }; }
 async function etat() {
   return { verrou: await reglage('sefi_verrou', ''), dernier: JSON.parse((await reglage('sefi_dernier_envoi', 'null')) || 'null') };
 }
 
-module.exports = { remplir, remplirDepuisTailles, envoyer, debloquer, etat, _test: { lireLot, recap, hash } };
+module.exports = { remplir, remplirDepuisTailles, envoyer, debloquer, etat, contenuActuel, _test: { lireLot, recap, hash } };
