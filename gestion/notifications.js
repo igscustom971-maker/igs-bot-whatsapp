@@ -89,6 +89,19 @@ function textes(type, ctx, ton) {
       ? `Salut${p} ! Ta planche DTF${ctx.suivi ? ' (' + ctx.suivi + ')' : ''} a bien été livrée 📦${ctx.lienAvis ? `\nSi tu es content(e), un petit avis Google nous aiderait vraiment 🙏 ${ctx.lienAvis}` : ''}`
       : `Bonjour${p} 👋 Votre planche DTF${ctx.suivi ? ' (n° ' + ctx.suivi + ')' : ''} a bien été livrée 📦${ctx.lienAvis ? `\nSi vous êtes satisfait(e), un petit avis Google nous aiderait beaucoup 🙏 ${ctx.lienAvis}` : ''}`,
   };
+  // Tournures alternatives (choisies au hasard) : les clients réguliers ne reçoivent pas toujours le même texte
+  const V = {
+    prete: ton.tu
+      ? [`Hello${p} ! Bonne nouvelle, ta commande est terminée 🎉 Tu peux venir la chercher ${HORAIRES}.${especes}`, `Coucou${p}, c'est prêt ! Ta commande t'attend à l'atelier, tu peux passer ${HORAIRES}.${especes}`]
+      : [`Bonjour${p}, votre commande${ref} est terminée et vous attend à l'atelier ! Vous pouvez passer la récupérer ${HORAIRES}.${especes}`, `Bonjour${p} 😊 C'est prêt : votre commande${ref} peut être récupérée ${HORAIRES}. À bientôt !${especes}`],
+    planche_prete: ton.tu
+      ? [`Hello${p} ! Ta planche DTF est imprimée, tu peux passer la prendre ${HORAIRES}.${especes}`, `Coucou${p}, ta planche est prête 🙌 Elle t'attend à l'atelier ${HORAIRES}.${especes}`]
+      : [`Bonjour${p}, votre planche DTF est imprimée et vous attend à l'atelier ${HORAIRES}.${especes}`, `Bonjour${p} 😊 Votre planche DTF est prête, vous pouvez venir la récupérer ${HORAIRES}.${especes}`],
+    avis: ctx.lienAvis ? (ton.tu
+      ? [`Encore merci${p} 🙏 Si tu es content(e) du rendu, ton avis Google nous aiderait énormément : ${ctx.lienAvis}`, `Merci pour ta commande${p} ! Si ça t'a plu, deux minutes pour un petit avis Google nous feraient vraiment plaisir : ${ctx.lienAvis}`]
+      : [`Bonjour${p}, encore merci pour votre commande 🙏 Si le résultat vous plaît, un avis Google nous aiderait beaucoup : ${ctx.lienAvis}`, `Bonjour${p}, merci pour votre confiance ! Si vous avez une minute, votre avis Google compte énormément pour nous : ${ctx.lienAvis}`]) : null,
+  };
+  if (V[type]) { const l = [W[type], ...V[type]]; W[type] = l[Math.floor(Math.random() * l.length)]; }
   const sujetRef = ctx.devis ? ` ${ctx.devis}` : '';
   const S = {
     prete: `Votre commande${sujetRef} est prête - IGS CUSTOM BAR`,

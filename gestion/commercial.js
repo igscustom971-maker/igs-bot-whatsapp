@@ -180,9 +180,19 @@ async function relancer(numero, user, message) {
 // Ton : tutoiement / vouvoiement et prénom selon le profil du client (historique WhatsApp, note client)
 function texteDevisWhatsApp(ton, numero) {
   const p = ton.prenom ? ' ' + ton.prenom : '';
-  return ton.tu
-    ? `Salut${p} ! Je viens de t'envoyer ton devis ${numero} par mail 📩 Jette un œil (pense à vérifier les spams) et dis-moi si tout te va ou s'il faut ajuster quelque chose. Tu peux le régler directement depuis le lien du mail.`
-    : `Bonjour${p} 👋 Votre devis ${numero} vient de vous être envoyé par mail 📩 N'hésitez pas à le consulter (pensez à vérifier vos spams) et à revenir vers nous pour toute question ou modification. Le règlement peut se faire directement depuis le lien du mail.`;
+  // Plusieurs tournures : le client ne reçoit pas toujours le même message
+  const tu = [
+    `Salut${p} ! Je viens de t'envoyer ton devis ${numero} par mail 📩 Jette un œil (pense aux spams) et dis-moi si tout te va ou s'il faut ajuster quelque chose.`,
+    `Hello${p}, ton devis ${numero} est parti sur ta boîte mail ! Regarde quand tu peux et dis-moi si ça te convient, tu pourras le régler directement depuis le lien.`,
+    `Coucou${p} 😊 C'est bon, ton devis ${numero} t'attend dans tes mails. Si quelque chose ne va pas (quantités, tailles…), dis-le-moi et on corrige.`,
+  ];
+  const vous = [
+    `Bonjour${p} 👋 Votre devis ${numero} vient de vous être envoyé par mail. Pensez à jeter un œil dans vos spams, et revenez vers nous pour toute question ou modification.`,
+    `Bonjour${p}, je vous ai transmis votre devis ${numero} par mail 📩 Le règlement peut se faire directement depuis le lien. Dites-moi si tout vous convient !`,
+    `Bonjour${p} ! Votre devis ${numero} est dans votre boîte mail. Si vous souhaitez ajuster quelque chose, il suffit de me répondre ici.`,
+  ];
+  const l = ton.tu ? tu : vous;
+  return l[Math.floor(Math.random() * l.length)];
 }
 async function prevenirDevisWhatsApp(so, user, telDemande) {
   if (!supabase || !so?.name) return { statut: 'ignore' };
