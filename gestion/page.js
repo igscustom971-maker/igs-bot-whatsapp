@@ -357,8 +357,33 @@ a.brand:hover h1{color:#FF1E8E}
 .lei-jours{display:flex;gap:6px;flex-wrap:wrap}
 .field .lei-j,.lei-j{flex-direction:row;text-transform:none;letter-spacing:0;margin:0;color:#1E1E4B;display:inline-flex;align-items:center;gap:5px;border:1px solid #E3D8C4;border-radius:10px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;background:#fff}
 .lei-j:has(input:checked){border-color:#FF1E8E;background:#FFF0F7;color:#1E1E4B}
-#co-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+#co-kpis{grid-template-columns:repeat(6,minmax(0,1fr))}
+.co-tuiles .kpi{cursor:pointer;text-decoration:none;color:inherit;transition:.15s}
+.co-tuiles .kpi:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(30,30,75,.10);border-color:#FF1E8E}
+.co-onglets{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px;border-bottom:1px solid var(--line);padding-bottom:0}
+.co-onglets button{border:0;background:none;font:600 14px 'Poppins',sans-serif;color:#68677D;padding:10px 14px;border-bottom:3px solid transparent;cursor:pointer;margin-bottom:-1px}
+.co-onglets button.on{color:#1E1E4B;border-bottom-color:#FF1E8E}
+.co-onglets .nb{background:#FF1E8E;color:#fff;border-radius:999px;padding:0 7px;font-size:11.5px;font-weight:800;margin-left:4px}.co-onglets .nb:empty{display:none}
+.co-panneau{display:none}.co-panneau.on{display:block}
+.co-intro{margin:0 0 12px}
+.co-filtres{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.co-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.co-c{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.co-c .t{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.co-c .t b{font-size:13px;color:#68677D;font-weight:700}
+.co-c .cl{font-weight:700;font-size:15.5px;color:#1E1E4B;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.co-c .m{font-family:'Bebas Neue','Poppins',sans-serif;font-size:26px;line-height:1;color:#1E1E4B;letter-spacing:.5px}
+.co-c .mt{font-size:12.5px;color:#68677D}
+.co-c .ac{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:6px}
+.co-c .ac .btn{min-height:34px;padding:6px 11px;font-size:13px}
+.co-c.chaud{border-color:#FFB37A;box-shadow:inset 3px 0 0 #FF8A3D}
+.co-plus{margin-top:12px;text-align:center}
+.co-vide{background:#fff;border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:#68677D}
+.co-recherche{position:relative;min-width:300px}
+.co-recherche #co-res{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(30,30,75,.12);z-index:8;margin-top:4px}
+.co-recherche #co-res:empty{display:none}
 @media (max-width:1240px){#co-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.co-recherche{min-width:0;width:100%}.co-onglets{flex-wrap:nowrap;overflow-x:auto}.co-onglets button{white-space:nowrap}}
 @media (max-width:760px){#co-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #co-res .co-r{display:flex;justify-content:space-between;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer}
 #co-res .co-r:hover{background:#FBF6EC}
@@ -505,21 +530,27 @@ ${view === 'accueil' ? `
     </div>
   </section>` : view === 'commercial' ? `
   <section id="v-commercial">
-    <div class="hello"><div><h2>Commercial</h2><div class="sub">Devis en cours, relances, demandes prises par Leïla et reste à facturer.</div></div>
-      <div class="tools" style="margin:0"><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div></div>
-    <div class="card co-recherche"><h3>🔎 Fiche client</h3><input id="co-q" class="search" placeholder="Nom, entreprise ou e-mail du client…" autocomplete="off"><div id="co-res"></div></div>
-    ${user.role === 'admin' ? `<div class="card" id="co-fin" style="margin-top:14px"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📊 Chiffre d’affaires <span class="note" style="text-transform:none;letter-spacing:0;font-weight:600">visible seulement par toi</span><label class="filtre">Année <select id="fin-annee"></select></label></h3><div id="fin-corps"><div class="skel"></div></div></div>` : ''}
-    <div class="kpis" id="co-kpis" style="margin-top:14px"><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div></div>
-    <div class="card" style="margin-top:14px"><h3>📝 Demandes de devis</h3><div class="note" style="margin-bottom:8px">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
-    <div class="card" style="margin-top:14px"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📤 Devis en cours <label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label></h3><div id="co-cours"><div class="skel"></div></div></div>
-    <div class="card" style="margin-top:14px"><h3>💶 Reste à facturer</h3><div class="note" style="margin-bottom:8px">Commandes signées dont l’acompte a été facturé mais pas encore le solde (la 2e partie). Le montant indiqué est ce qu’il reste à facturer au client. Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
-    <div class="card" style="margin-top:14px"><h3>✅ Derniers devis signés</h3><div id="co-signes"><div class="skel"></div></div></div>
-    <div class="cols" style="margin-top:14px;grid-template-columns:1fr 1.6fr">
-      <div class="card"><h3>🧭 Origine des devis (90 jours)</h3><div id="co-orig"><div class="skel"></div></div></div>
-      <div class="card"><h3>🔁 Clients à réactiver</h3><div class="note" style="margin-bottom:8px">Ont commandé il y a 3 à 18 mois, plus rien depuis. Une petite relance par mail, avant une saison (rentrée, carnaval, fêtes), marche souvent.</div><div id="co-reac"><div class="skel"></div></div></div>
+    <div class="hello"><div><h2>Commercial</h2><div class="sub">Demandes, devis, relances, facturation et clients.</div></div>
+      <div class="tools" style="margin:0;flex-wrap:wrap"><div class="co-recherche"><input id="co-q" class="search" placeholder="🔎 Fiche client : nom, entreprise, e-mail…" autocomplete="off"><div id="co-res"></div></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div></div>
+    <div class="kpis co-tuiles" id="co-kpis"><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div></div>
+    <div class="co-onglets" id="co-onglets">
+      <button data-tab="demandes">📝 Demandes <span class="nb" id="nb-demandes"></span></button>
+      <button data-tab="devis">📤 Devis en cours <span class="nb" id="nb-devis"></span></button>
+      <button data-tab="facturer">💶 À facturer <span class="nb" id="nb-facturer"></span></button>
+      <button data-tab="signes">✅ Signés</button>
+      <button data-tab="clients">👥 Clients</button>
+      ${user.role === 'admin' ? '<button data-tab="ca">📊 Chiffre d’affaires</button>' : ''}
     </div>
-    <div class="co-fiche" id="co-fiche" hidden><div class="co-fiche-in"><button class="btn" id="co-fiche-x" style="float:right">✕</button><div id="co-fiche-c"></div></div></div>
+    <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="devis"><div class="co-filtres"><label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label><label class="filtre">Trier <select id="co-tri"><option value="age">Plus anciens d’abord</option><option value="recent">Plus récents d’abord</option><option value="montant">Montant</option></select></label></div><div id="co-cours"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="facturer"><div class="note co-intro">Commandes signées dont l’acompte est facturé mais pas encore le solde (la 2e partie). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="signes"><div id="co-signes"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="clients"><div class="cols" style="grid-template-columns:1.6fr 1fr">
+      <div class="card"><h3>🔁 Clients à réactiver</h3><div class="note" style="margin-bottom:8px">Ont commandé il y a 3 à 18 mois, plus rien depuis. Une petite relance avant une saison (rentrée, carnaval, fêtes) marche souvent.</div><div id="co-reac"><div class="skel"></div></div></div>
+      <div class="card"><h3>🧭 Origine des devis (90 jours)</h3><div id="co-orig"><div class="skel"></div></div></div></div></div>
+    ${user.role === 'admin' ? `<div class="co-panneau" data-p="ca"><div class="card" id="co-fin"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📊 Chiffre d’affaires <span class="note" style="text-transform:none;letter-spacing:0;font-weight:600">visible seulement par toi</span><label class="filtre">Année <select id="fin-annee"></select></label></h3><div id="fin-corps"><div class="skel"></div></div></div></div>` : ''}
     <div class="msg" id="co-msg"></div>
+    <div class="co-fiche" id="co-fiche" hidden><div class="co-fiche-in"><button class="btn" id="co-fiche-x" style="float:right">✕</button><div id="co-fiche-c"></div></div></div>
   </section>` : view === 'heures' ? `
   <section id="v-heures">
     <div class="tools"><h2 style="margin:0;font-size:20px">⏱ Heures</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
@@ -705,7 +736,7 @@ async function charger(force, auto){
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
     if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
-    if (VIEW === 'commercial') { await coCharger(force); if (!auto) { finCharger(force); coAnnexes(force); } return; }
+    if (VIEW === 'commercial') { await coCharger(force); if (!auto && coTab === 'ca') finCharger(force); if (!auto && coTab === 'clients') coAnnexes(force); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -764,44 +795,67 @@ async function coCharger(force){
   coData = j; coAfficher();
   $('sync').className = 'sync'; $('sync').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
 }
+// Onglets du module Commercial (onglet retenu dans l'adresse : #devis, #facturer…)
+let coTab = (location.hash || '').slice(1) || 'demandes';
+const coLimite = {};
+function coOnglet(t, filtre, silencieux){
+  if (!document.querySelector('.co-panneau[data-p="'+t+'"]')) t = 'demandes';
+  coTab = t; history.replaceState(null, '', '#' + t);
+  document.querySelectorAll('.co-onglets button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('.co-panneau').forEach(p => p.classList.toggle('on', p.dataset.p === t));
+  if (filtre && $('co-f')) { $('co-f').value = filtre; coAfficher(); }
+  if (!silencieux) { if (t === 'ca') finCharger(); if (t === 'clients') coAnnexes(); }
+}
+const coPlus = (id, total) => total > (coLimite[id] || 12) ? '<div class="co-plus"><button class="btn" data-plus="'+id+'">Voir tout ('+total+')</button></div>' : '';
+const coVide = t => '<div class="co-vide">'+t+'</div>';
 function coAfficher(){
   const d = coData; if (!d) return;
   const k = d.kpi;
-  $('co-kpis').innerHTML = [
-    ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ht) + ' HT', '#3E63F0'],
-    ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j', '#FF8A3D'],
-    ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ht) + ' HT', '#5BBE72'],
-    ['Transformation (90 j)', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', 'panier moyen ' + eur2(k.panier_moyen_ht) + ' HT', '#1E1E4B'],
-    ['Reste à facturer', k.reste_a_facturer.n, eur2(k.reste_a_facturer.ttc) + ' TTC', '#FF1E8E'],
-  ].map(([l, n, sub, c]) => '<div class="kpi" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></div>').join('');
-  if ($('nav-n-com')) $('nav-n-com').textContent = (d.demandes.filter(x => x.statut !== 'envoye').length + k.a_relancer) || '';
+  const nDem = d.demandes.filter(x => x.statut !== 'envoye').length;
+  const tuiles = [
+    ['Demandes à traiter', nDem, 'prises par Leïla', '#FF1E8E', 'demandes'],
+    ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ht) + ' HT', '#3E63F0', 'devis'],
+    ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j', '#FF8A3D', 'devis:relancer'],
+    ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ht) + ' HT', '#5BBE72', 'signes'],
+    ['Reste à facturer', k.reste_a_facturer.n, eur2(k.reste_a_facturer.ttc) + ' TTC', '#1E1E4B', 'facturer'],
+    ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ht), '#68677D', 'clients'],
+  ];
+  $('co-kpis').innerHTML = tuiles.map(([l, n, sub, c, go]) => '<a class="kpi" href="#" data-go="'+go+'" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></a>').join('');
+  if ($('nav-n-com')) $('nav-n-com').textContent = (nDem + k.a_relancer) || '';
+  $('nb-demandes').textContent = nDem || ''; $('nb-devis').textContent = k.a_relancer || ''; $('nb-facturer').textContent = k.reste_a_facturer.n || '';
+  const pl = id => coLimite[id] || 12;
   // Demandes
   const dem = d.demandes;
-  $('co-dem').innerHTML = !dem.length ? '<div class="note">✅ Aucune demande en attente.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Reçue</th><th>Client</th><th>Demande</th><th>Devis</th><th></th></tr></thead><tbody>' + dem.map(x =>
-    '<tr data-dem="'+x.id+'"><td class="note">'+new Date(x.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</td>'
-    + '<td><b>'+esc(x.nom || '—')+'</b><div class="note">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div></td>'
-    + '<td>'+esc([x.quantite, x.produit].filter(Boolean).join(' × '))+(x.zone ? '<div class="note">zone : '+esc(x.zone)+'</div>' : '')+(x.details ? '<div class="note">'+esc(x.details)+'</div>' : '')+'</td>'
-    + '<td>'+(x.devis_numero ? '<b>'+esc(x.devis_numero)+'</b> '+pastille('brouillon prêt', '#eef2ff;color:#3730a3') : x.statut === 'erreur' ? pastille('à faire à la main', '#fee2e2;color:#991b1b')+'<div class="note">'+esc(x.erreur || '')+'</div>' : pastille('en préparation', '#fef3c7;color:#92400e'))+'</td>'
-    + '<td style="white-space:nowrap">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button> ' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button> ')+'<button class="btn" data-co="abandonner" title="Demande sans suite">✕</button></td></tr>').join('') + '</tbody></table></div>';
+  $('co-dem').innerHTML = !dem.length ? coVide('✅ Aucune demande en attente.') : '<div class="co-grid">' + dem.slice(0, pl('dem')).map(x =>
+    '<div class="co-c" data-dem="'+x.id+'"><div class="t"><b>'+new Date(x.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</b>'
+    + (x.devis_numero ? pastille(x.devis_numero + ' prêt', '#eef2ff;color:#3730a3') : x.statut === 'erreur' ? pastille('à faire à la main', '#fee2e2;color:#991b1b') : pastille('en préparation', '#fef3c7;color:#92400e'))+'</div>'
+    + '<div class="cl">'+esc(x.nom || 'Client sans nom')+'</div>'
+    + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
+    + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
+    + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'
+    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+'<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button></div></div>').join('') + '</div>' + coPlus('dem', dem.length);
   // Devis en cours
-  const f = $('co-f').value;
-  const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f));
-  const masques = d.anciens_masques ? '<div class="note" style="margin-top:8px">'+d.anciens_masques+' devis sans réponse depuis plus de '+d.en_cours_jours+' jours ne sont plus affichés ici.</div>' : '';
-  $('co-cours').innerHTML = (!cours.length ? '<div class="note">Rien à afficher.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Âge</th><th>Relances</th><th>État</th><th></th></tr></thead><tbody>' + cours.map(x =>
-    '<tr data-num="'+esc(x.numero)+'"><td><b>'+esc(x.numero)+'</b></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td>'
-    + '<td>'+(x.age == null ? '—' : x.age + ' j')+(x.a_relancer ? ' '+pastille('à relancer', '#ffedd5;color:#9a3412') : '')+'</td>'
-    + '<td class="note">'+(x.relances ? x.relances + ' · le ' + new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '—')+'</td>'
-    + '<td>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</td>'
-    + '<td style="white-space:nowrap">'+(x.etat === 'sent' ? '<button class="btn" data-co="relancer">✉️ Relancer</button> ' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>') + masques;
+  const f = $('co-f').value, tri = $('co-tri').value;
+  const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f))
+    .sort((x, y) => tri === 'montant' ? (y.montant_ht || 0) - (x.montant_ht || 0) : tri === 'recent' ? (x.age || 0) - (y.age || 0) : (y.age || 0) - (x.age || 0));
+  const masques = d.anciens_masques ? '<div class="note" style="margin-top:10px">'+d.anciens_masques+' devis sans réponse depuis plus de '+d.en_cours_jours+' jours ne sont plus affichés.</div>' : '';
+  $('co-cours').innerHTML = (!cours.length ? coVide('Rien à afficher.') : '<div class="co-grid">' + cours.slice(0, pl('cours')).map(x =>
+    '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-num="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.numero)+'</b>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</div>'
+    + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
+    + '<div class="mt">'+(x.age == null ? '' : 'il y a ' + x.age + ' j')+(x.relances ? ' · relancé '+x.relances+' fois (le '+new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+')' : '')+(x.a_relancer ? ' · <b style="color:#9a3412">à relancer</b>' : '')+'</div>'
+    + '<div class="ac">'+(x.etat === 'sent' ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-co="relancer">✉️ Relancer</button>' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('cours', cours.length)) + masques;
   // Reste à facturer
   const reste = d.reste_a_facturer;
-  $('co-reste').innerHTML = !reste.length ? '<div class="note">✅ Tout est facturé.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Total TTC</th><th>Reste TTC</th><th>Factures</th><th>Atelier</th><th></th></tr></thead><tbody>' + reste.map(x =>
-    '<tr data-num="'+esc(x.numero)+'"><td><b>'+esc(x.numero)+'</b></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ttc)+'</td><td><b>'+eur2(x.reste_ttc)+'</b></td>'
-    + '<td class="note">'+(x.factures.length ? x.factures.map(f => esc(f.numero || 'brouillon')+(f.paiement === 'paid' ? ' ✓' : '')).join('<br>') : 'aucune')+'</td><td>'+(x.atelier ? badge(x.atelier) : '<span class="note">—</span>')+'</td>'
-    + '<td style="white-space:nowrap"><button class="btn" data-co="solde">Facturer le solde</button> <a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>';
+  $('co-reste').innerHTML = !reste.length ? coVide('✅ Tout est facturé.') : '<div class="co-grid">' + reste.slice(0, pl('reste')).map(x =>
+    '<div class="co-c" data-num="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.numero)+'</b>'+(x.atelier ? badge(x.atelier) : '<span class="mt">pas dans l’atelier</span>')+'</div>'
+    + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.reste_ttc)+' <span class="mt" style="font-family:Poppins">à facturer (TTC)</span></div>'
+    + '<div class="mt">Total '+eur2(x.montant_ttc)+' TTC · '+(x.factures.length ? 'déjà : '+x.factures.map(f => esc(f.numero || 'brouillon')+(f.paiement === 'paid' ? ' ✓' : '')).join(', ') : 'aucune facture')+'</div>'
+    + '<div class="ac"><button class="btn pink" data-co="solde">Facturer le solde</button><a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('reste', reste.length);
   // Signés
-  $('co-signes').innerHTML = !d.signes.length ? '<div class="note">Aucun.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Signé le</th><th>Atelier</th></tr></thead><tbody>' + d.signes.slice(0, 25).map(x =>
-    '<tr><td><a href="'+esc(x.lien)+'" target="_blank" rel="noopener"><b>'+esc(x.numero)+'</b></a></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td><td class="note">'+(x.date ? new Date(String(x.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+(x.atelier ? badge(x.atelier) : '<span class="note">pas encore dans l’atelier</span>')+'</td></tr>').join('') + '</tbody></table></div>';
+  $('co-signes').innerHTML = !d.signes.length ? coVide('Aucun devis signé récemment.') : '<div class="co-grid">' + d.signes.slice(0, pl('signes')).map(x =>
+    '<div class="co-c"><div class="t"><b>'+esc(x.numero)+'</b>'+(x.atelier ? badge(x.atelier) : '<span class="mt">pas encore dans l’atelier</span>')+'</div><div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
+    + '<div class="mt">signé le '+(x.date ? new Date(String(x.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '—')+'</div><div class="ac"><a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('signes', d.signes.length);
+  coOnglet(coTab, null, true);
 }
 // Chiffre d'affaires (admin)
 let finData = null;
@@ -850,8 +904,8 @@ async function coAnnexes(force){
   try {
     const r = await (await fetch('/gestion/api/commercial/reactiver' + (force ? '?force=1' : ''))).json();
     const l = r.clients || [];
-    $('co-reac').innerHTML = !l.length ? '<div class="note">Personne pour l’instant.</div>' : '<div style="overflow:auto;max-height:420px"><table class="stk"><thead><tr><th>Client</th><th>Dernière commande</th><th>Total HT</th><th></th></tr></thead><tbody>' + l.slice(0, 60).map(c =>
-      '<tr data-pid="'+c.id+'"><td><a href="#" data-fiche="'+c.id+'"><b>'+esc(c.nom)+'</b></a><div class="note">'+esc(c.email || 'pas d’e-mail')+'</div></td><td>'+Math.round(c.jours / 30)+' mois<div class="note">'+esc(c.dernier_devis)+' · '+c.commandes+' commande(s)</div></td><td>'+eur2(c.total_ht)+'</td><td style="white-space:nowrap">'+(c.email ? '<button class="btn" data-co="reactiver">✉️ Relancer</button>' : '')+(c.relance_le ? '<div class="note">relancé le '+new Date(c.relance_le).toLocaleDateString('fr-FR')+'</div>' : '')+'</td></tr>').join('') + '</tbody></table></div>';
+    $('co-reac').innerHTML = !l.length ? coVide('Personne pour l’instant.') : '<div class="co-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">' + l.slice(0, coLimite.reac || 12).map(c =>
+      '<div class="co-c" data-pid="'+c.id+'"><div class="t"><b>'+Math.round(c.jours / 30)+' mois sans commande</b></div><a href="#" class="cl" data-fiche="'+c.id+'">'+esc(c.nom)+'</a><div class="m">'+eur2(c.total_ht)+' <span class="mt" style="font-family:Poppins">HT au total</span></div><div class="mt">'+c.commandes+' commande(s) · '+esc(c.email || 'pas d’e-mail')+(c.relance_le ? ' · relancé le '+new Date(c.relance_le).toLocaleDateString('fr-FR') : '')+'</div><div class="ac">'+(c.email ? '<button class="btn" data-co="reactiver">✉️ Relancer</button>' : '')+'<button class="btn" data-fiche="'+c.id+'">Fiche</button></div></div>').join('') + '</div>' + coPlus('reac', l.length);
   } catch(err){ $('co-reac').innerHTML = '<div class="note">Indisponible : '+esc(err.message)+'</div>'; }
 }
 // Fiche client
@@ -872,7 +926,10 @@ async function coFiche(id){
   } catch(err){ $('co-fiche-c').innerHTML = '<div class="msg on err">❌ '+esc(err.message)+'</div>'; }
 }
 function coEvents(){
-  $('co-f').onchange = coAfficher;
+  $('co-f').onchange = coAfficher; $('co-tri').onchange = coAfficher;
+  $('co-onglets').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) coOnglet(b.dataset.tab); });
+  $('co-kpis').addEventListener('click', e => { const t = e.target.closest('[data-go]'); if (!t) return; e.preventDefault(); const [tab, filtre] = t.dataset.go.split(':'); if (tab === 'devis') $('co-f').value = filtre || 'tous'; coOnglet(tab, filtre); if (tab === 'devis') coAfficher(); document.getElementById('co-onglets').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  document.getElementById('v-commercial').addEventListener('click', e => { const b = e.target.closest('[data-plus]'); if (!b) return; coLimite[b.dataset.plus] = 9999; if (b.dataset.plus === 'reac') coAnnexes(); else coAfficher(); });
   $('co-fiche-x').onclick = () => { $('co-fiche').hidden = true; };
   $('co-fiche').addEventListener('click', e => { if (e.target.id === 'co-fiche') $('co-fiche').hidden = true; });
   let tq; $('co-q').addEventListener('input', e => { clearTimeout(tq); const q = e.target.value.trim(); if (q.length < 2) { $('co-res').innerHTML = ''; return; } tq = setTimeout(async () => {
@@ -882,7 +939,7 @@ function coEvents(){
   const msg = (t, k) => { $('co-msg').className = 'msg on ' + k; $('co-msg').innerHTML = t; setTimeout(() => { $('co-msg').className = 'msg'; }, 8000); };
   document.getElementById('v-commercial').addEventListener('click', async e => {
     const b = e.target.closest('[data-co]'); if (!b) return;
-    const a = b.dataset.co, tr = b.closest('tr'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;
+    const a = b.dataset.co, tr = b.closest('[data-num],[data-dem],[data-pid]'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;
     let url, body = {};
     if (a === 'reactiver') {
       const pid = tr.dataset.pid;
