@@ -1,7 +1,7 @@
 // ============================================
 // IGS GESTION - RÈGLEMENT AU COMPTOIR (TPE et/ou espèces) pour une commande ou une planche DTF
 // Le client paie sur place par carte (TPE), éventuellement une partie en espèces :
-//  - Odoo : devis basculé en facture (validée, sans envoi), part espèces déduite (journal de caisse),
+//  - Odoo : devis basculé en facture (validée, sans envoi), part espèces déduite par une ligne « Règlement en espèces »,
 //    note « Règlement par TPE : X € » sur la facture pour le rapprochement avec la remise TPE en banque ;
 //  - dashboard : remarque sur la commande / planche, part espèces enregistrée dans la caisse, mention espèces retirée.
 // ============================================
@@ -32,7 +32,7 @@ async function enregistrer({ type, cle, tpe, especes }, user) {
   const mention = [r.tpe > 0 ? `PAYÉ TPE ${eur(r.tpe)}` : '', r.especes > 0 ? `ESPÈCES ${eur(r.especes)}` : ''].filter(Boolean).join(' + ');
   const etapes = [`✅ Facture ${r.factures.join(', ')} validée dans Odoo (reste à payer avant règlement : ${eur(r.du)})`];
   if (r.tpe > 0) etapes.push(`💳 TPE : ${eur(r.tpe)} — note « Règlement par TPE » ajoutée pour le rapprochement bancaire`);
-  if (r.especes > 0) etapes.push(r.especes_enregistrees ? `💵 Espèces : ${eur(r.especes)} déduites de la facture et notées dans la caisse` : `💵 Espèces : ${eur(r.especes)} notées dans la caisse ; ⚠️ pas de journal de caisse dans Odoo, paiement à enregistrer à la main`);
+  if (r.especes > 0) etapes.push(r.especes_deduites ? `💵 Espèces : ${eur(r.especes)} déduites de la facture (ligne « Règlement en espèces ») et notées dans la caisse` : `💵 Espèces : ${eur(r.especes)} notées dans la caisse ; ⚠️ facture déjà partiellement payée, ligne espèces à ajouter à la main dans Odoo`);
   if (Math.abs(r.ecart) >= 0.01) etapes.push(`⚠️ Écart de ${eur(r.ecart)} entre le reste à payer et les montants saisis : à vérifier`);
 
   // Dashboard

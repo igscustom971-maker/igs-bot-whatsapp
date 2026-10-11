@@ -520,9 +520,10 @@ async function importerFactureFournisseur({ nom, mimetype, buffer, note }) {
 }
 
 // ---------- Règlement au comptoir : TPE (carte) et/ou espèces ----------
-// Le devis est confirmé si besoin et basculé en facture (validée, sans envoi au client). La part espèces est enregistrée
-// comme paiement dans le journal de caisse (s'il existe) ; la part TPE reste à rapprocher avec les remises TPE qui arrivent
-// en banque : une note « Règlement par TPE » est posée sur la facture pour faciliter ce rapprochement.
+// Le devis est confirmé si besoin et basculé en facture (validée, sans envoi au client). Les espèces n'existent pas dans
+// Odoo : la part espèces est déduite sur la facture par une ligne « Règlement en espèces » (montant négatif, sans TVA),
+// comme une réduction ; la facture ne garde à payer que la part TPE. Une note « Règlement par TPE » est posée sur la
+// facture et le devis pour faciliter le rapprochement avec la remise TPE qui arrive en banque.
 async function reglementComptoir(numero, { tpe = null, especes = 0, par = 'IGS Dashboard' } = {}) {
   const arr = n => Math.round(Number(n || 0) * 100) / 100;
   let so = await devisParNumero(String(numero || '').trim().toUpperCase());
@@ -530,52 +531,56 @@ async function reglementComptoir(numero, { tpe = null, especes = 0, par = 'IGS D
   if (so.state === 'cancel') throw new Error(`Le devis ${numero} est annulé dans Odoo`);
   if (so.state !== 'sale') { await kw('sale.order', 'action_confirm', [[so.id]]); so = await devisParNumero(so.name); }
   const lire = async ids => (ids.length ? kw('account.move', 'read', [ids], { fields: ['id', 'name', 'state', 'move_type', 'amount_residual', 'amount_total', 'payment_state'] }) : []);
-  let factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state !== 'cancel');
-  // Brouillon existant : validé ; rien à facturer en attente : nouvelle facture (reste du devis, acomptes déduits)
-  for (const f of factures.filter(x => x.state === 'draft')) await kw('account.move', 'action_post', [[f.id]]);
+  // Rien à facturer en attente : nouvelle facture (reste du devis, acomptes déduits), laissée en brouillon pour l'instant
   if (so.invoice_status === 'to invoice') {
     const ctx = { active_model: 'sale.order', active_ids: [so.id], active_id: so.id };
     const wid = await kw('sale.advance.payment.inv', 'create', [{ advance_payment_method: 'delivered' }], { context: ctx });
     await kw('sale.advance.payment.inv', 'create_invoices', [[wid]], { context: ctx });
     const [apres] = await kw('sale.order', 'read', [[so.id]], { fields: ['invoice_ids'] });
-    for (const f of (await lire(apres.invoice_ids || [])).filter(x => x.state === 'draft')) await kw('account.move', 'action_post', [[f.id]]);
     so.invoice_ids = apres.invoice_ids;
   }
-  factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state === 'posted');
-  const ouvertes = factures.filter(f => arr(f.amount_residual) > 0);
+  let factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state !== 'cancel');
+  const ouvertesDe = l => l.filter(f => f.state === 'draft' ? arr(f.amount_total) > 0 : arr(f.amount_residual) > 0);
+  const resteDe = f => arr(f.state === 'draft' ? f.amount_total : f.amount_residual);
+  let ouvertes = ouvertesDe(factures);
   if (!ouvertes.length) throw new Error(`Rien à régler sur ${so.name} : les factures sont déjà payées`);
-  const du = arr(ouvertes.reduce((t, f) => t + f.amount_residual, 0));
+  const du = arr(ouvertes.reduce((t, f) => t + resteDe(f), 0));
   const esp = arr(especes);
   if (esp < 0 || esp > du) throw new Error(`Montant espèces incohérent (reste à payer : ${du.toFixed(2)} €)`);
   const carte = tpe === null || tpe === '' || tpe === undefined ? arr(du - esp) : arr(tpe);
   if (carte < 0) throw new Error('Montant TPE incohérent');
   const ecart = arr(du - esp - carte);
-  // Part espèces : paiement dans le journal de caisse, sur la première facture ouverte
-  let especesEnregistrees = false, journalCaisse = null;
+  // Part espèces : ligne « Règlement en espèces » déduite sur une facture encore modifiable
+  // (brouillon, ou validée sans aucun paiement : remise en brouillon le temps d'ajouter la ligne)
+  let especesDeduites = false, factureEspeces = null;
   if (esp > 0) {
-    const [jc] = await kw('account.journal', 'search_read', [[...(await igsSeulement()), ['type', '=', 'cash']]], { fields: ['id', 'name'], limit: 1 });
-    if (jc) {
-      journalCaisse = jc.name;
-      const cible = ouvertes.find(f => f.amount_residual >= esp) || ouvertes[0];
-      const ctx = { active_model: 'account.move', active_ids: [cible.id], active_id: cible.id };
-      const vals = { journal_id: jc.id, amount: esp, payment_date: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guadeloupe' }) };
-      let wid;
-      try { wid = await kw('account.payment.register', 'create', [{ ...vals, communication: `${cible.name} - règlement en espèces` }], { context: ctx }); }
-      catch { wid = await kw('account.payment.register', 'create', [vals], { context: ctx }); }
-      await kw('account.payment.register', 'action_create_payments', [[wid]], { context: ctx });
-      especesEnregistrees = true;
+    const modifiables = ouvertes.filter(f => f.state === 'draft' || f.payment_state === 'not_paid');
+    const cible = modifiables.find(f => resteDe(f) >= esp);
+    if (cible) {
+      if (cible.state === 'posted') await kw('account.move', 'button_draft', [[cible.id]]);
+      const libelle = `Règlement en espèces (${new Date().toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe' })})`;
+      await kw('account.move', 'write', [[cible.id], { invoice_line_ids: [[0, 0, { name: libelle, quantity: 1, price_unit: -esp, tax_ids: [[6, 0, []]] }]] }]);
+      especesDeduites = true;
+      factureEspeces = cible.id;
     }
   }
+  // Tout ce qui est en brouillon est validé (sans envoi au client)
+  for (const f of factures.filter(x => x.state === 'draft' || x.id === factureEspeces)) {
+    try { await kw('account.move', 'action_post', [[f.id]]); } catch (err) { if (!/posted|valid/i.test(err.message)) throw err; }
+  }
+  factures = (await lire(so.invoice_ids || [])).filter(f => f.move_type === 'out_invoice' && f.state === 'posted');
+  ouvertes = factures.filter(f => arr(f.amount_residual) > 0 || f.id === factureEspeces);
+  if (!ouvertes.length) ouvertes = factures.slice(-1);
   const date = new Date().toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', dateStyle: 'short', timeStyle: 'short' });
   const eur = n => `${n.toFixed(2).replace('.', ',')} €`;
   const note = [
     carte > 0 ? `💳 <b>Règlement par TPE : ${eur(carte)} TTC</b> le ${date} (saisi par ${par}) — à rapprocher avec la remise TPE en banque.` : '',
-    esp > 0 ? `💵 Règlement en espèces : ${eur(esp)} TTC${especesEnregistrees ? ` (enregistré dans le journal ${journalCaisse})` : ' (journal de caisse introuvable : à enregistrer à la main)'}.` : '',
+    esp > 0 ? `💵 Règlement en espèces : ${eur(esp)} TTC${especesDeduites ? ' (déduit sur la facture, ligne « Règlement en espèces »)' : ' (facture déjà partiellement payée : à déduire à la main)'}.` : '',
     Math.abs(ecart) >= 0.01 ? `⚠️ Écart de ${eur(ecart)} entre le reste à payer (${eur(du)}) et les montants saisis.` : '',
   ].filter(Boolean).join('<br>');
   for (const f of ouvertes) { try { await kw('account.move', 'message_post', [[f.id]], { body: note, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note TPE :', err.message); } }
   await noteDevis(so.id, note);
-  return { devis: so.name, factures: ouvertes.map(f => f.name), du, tpe: carte, especes: esp, especes_enregistrees: especesEnregistrees, ecart, lien: lienOdoo('account.move', ouvertes[0].id) };
+  return { devis: so.name, factures: ouvertes.map(f => f.name), du, tpe: carte, especes: esp, especes_deduites: especesDeduites, ecart, lien: lienOdoo('account.move', ouvertes[0].id) };
 }
 
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
