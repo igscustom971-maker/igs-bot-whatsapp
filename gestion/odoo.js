@@ -539,10 +539,22 @@ async function financesMensuelles(annee) {
   const dom = [...(await igsSeulement()), ['state', '=', 'posted'], ['invoice_date', '>=', debut], ['invoice_date', '<=', fin]];
   const ventes = await kw('account.move', 'search_read', [[...dom, ['move_type', 'in', ['out_invoice', 'out_refund']]]], { fields: ['invoice_date', 'move_type', 'amount_untaxed', 'amount_total', 'partner_id', 'amount_residual', 'payment_state', 'invoice_date_due', 'name'], limit: 20000 });
   const achats = await kw('account.move', 'search_read', [[...dom, ['move_type', 'in', ['in_invoice', 'in_refund']]]], { fields: ['invoice_date', 'move_type', 'amount_untaxed', 'amount_total', 'partner_id'], limit: 20000 });
-  return { ventes, achats };
+  // Relevé bancaire synchronisé dans Odoo (journal de type banque, ex. « Banque » = Qonto)
+  let banque = [];
+  try {
+    banque = await kw('account.bank.statement.line', 'search_read', [[...(await igsSeulement()), ['journal_id.type', '=', 'bank'], ['date', '>=', debut], ['date', '<=', fin]]], { fields: ['date', 'amount', 'payment_ref', 'partner_id', 'journal_id'], limit: 30000 });
+  } catch (err) { console.error('Odoo relevé bancaire :', err.message); }
+  return { ventes, achats, banque };
+}
+
+
+// Tous les numéros de téléphone déjà présents dans Odoo (fiches IGS ou partagées) : Map numéro -> client
+async function telephonesOdoo() {
+  const r = await kw('res.partner', 'search_read', [[...(await igsOuPartage()), ['phone', '!=', false]]], { fields: ['id', 'name', 'phone'], limit: 20000 });
+  return r;
 }
 
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };

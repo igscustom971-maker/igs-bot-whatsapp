@@ -92,15 +92,23 @@ async function importerQonto(texte, user) {
   return { lues: ops.length, ajoutees, mois };
 }
 const INTERNE = /virement interne|transfert interne|internal transfer|entre comptes|épargne|epargne/i;
-async function tresorerie(annee) {
-  if (!supabase) return {};
-  const { data, error } = await supabase.from('gestion_qonto').select('date, montant, libelle, categorie').gte('date', `${annee - 1}-01-01`).lte('date', `${annee}-12-31`).limit(20000);
-  if (error) return {};
+// Catégorie d'une sortie bancaire sans catégorie (relevé Odoo) : le partenaire, sinon le début du libellé
+const categorieDe = (partenaire, libelle) => partenaire || String(libelle || 'Autres').replace(/\b(CB|PRLV|VIR|SEPA|CARTE|PAIEMENT|PAYMENT|FACTURE)\b/gi, '').replace(/[0-9/*#:.-]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ') || 'Autres';
+async function tresorerie(annee, banqueOdoo = []) {
+  let data = [];
+  if (supabase) {
+    const r = await supabase.from('gestion_qonto').select('date, montant, libelle, categorie').gte('date', `${annee - 1}-01-01`).lte('date', `${annee}-12-31`).limit(20000);
+    if (!r.error) data = r.data || [];
+  }
+  // Priorité au relevé bancaire synchronisé dans Odoo (journal Banque) ; l'import CSV Qonto ne complète que les mois absents
+  const moisOdoo = new Set(banqueOdoo.map(l => String(l.date).slice(0, 7)));
+  data = [...banqueOdoo.map(l => ({ date: String(l.date).slice(0, 10), montant: l.amount, libelle: l.payment_ref || '', categorie: categorieDe(l.partner_id?.[1], l.payment_ref), source: 'odoo' })),
+    ...data.filter(o => !moisOdoo.has(String(o.date).slice(0, 7))).map(o => ({ ...o, source: 'csv' }))];
   const parMois = {};
-  for (const o of data || []) {
+  for (const o of data) {
     if (INTERNE.test(`${o.categorie || ''} ${o.libelle || ''}`)) continue;
     const m = o.date.slice(0, 7);
-    const x = parMois[m] || (parMois[m] = { entrees: 0, sorties: 0, categories: {} });
+    const x = parMois[m] || (parMois[m] = { entrees: 0, sorties: 0, categories: {}, source: o.source });
     if (o.montant > 0) x.entrees += o.montant; else { x.sorties += -o.montant; const c = o.categorie || 'Autres'; x.categories[c] = (x.categories[c] || 0) + -o.montant; }
   }
   for (const x of Object.values(parMois)) { x.entrees = r2(x.entrees); x.sorties = r2(x.sorties); x.net = r2(x.entrees - x.sorties); }
@@ -113,12 +121,12 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
   annee = Number(annee) || new Date().getFullYear();
   if (!force && cache.cle === annee && Date.now() - cache.le < 120e3) return cache.data;
   if (!odoo.configured()) throw new Error('Odoo non configuré');
-  const { ventes, achats } = await odoo.financesMensuelles(annee);
+  const { ventes, achats, banque = [] } = await odoo.financesMensuelles(annee);
   const mois = {};
   const cle = d => String(d).slice(0, 7);
   for (const f of ventes) { const m = mois[cle(f.invoice_date)] || (mois[cle(f.invoice_date)] = { ca: 0, achats: 0, factures: 0 }); m.ca += (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0); if (f.move_type === 'out_invoice') m.factures++; }
   for (const f of achats) { const m = mois[cle(f.invoice_date)] || (mois[cle(f.invoice_date)] = { ca: 0, achats: 0, factures: 0 }); m.achats += (f.move_type === 'in_refund' ? -1 : 1) * (f.amount_untaxed || 0); }
-  const treso = await tresorerie(annee);
+  const treso = await tresorerie(annee, banque);
   const ligne = (a, i) => { const k = `${a}-${String(i + 1).padStart(2, '0')}`; const m = mois[k] || { ca: 0, achats: 0, factures: 0 }; return { mois: k, libelle: `${MOIS[i]} ${a}`, ca: r2(m.ca), achats: r2(m.achats), marge: r2(m.ca - m.achats), factures: m.factures, tresorerie: treso[k] || null }; };
   const annees = { [annee]: MOIS.map((_, i) => ligne(annee, i)), [annee - 1]: MOIS.map((_, i) => ligne(annee - 1, i)) };
   const auj = new Date(), moisCourant = auj.getFullYear() === annee ? auj.getMonth() : 11;
@@ -134,7 +142,7 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
     cumul: { annee: r2(cumul(annee, moisCourant)), annee_precedente: r2(cumul(annee - 1, moisCourant)), total_annee_precedente: r2(cumul(annee - 1, 11)) },
     top_clients: [...top].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([nom, ht]) => ({ nom, ht: r2(ht) })),
     impayes: { n: impayes.length, ttc: r2(impayes.reduce((s, f) => s + (f.amount_residual || 0), 0)), liste: impayes.sort((a, b) => b.amount_residual - a.amount_residual).slice(0, 15).map(f => ({ numero: f.name, client: f.partner_id?.[1], echeance: f.invoice_date_due, reste: f.amount_residual })) },
-    qonto_mois: Object.keys(treso).sort(),
+    qonto_mois: Object.keys(treso).sort(), banque_odoo: banque.length > 0,
   };
   cache = { cle: annee, le: Date.now(), data };
   return data;
@@ -157,12 +165,12 @@ async function rapportMensuel({ mois } = {}) {
     ['Cumul depuis janvier', eur(cumul), `${pct(cumul, cumulN1)} vs ${a - 1} à la même date`],
   ];
   if (s.objectif_mensuel) lignes.push(['Objectif du mois', eur(s.objectif_mensuel), `${Math.round(L.ca / s.objectif_mensuel * 100)} % atteint`]);
-  if (t) lignes.push(['Trésorerie réelle (Qonto)', eur(t.net), `entrées ${eur(t.entrees)} · sorties ${eur(t.sorties)} (TTC, hors virements internes)`]);
+  if (t) lignes.push(['Trésorerie réelle (banque)', eur(t.net), `entrées ${eur(t.entrees)} · sorties ${eur(t.sorties)} (TTC, hors virements internes, ${t.source === 'odoo' ? 'journal Banque d\'Odoo' : 'relevé Qonto importé'})`]);
   const cats = t ? Object.entries(t.categories).sort((x, y) => y[1] - x[1]).slice(0, 8) : [];
   const html = `<div style="font:14px/1.5 Arial,sans-serif;color:#1E1E4B;max-width:640px">
 <h2 style="margin:0 0 4px">Rapport ${MOIS[m - 1]} ${a} - IGS CUSTOM BAR</h2><p style="color:#68677D;margin:0 0 16px">Calculé depuis Odoo (factures validées, société IGS)${t ? ' et ton relevé Qonto' : ''}.</p>
 <table style="border-collapse:collapse;width:100%">${lignes.map(([l, v, c]) => `<tr><td style="padding:8px 10px;border-bottom:1px solid #eee"><b>${esc(l)}</b><div style="color:#68677D;font-size:12px">${esc(c)}</div></td><td style="padding:8px 10px;border-bottom:1px solid #eee;text-align:right;font-size:16px"><b>${esc(v)}</b></td></tr>`).join('')}</table>
-${cats.length ? `<h3 style="margin:20px 0 6px">Principales dépenses (Qonto)</h3><ul>${cats.map(([c, v]) => `<li>${esc(c)} : ${eur(v)}</li>`).join('')}</ul>` : `<p style="background:#FFF7E6;padding:10px 12px;border-radius:8px">💡 Pour avoir ton résultat réel (toutes les dépenses, pas seulement les factures fournisseurs saisies dans Odoo), importe le relevé Qonto de ${MOIS[m - 1]} dans le dashboard : Commercial → Chiffre d'affaires → Importer un relevé Qonto.</p>`}
+${cats.length ? `<h3 style="margin:20px 0 6px">Principales dépenses (banque)</h3><ul>${cats.map(([c, v]) => `<li>${esc(c)} : ${eur(v)}</li>`).join('')}</ul>` : `<p style="background:#FFF7E6;padding:10px 12px;border-radius:8px">💡 Aucune opération bancaire trouvée pour ${MOIS[m - 1]} dans le journal Banque d'Odoo. Vérifie la synchronisation Qonto dans Odoo, ou importe le relevé dans le dashboard (Commercial → Chiffre d'affaires → Importer un relevé Qonto).</p>`}
 ${s.top_clients.length ? `<h3 style="margin:20px 0 6px">Meilleurs clients ${a}</h3><ol>${s.top_clients.slice(0, 5).map(c => `<li>${esc(c.nom)} : ${eur(c.ht)} HT</li>`).join('')}</ol>` : ''}
 ${s.impayes.n ? `<h3 style="margin:20px 0 6px">Impayés échus</h3><p>${s.impayes.n} facture(s) pour ${eur(s.impayes.ttc)} TTC : ${s.impayes.liste.slice(0, 5).map(f => `${esc(f.client)} (${eur(f.reste)})`).join(', ')}</p>` : ''}
 </div>`;

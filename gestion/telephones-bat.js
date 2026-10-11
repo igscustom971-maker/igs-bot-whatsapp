@@ -259,4 +259,70 @@ async function rapport() {
   return { enCours: etat.enCours, progression: etat.progression, rapport: await lire() };
 }
 
-module.exports = { analyser, appliquer, rapport, telValide, _test: { numerosDans, textePdf, telValide } };
+
+// ---------- Clients qui commandent sur WhatsApp (sans formulaire) ----------
+// Numéros qui écrivent sur WhatsApp mais absents d'Odoo, avec le client Odoo le plus probable :
+// nom WhatsApp / prénom donné, planche ajoutée par Leïla pour ce numéro, ou recherche à la main.
+async function whatsappNonRattaches() {
+  if (!supabase) throw new Error('Base non configurée');
+  if (!odoo.configured()) throw new Error('Odoo non configuré');
+  const depuis = new Date(Date.now() - 548 * 86400e3).toISOString();
+  const stats = new Map();
+  for (let page = 0; page < 30; page++) {
+    const { data, error } = await supabase.from('conversations').select('phone_number, role, content, created_at').gte('created_at', depuis).order('created_at', { ascending: false }).range(page * 1000, page * 1000 + 999);
+    if (error) throw new Error(error.message);
+    for (const m of data || []) {
+      const st = stats.get(m.phone_number) || { numero: m.phone_number, messages: 0, dernier: m.created_at, extrait: null };
+      st.messages++;
+      if (!st.extrait && m.role === 'user' && m.content && !/^\[/.test(m.content)) st.extrait = String(m.content).slice(0, 140);
+      stats.set(m.phone_number, st);
+    }
+    if (!data || data.length < 1000) break;
+  }
+  const dejaOdoo = new Map();
+  for (const p of await odoo.telephonesOdoo()) { const n = telValide(p.phone) || norm(p.phone); if (n) dejaOdoo.set(n, p); }
+  let liste = [...stats.values()].filter(x => { const n = telValide(x.numero) || x.numero; return !NUMEROS_IGS.has(n) && !dejaOdoo.has(n); })
+    .sort((a, b) => b.messages - a.messages).slice(0, 80);
+  // Noms connus (nom WhatsApp ou prénom donné à Leïla)
+  const noms = new Map();
+  for (let i = 0; i < liste.length; i += 100) {
+    const { data } = await supabase.from('clients').select('phone_number, name').in('phone_number', liste.slice(i, i + 100).map(x => x.numero));
+    for (const c of data || []) if (c.name) noms.set(c.phone_number, c.name);
+  }
+  // Planches ajoutées par Leïla pour ce numéro (remarque « Demande WhatsApp (Leïla) … · numéro »)
+  const plParTel = new Map();
+  try {
+    const pl = (await require('./planches').listPlanches()).rows || [];
+    for (const p of pl) { const m = String(p.remarques || '').match(/·\s*(\d{11,12})\b/); if (m) plParTel.set(m[1], p.client); }
+  } catch {}
+  let i = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (i < liste.length) {
+      const x = liste[i++];
+      x.nom = noms.get(x.numero) || null;
+      x.affiche = odoo.formatTel(telValide(x.numero) || x.numero);
+      x.suggestions = [];
+      const termes = [plParTel.get(x.numero), x.nom].filter(Boolean);
+      for (const t of termes) {
+        try { for (const s of await odoo.searchPartners(t)) if (!x.suggestions.some(y => y.id === s.id)) x.suggestions.push({ id: s.id, nom: s.name, score: s.score, telephone: s.phone || null, via: t === plParTel.get(x.numero) ? 'planche WhatsApp' : 'nom WhatsApp' }); } catch {}
+      }
+      x.suggestions = x.suggestions.sort((a, b) => b.score - a.score).slice(0, 4);
+    }
+  }));
+  return { numeros: liste, total: stats.size };
+}
+
+async function rattacherWhatsapp(numero, partnerId, remplacer, user) {
+  const n = telValide(numero);
+  if (!n) throw new Error('Numéro invalide');
+  const p = await odoo.readPartner(Number(partnerId));
+  if (!p) throw new Error('Client Odoo introuvable');
+  if (p.phone && String(p.phone).trim() && !remplacer) throw new Error(`${p.name} a déjà le numéro ${p.phone} dans Odoo : confirme le remplacement`);
+  const phone = odoo.formatTel(n);
+  await odoo.ecrirePartner(p.id, { phone });
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'odoo_telephone_ajoute', cle: `partner-${p.id}`, details: { client: p.name, partner_id: p.id, telephone: phone, ancien: p.phone || null, source: 'WhatsApp' } });
+  console.log(`Gestion téléphones Odoo : ${phone} (WhatsApp) rattaché à ${p.name} par ${user}`);
+  return { ok: true, client: p.name, telephone: phone };
+}
+
+module.exports = { whatsappNonRattaches, rattacherWhatsapp, analyser, appliquer, rapport, telValide, _test: { numerosDans, textePdf, telValide } };

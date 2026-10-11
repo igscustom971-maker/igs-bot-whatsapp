@@ -880,12 +880,12 @@ function finAfficher(){
     + '<div class="kpi" style="--accent:#FF1E8E"><div class="l">Objectif du mois</div><div class="n">'+(obj ? Math.round(cur.ca / obj * 100) + ' %' : '—')+'</div><div class="sub">'+(obj ? 'sur ' + eur2(obj) + ' HT' : 'pas encore défini')+' · <a href="#" id="fin-obj">modifier</a></div></div></div>';
   h += '<div class="fin-leg"><span><b style="background:#3E63F0"></b>'+d.annee+'</span><span><b style="background:#FF8A3D"></b>'+(d.annee - 1)+'</span><span>CA HT par mois</span></div><div class="fin-graph" id="fin-graph">'
     + m.map((x, k) => '<div class="fin-m" data-k="'+k+'"><div class="fin-b"><i class="a" style="height:'+(x.ca / max * 100)+'%"></i><i class="p" style="height:'+(p[k].ca / max * 100)+'%"></i></div><span>'+esc(x.libelle.split(' ')[0])+'</span></div>').join('') + '<div class="fin-tip" id="fin-tip"></div></div>';
-  h += '<details style="margin-top:10px"><summary class="note">Détail par mois (tableau)</summary><div style="overflow-x:auto"><table class="stk"><thead><tr><th>Mois</th><th>CA HT</th><th>'+(d.annee - 1)+'</th><th>Achats HT</th><th>Marge</th><th>Factures</th><th>Trésorerie Qonto</th></tr></thead><tbody>'
+  h += '<details style="margin-top:10px"><summary class="note">Détail par mois (tableau)</summary><div style="overflow-x:auto"><table class="stk"><thead><tr><th>Mois</th><th>CA HT</th><th>'+(d.annee - 1)+'</th><th>Achats HT</th><th>Marge</th><th>Factures</th><th>Trésorerie (banque)</th></tr></thead><tbody>'
     + m.map((x, k) => '<tr><td>'+esc(x.libelle)+'</td><td><b>'+eur2(x.ca)+'</b></td><td class="note">'+eur2(p[k].ca)+'</td><td>'+eur2(x.achats)+'</td><td>'+eur2(x.marge)+'</td><td>'+x.factures+'</td><td>'+(x.tresorerie ? eur2(x.tresorerie.net)+' <span class="note">(+'+eur2(x.tresorerie.entrees)+' / −'+eur2(x.tresorerie.sorties)+')</span>' : '<span class="note">—</span>')+'</td></tr>').join('') + '</tbody></table></div></details>';
   h += '<div class="cols" style="margin-top:12px;grid-template-columns:1fr 1fr"><div><h3 style="margin-bottom:6px">Meilleurs clients '+d.annee+'</h3>'+(d.top_clients.length ? d.top_clients.map(c => '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span>'+esc(c.nom)+'</span><b>'+eur2(c.ht)+'</b></div>').join('') : '<div class="note">—</div>')+'</div>'
     + '<div><h3 style="margin-bottom:6px">Impayés échus</h3>'+(d.impayes.n ? '<div class="note" style="margin-bottom:4px">'+d.impayes.n+' facture(s) · '+eur2(d.impayes.ttc)+' TTC</div>' + d.impayes.liste.slice(0, 8).map(f => '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)"><span>'+esc(f.client)+' <span class="note">'+esc(f.numero)+'</span></span><b>'+eur2(f.reste)+'</b></div>').join('') : '<div class="note">✅ Aucun impayé échu</div>')+'</div></div>';
-  h += '<div class="btnrow" style="margin-top:12px"><label class="btn" style="cursor:pointer">📥 Importer un relevé Qonto (CSV)<input type="file" id="fin-qonto" accept=".csv,text/csv" hidden></label><button class="btn" id="fin-rapport">✉️ M’envoyer le rapport du mois dernier</button></div>'
-    + '<div class="note">Le rapport du mois part tout seul le 1er à 8 h si la tâche « Rapport mensuel » est active (Admin). Mois Qonto importés : '+(d.qonto_mois.length ? d.qonto_mois.join(', ') : 'aucun')+'.</div><div class="msg" id="fin-msg"></div>';
+  h += '<div class="btnrow" style="margin-top:12px"><label class="btn" style="cursor:pointer">📥 Importer un relevé Qonto (CSV, si besoin)<input type="file" id="fin-qonto" accept=".csv,text/csv" hidden></label><button class="btn" id="fin-rapport">✉️ M’envoyer le rapport du mois dernier</button></div>'
+    + '<div class="note">'+(d.banque_odoo ? 'Trésorerie lue dans le journal Banque d’Odoo (Qonto synchronisé). L’import CSV ne sert que pour un mois absent d’Odoo.' : 'Aucune opération trouvée dans le journal Banque d’Odoo : importe le relevé Qonto en CSV pour la trésorerie.')+' Le rapport du mois part tout seul le 1er à 8 h si la tâche « Rapport mensuel » est active (Admin).</div><div class="msg" id="fin-msg"></div>';
   $('fin-corps').innerHTML = h;
   const fm = (t, k) => { $('fin-msg').className = 'msg on ' + k; $('fin-msg').innerHTML = t; };
   const tip = $('fin-tip');
@@ -1543,9 +1543,11 @@ async function adTel(){
     if (autres) h += '<details style="margin-top:8px"><summary class="note">Non traités : '+(r.sansNumero||[]).length+' dossier(s) sans numéro lisible, '+(r.introuvables||[]).length+' devis introuvable(s) dans Odoo, '+(r.illisibles||[]).length+' fichier(s) illisible(s)</summary><div class="note pre" style="max-height:260px;overflow:auto">'+[...(r.sansNumero||[]).map(x => '• '+x.dossier+' : '+x.raison), ...(r.introuvables||[]).map(x => '• '+x.devis+' ('+(x.client||'?')+') : '+x.raison), ...(r.illisibles||[]).map(x => '• '+x.dossier+(x.fichier?'/'+x.fichier:'')+' : '+x.raison)].map(esc).join('<br>')+'</div></details>';
   }
   h += '<div class="btnrow" style="margin-top:10px"><button class="btn" id="tel-analyser"'+(e.enCours?' disabled':'')+'>🔎 '+(r && r.lignes ? 'Relancer l’analyse' : 'Lancer l’analyse')+'</button>'
-    + (r && r.lignes && !e.enCours ? '<button class="btn pink" id="tel-appliquer">Ajouter les numéros cochés dans Odoo</button>' : '') + '</div><div class="msg" id="tel-msg"></div>';
+    + (r && r.lignes && !e.enCours ? '<button class="btn pink" id="tel-appliquer">Ajouter les numéros cochés dans Odoo</button>' : '') + '</div><div class="msg" id="tel-msg"></div>'
+    + '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)"><h3 style="margin-bottom:4px">📱 Clients qui commandent sur WhatsApp</h3><div class="note">Numéros qui écrivent sur WhatsApp mais qui ne sont sur aucune fiche Odoo (pas de formulaire). Rattache-les à leur client : ensuite Leïla les reconnaît, et leurs planches commandées sur WhatsApp arrivent toutes seules dans le tableau.</div><div class="btnrow" style="margin-top:8px"><button class="btn" id="tel-wa-voir">Voir les numéros WhatsApp non rattachés</button></div><div id="tel-wa"></div></div>';
   box.innerHTML = h;
   const tm = (t, k) => { $('tel-msg').className = 'msg on ' + k; $('tel-msg').innerHTML = t; };
+  if ($('tel-wa-voir')) $('tel-wa-voir').onclick = telWhatsapp;
   if ($('tel-analyser')) $('tel-analyser').onclick = async () => { try { await post('/gestion/api/admin/telephones/analyser'); setTimeout(adTel, 800); } catch(err){ tm('❌ ' + esc(err.message), 'err'); } };
   if ($('tel-appliquer')) $('tel-appliquer').onclick = async () => {
     const manuels = [...box.querySelectorAll('.tel-m')].filter(i => i.value.trim()).map(i => ({ partnerId: Number(i.dataset.p), numero: i.value.trim(), manuel: true, remplacer: !!i.dataset.odoo }));
@@ -1561,6 +1563,35 @@ async function adTel(){
     catch(err){ tm('❌ ' + esc(err.message), 'err'); $('tel-appliquer').disabled = false; }
   };
 }
+// Numéros WhatsApp sans fiche Odoo : suggestions (nom WhatsApp, planche) ou recherche, puis rattachement
+async function telWhatsapp(){
+  const box = $('tel-wa'); box.innerHTML = '<div class="msg on">⏳ Recherche des numéros…</div>';
+  try {
+    const r = await fetch('/gestion/api/admin/telephones/whatsapp'); const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Erreur');
+    if (!j.numeros.length) { box.innerHTML = '<div class="note" style="margin-top:8px">✅ Tous les numéros WhatsApp sont rattachés à une fiche Odoo.</div>'; return; }
+    box.innerHTML = '<div class="note" style="margin:8px 0">'+j.numeros.length+' numéro(s) à rattacher (les plus actifs d’abord).</div><div class="co-grid">' + j.numeros.map(x =>
+      '<div class="co-c" data-wa="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.affiche)+'</b><span class="mt">'+x.messages+' message(s)</span></div><div class="cl">'+esc(x.nom || 'Nom inconnu')+'</div>'
+      + (x.extrait ? '<div class="mt">« '+esc(x.extrait)+' »</div>' : '') + '<div class="mt">dernier message le '+new Date(x.dernier).toLocaleDateString('fr-FR')+'</div>'
+      + (x.suggestions.length ? '<div class="mt" style="margin-top:4px"><b>C’est peut-être :</b></div>' + x.suggestions.map(sg => '<button class="btn" style="justify-content:flex-start;text-align:left" data-wa-p="'+sg.id+'" data-wa-tel="'+(sg.telephone ? 1 : '')+'">→ '+esc(sg.nom)+(sg.telephone ? ' <span class="mt">(a déjà '+esc(sg.telephone)+')</span>' : '')+'</button>').join('') : '<div class="mt">Aucune suggestion : cherche le client ci-dessous.</div>')
+      + '<div style="position:relative"><input class="search wa-q" placeholder="Autre client Odoo…" style="min-height:38px;padding:8px 10px;margin-top:4px"><div class="wa-res" style="position:absolute;left:0;right:0;z-index:5;background:#fff;border-radius:10px;box-shadow:0 10px 24px rgba(30,30,75,.12)"></div></div><div class="msg wa-msg"></div></div>').join('') + '</div>';
+  } catch(err){ box.innerHTML = '<div class="msg on err">❌ '+esc(err.message)+'</div>'; }
+}
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-wa-p]'); if (!b) return;
+  const carte = b.closest('[data-wa]'); const m = carte.querySelector('.wa-msg');
+  const remplacer = !!b.dataset.waTel;
+  if (remplacer && !confirm('Ce client a déjà un numéro dans Odoo. Le remplacer par ' + carte.querySelector('.t b').textContent + ' ?')) return;
+  b.disabled = true;
+  try { const j = await post('/gestion/api/admin/telephones/whatsapp', { numero: carte.dataset.wa, partnerId: Number(b.dataset.waP), remplacer }); carte.style.opacity = '.55'; m.className = 'msg on ok wa-msg'; m.innerHTML = '✅ Rattaché à ' + esc(j.client); }
+  catch(err){ m.className = 'msg on err wa-msg'; m.innerHTML = '❌ ' + esc(err.message); b.disabled = false; }
+});
+let waTq;
+document.addEventListener('input', e => {
+  if (!e.target.classList.contains('wa-q')) return;
+  const inp = e.target, res = inp.parentNode.querySelector('.wa-res'); clearTimeout(waTq);
+  const q = inp.value.trim(); if (q.length < 2) { res.innerHTML = ''; return; }
+  waTq = setTimeout(async () => { try { const j = await (await fetch('/gestion/api/admin/clients-odoo?q=' + encodeURIComponent(q))).json(); res.innerHTML = (j.clients || []).map(c => '<button class="btn" style="display:block;width:100%;text-align:left;border:0;border-radius:0" data-wa-p="'+c.id+'" data-wa-tel="'+(c.telephone ? 1 : '')+'">'+esc(c.nom)+(c.telephone ? ' <span class="mt">('+esc(c.telephone)+')</span>' : '')+'</button>').join('') || '<div class="note" style="padding:8px">Aucun client</div>'; } catch {} }, 300);
+});
 // Source des données : l'Excel ou la base du dashboard (bascule définitive)
 async function adSource(){
   const box = $('ad-source'); if (!box) return;
