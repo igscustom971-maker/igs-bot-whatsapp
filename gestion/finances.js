@@ -108,7 +108,9 @@ async function tresorerie(annee, banqueOdoo = [], exclure = EXCLURE_DEFAUT) {
   const INTERMEDIAIRE = /stripe|paypal|sum\s?up|payplug|lydia|attente|transit|suspens/i;
   const journaux = {};
   for (const l of banqueOdoo) { const n = l.journal_id?.[1] || 'Banque'; journaux[n] = journaux[n] || { nom: n, lignes: 0, ignore: INTERMEDIAIRE.test(n) }; journaux[n].lignes++; }
-  banqueOdoo = banqueOdoo.filter(l => !INTERMEDIAIRE.test(l.journal_id?.[1] || ''));
+  // Mouvements internes Stripe (versement vers Qonto, fonds en attente / disponibles), quel que soit le journal où Odoo les range
+  const INTERNE_STRIPE = /stripe payout|payout\s+po_|\bpo_[a-z0-9]|adding available funds|deducting pending funds|pending funds|available funds/i;
+  banqueOdoo = banqueOdoo.filter(l => !INTERMEDIAIRE.test(l.journal_id?.[1] || '') && !INTERNE_STRIPE.test(l.payment_ref || ''));
   tresorerie.journaux = Object.values(journaux);
   const moisOdoo = new Set(banqueOdoo.map(l => String(l.date).slice(0, 7)));
   data = [...banqueOdoo.map(l => ({ date: String(l.date).slice(0, 10), montant: l.amount, libelle: l.payment_ref || '', categorie: categorieDe(l.partner_id?.[1], l.payment_ref), source: 'odoo' })),
