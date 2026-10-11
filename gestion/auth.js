@@ -132,11 +132,14 @@ button.go:hover{background:#E8137D}button.go:disabled{opacity:.6}
 .info{background:#FEF3C7;color:#92400E;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:8px}
 @media (max-width:900px){
   body{flex-direction:column;background:#fff}
-  .side{flex:none;padding:22px 20px 24px;min-height:auto;gap:14px}
+  /* Téléphone : bandeau uni bleu nuit (le fond tropical est réservé à l'ordinateur, trop chargé en petit) */
+  .side{flex:none;padding:22px 20px 26px;min-height:auto;gap:16px;background:#1E1E4B;color:#fff}
+  .side::before{content:"";position:absolute;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle at 30% 30%,#FF1E8E 0,#B0156B 45%,transparent 70%);opacity:.5;right:-150px;bottom:-190px}
   .marque{flex-direction:row;align-items:center}
-  .marque .lg{width:76px;height:66px}
-  .accroche{padding:14px 18px}.cote{background:#fff}
-  .accroche h2{font-size:36px}.accroche p,.puces{display:none}
+  .marque .lg{width:74px;height:64px;filter:none}
+  .marque b{color:#fff;font-size:30px}.marque small{color:#FF8A3D}
+  .accroche{padding:0;background:none;box-shadow:none}.cote{background:#fff}
+  .accroche h2{font-size:34px;color:#fff}.accroche p,.puces{display:none}
   .cote{padding:28px 20px 40px;align-items:flex-start}
 }
 </style></head><body>
