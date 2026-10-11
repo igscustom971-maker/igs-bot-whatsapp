@@ -736,6 +736,9 @@ require('./gestion/assistant-ismael').fournisseurs.urgences = () => [...urgentAl
   .filter(([, t]) => Date.now() - t < 24 * 3600e3)
   .map(([from, t]) => { const i = urgencesInfos.get(from) || {}; return `${i.display || from} – ${String(i.summary || '').slice(0, 160)} (depuis ${new Date(t).toLocaleTimeString('fr-FR', { timeZone: 'America/Guadeloupe', hour: '2-digit', minute: '2-digit' })})`; });
 
+// Mails de SEFI signalés à Ismaël (WhatsApp, repli mail)
+require('./gestion/sefi-mails').fournisseurs.envoyerAIsmael = (t, sujet) => envoyerAIsmael(t, sujet);
+
 async function traiterMessageEntrant(message, profil) {
   const from = message.from; // numéro du client
   let text = message.text?.body;

@@ -246,6 +246,21 @@ async function etatStock({ recherche }) {
   };
 }
 
+// ---------- Mails de SEFI ----------
+async function mailsSefi() {
+  const l = await require('./sefi-mails').recents();
+  return { en_attente: l.filter(x => !x.traite).slice(-5).map(x => ({ mail_id: x.id, recu: dateFr(x.recu), sujet: x.sujet, resume: x.resume, devis: x.devis, texte: x.texte.slice(0, 1200) })), recemment_traites: l.filter(x => x.traite).slice(-3).map(x => ({ recu: dateFr(x.recu), resume: x.resume, reponse: x.reponse })) };
+}
+async function preparerReponseSefi({ mail_id, reponse, remarques }) {
+  const l = await require('./sefi-mails').recents();
+  const m = mail_id ? l.find(x => x.id === mail_id) : l.filter(x => !x.traite).slice(-1)[0];
+  if (!m) return { erreur: 'aucun mail de SEFI en attente' };
+  const rq = (Array.isArray(remarques) ? remarques : []).filter(r => r && r.cle && r.texte);
+  const resume = [`📧 Réponse à SEFI (« ${m.sujet} ») :`, reponse ? `« ${txt(reponse)} »` : '(pas de réponse, mail simplement classé)', ...rq.map(r => `📝 Remarque sur ${r.cle} : « ${txt(r.texte)} »`)].join('\n');
+  enAttente = { type: 'reponse_sefi', le: Date.now(), resume, mail_id: m.id, reponse: txt(reponse), remarques: rq };
+  return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Demande « Je l\'envoie ? (oui / non) ».' };
+}
+
 // ---------- Vue d'ensemble ----------
 const fournisseurs = { urgences: () => [] }; // branché par server.js (urgences WhatsApp sans réponse de l'équipe)
 async function tableauDeBord() {
@@ -291,10 +306,12 @@ const OUTILS = [
   { name: 'lien_paiement', description: 'Lien(s) de paiement d\'un devis Odoo (commande textile ou planche) : factures restant à payer, ou le devis à signer et payer en ligne.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'lien_formulaire', description: 'Lien du formulaire de commande prérempli (devis, client, mail, téléphone) d\'une commande en cours.', input_schema: { type: 'object', properties: { cle: { type: 'string' } }, required: ['cle'] } },
   { name: 'etat_stock', description: 'Stock de t-shirts vierges (par référence, couleur, taille) et consommables (alertes sous le seuil). Filtre optionnel (ex. « noir », « polo »).', input_schema: { type: 'object', properties: { recherche: { type: 'string' } } } },
+  { name: 'mails_sefi', description: 'Mails reçus du fournisseur SEFI (rupture, remplacement de couleur, délai…) en attente de réponse, avec résumé, texte et devis concernés.', input_schema: { type: 'object', properties: {} } },
+  { name: 'preparer_reponse_sefi', description: 'PRÉPARE la réponse à un mail de SEFI (dans le fil du mail, depuis contact@) et les remarques à ajouter aux commandes concernées (ex. « Rouge remplacé par jaune (accord SEFI du 12/10) »). Rédige une réponse courte et polie au nom d\'IGS CUSTOM BAR. Sans mail_id : le dernier mail en attente. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { mail_id: { type: 'string' }, reponse: { type: 'string', description: 'texte de la réponse à SEFI (vide = classer sans répondre)' }, remarques: { type: 'array', items: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, texte: { type: 'string' } }, required: ['cle', 'texte'] } } } } },
   { name: 'tableau_de_bord', description: 'Vue d\'ensemble IGS : demandes de devis en cours, urgences WhatsApp sans réponse, commandes par statut et en retard, BAT en attente, planches par statut, devis à relancer, reste à facturer, impayés.', input_schema: { type: 'object', properties: {} } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, enregistrer_demande_devis: demandeDevis };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -305,6 +322,7 @@ function systeme() {
 - Actions (ajout d'articles, message à un client, modification d'une commande ou d'une planche) : appelle l'outil preparer_… correspondant, recopie son résumé et demande confirmation. Ne dis jamais qu'une action est faite : elle ne l'est qu'après son « oui ».
 - « Livrée » = statut LIVRÉE (ou dans les livrées récentes) ; TERMINÉE = prête, pas encore remise ; EXPÉDIÉE = colis parti.
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis.
+- Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
 - Ce que tu ne sais pas faire ici (chiffre d'affaires, heures, suppression…) : dis-le et renvoie vers le dashboard ; « récap » donne le récap de production.`;
 }
@@ -335,6 +353,10 @@ async function executer(a) {
     if (a.date) await commandes.setLivraison(a.cle, a.date, PAR);
     await journal({ ...a.champs, date_livraison: a.date || undefined });
     return `✅ Commande mise à jour${a.champs.statut ? ` (statut *${a.champs.statut}*)` : ''}.`;
+  }
+  if (a.type === 'reponse_sefi') {
+    const r = await require('./sefi-mails').repondre(a.mail_id, a.reponse, a.remarques, PAR);
+    return [r.repondu ? '✅ Réponse envoyée à SEFI.' : '✅ Mail de SEFI classé.', r.remarques.length ? `📝 Remarque ajoutée sur ${r.remarques.join(', ')}.` : ''].filter(Boolean).join('\n');
   }
   if (a.type === 'modif_planche') {
     await require('./planches').modifier(a.cle, a.champs, PAR);
@@ -405,4 +427,12 @@ async function traiterUn(texte) {
   return reponse;
 }
 
-module.exports = { traiter, fournisseurs, _test: { OUTILS, IMPL, executer, etat: () => ({ enAttente, historique }), reset: () => { historique = []; enAttente = null; } } };
+function noter(texteEnvoye) {
+  if (Date.now() - dernierEchange > 3 * 3600e3) historique = [];
+  dernierEchange = Date.now();
+  // l'historique doit alterner user / assistant : on rattache le message à un tour « système » neutre
+  historique.push({ role: 'user', content: '(notification automatique)' }, { role: 'assistant', content: texteEnvoye });
+  historique = historique.slice(-16);
+}
+
+module.exports = { traiter, noter, fournisseurs, _test: { OUTILS, IMPL, executer, etat: () => ({ enAttente, historique }), reset: () => { historique = []; enAttente = null; } } };
