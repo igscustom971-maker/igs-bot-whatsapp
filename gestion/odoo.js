@@ -583,6 +583,31 @@ async function reglementComptoir(numero, { tpe = null, especes = 0, par = 'IGS D
   return { devis: so.name, factures: ouvertes.map(f => f.name), du, tpe: carte, especes: esp, especes_deduites: especesDeduites, ecart, lien: lienOdoo('account.move', ouvertes[0].id) };
 }
 
+// ---------- Factures payées mais jamais envoyées au client (tâche « factures_payees ») ----------
+// Factures clients validées, entièrement payées (rapprochées : virement, TPE, Stripe…), datées depuis `depuis` (AAAA-MM-JJ),
+// pas marquées « envoyée » dans Odoo et sans aucun mail au client dans leur historique.
+async function facturesPayeesNonEnvoyees(depuis) {
+  const fs = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['move_type', '=', 'out_invoice'], ['state', '=', 'posted'], ['payment_state', '=', 'paid'], ['amount_total', '>', 0], ['invoice_date', '>=', depuis], ['is_move_sent', '=', false]]],
+    { fields: ['id', 'name', 'partner_id', 'invoice_date', 'amount_total', 'invoice_origin'], order: 'invoice_date asc, id asc', limit: 100 });
+  if (!fs.length) return [];
+  // Déjà envoyée par un autre chemin (gabarit, relance) : un message (pas une note) adressé à quelqu'un dans l'historique
+  let envoyees = new Set();
+  try {
+    const ms = await kw('mail.message', 'search_read', [[['model', '=', 'account.move'], ['res_id', 'in', fs.map(f => f.id)], ['message_type', 'in', ['comment', 'email', 'email_outgoing']], ['subtype_id.internal', '=', false], ['partner_ids', '!=', false]]], { fields: ['res_id'], limit: 1000 });
+    envoyees = new Set(ms.map(m => m.res_id));
+  } catch (err) { console.error('Odoo historique des factures :', err.message); }
+  const reste = fs.filter(f => !envoyees.has(f.id));
+  const pids = [...new Set(reste.map(f => f.partner_id && f.partner_id[0]).filter(Boolean))];
+  const ps = pids.length ? await kw('res.partner', 'read', [pids], { fields: ['id', 'name', 'email'] }) : [];
+  const email = Object.fromEntries(ps.map(p => [p.id, p.email || null]));
+  return reste.map(f => ({ id: f.id, numero: f.name, client: f.partner_id ? f.partner_id[1] : '', email: f.partner_id ? email[f.partner_id[0]] : null, date: f.invoice_date, montant_ttc: f.amount_total, devis: f.invoice_origin || null, lien: lienOdoo('account.move', f.id) }));
+}
+// Envoi de la facture (gabarit facture d'Odoo : le PDF porte la mention « payée ») et marquage « envoyée »
+async function envoyerFactureReglee(id) {
+  await sendWithTemplate('account.move', id, await getInvoiceTemplateId());
+  try { await kw('account.move', 'write', [[id], { is_move_sent: true }]); } catch (err) { console.error('Odoo marquage facture envoyée :', err.message); }
+}
+
 // Devis passés « envoyé » depuis une date (message WhatsApp de Leïla au client) ; write_date Odoo en UTC
 async function devisEnvoyesDepuis(iso) {
   const d = new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
@@ -760,7 +785,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = {
+module.exports = { facturesPayeesNonEnvoyees, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

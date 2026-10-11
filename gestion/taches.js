@@ -178,6 +178,8 @@ const TACHES = [
     quand: (h, d) => !d || Date.now() - d > 4.5 * 60e3 },
   { id: 'sefi_mails', nom: 'Mail reçu de SEFI → résumé à Ismaël sur WhatsApp (réponse et remarque après son accord)', flux: '(nouveau, Leïla)', rythme: 'toutes les 5 min', fn: () => require('./sefi-mails').relever(),
     quand: (h, d) => !d || Date.now() - d > 4.5 * 60e3 },
+  { id: 'factures_payees', nom: 'Facture payée (virement, TPE… rapproché) mais jamais envoyée → envoyée au client, récap à Ismaël', flux: '(nouveau)', rythme: 'toutes les 30 min (7 h - 20 h)', fn: () => require('./factures-payees').verifier(),
+    quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },
   { id: 'devis_whatsapp', nom: 'Devis envoyé → message WhatsApp de Leïla au client (si fenêtre de 24 h ouverte)', flux: '(nouveau, Leïla)', rythme: 'toutes les 10 min', fn: () => require('./commercial').devisEnvoyesWhatsapp(),
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,
