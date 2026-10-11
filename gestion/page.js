@@ -19,7 +19,10 @@ function render(user, view = 'accueil') {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin', leila: 'Leïla', bat: 'BAT' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
-<link rel="icon" href="/gestion/logo-igs.png">
+<link rel="icon" href="/gestion/favicon.ico" sizes="any"><link rel="icon" href="/gestion/icon-192.png" type="image/png">
+<link rel="manifest" href="/gestion/manifest.webmanifest"><meta name="theme-color" content="#1E1E4B">
+<link rel="apple-touch-icon" href="/gestion/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="IGS"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/gestion/sw.js', { scope: '/gestion/' }).catch(() => {}));</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -396,6 +399,7 @@ a.brand:hover h1{color:#FF1E8E}
 #co-res .co-r:hover{background:#FBF6EC}
 .co-fiche{position:fixed;inset:0;background:rgba(30,30,75,.35);z-index:30;display:flex;justify-content:flex-end}
 .co-fiche[hidden]{display:none}
+.who a[hidden]{display:none}
 .co-fiche-in{width:min(760px,100%);height:100%;overflow:auto;background:var(--bg);padding:22px 24px 48px;box-shadow:-10px 0 30px rgba(30,30,75,.2)}
 .co-conv{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
 .co-conv div{max-width:80%;padding:7px 10px;border-radius:12px;font-size:13px;white-space:pre-wrap}
@@ -433,7 +437,7 @@ a.brand:hover h1{color:#FF1E8E}
     ${TECH ? `<a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>` : ''}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
   </nav>
-  <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : [TECH && 'Technique', COM && 'Commercial'].filter(Boolean).join(' · ') || 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
+  <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : [TECH && 'Technique', COM && 'Commercial'].filter(Boolean).join(' · ') || 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="#" id="pwa-installer" hidden>📲 Installer l'app</a><a href="/gestion/auth/logout">Déconnexion</a></div>
 </div></header>
 
 <main>
@@ -2814,6 +2818,15 @@ if (!['admin', 'heures', 'leila'].includes(VIEW)) {
   setInterval(tick, 120000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - dernierAuto > 120000) tick(); });
 }
+</script>
+<script>
+/* Installation de l'application (Android, PC) : bouton affiché seulement quand le navigateur la propose */
+(function(){
+  var invite = null, b = document.getElementById('pwa-installer');
+  addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); invite = e; if (b) b.hidden = false; });
+  addEventListener('appinstalled', function(){ if (b) b.hidden = true; invite = null; });
+  if (b) b.onclick = function(e){ e.preventDefault(); if (!invite) return; invite.prompt(); invite.userChoice.finally(function(){ invite = null; b.hidden = true; }); };
+})();
 </script>
 </body>
 </html>`;

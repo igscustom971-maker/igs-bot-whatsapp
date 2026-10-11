@@ -113,7 +113,10 @@ const escH = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<':
 function pageAuth(titre, corps, script = '') {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escH(titre)} · IGS DASHBOARD</title><meta name="robots" content="noindex">
-<link rel="icon" href="/gestion/logo-igs.png">
+<link rel="icon" href="/gestion/favicon.ico" sizes="any"><link rel="icon" href="/gestion/icon-192.png" type="image/png">
+<link rel="manifest" href="/gestion/manifest.webmanifest"><meta name="theme-color" content="#1E1E4B">
+<link rel="apple-touch-icon" href="/gestion/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="IGS"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/gestion/sw.js', { scope: '/gestion/' }).catch(() => {}));</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
@@ -191,6 +194,35 @@ function requireAdmin(req, res, next) {
 function mount(app) {
   // Logo IGS (public : page de connexion, icône d'onglet)
   app.get('/gestion/fond-igs.jpg', (req, res) => res.set('Cache-Control', 'public, max-age=604800').sendFile(require('path').join(__dirname, 'static', 'fond-igs.jpg')));
+  // ---------- Application installable (PWA) : manifeste, icônes, service worker (publics) ----------
+  const statique = (nom, type, age = 604800) => (req, res) => res.set({ 'Cache-Control': `public, max-age=${age}`, ...(type ? { 'Content-Type': type } : {}) }).sendFile(require('path').join(__dirname, 'static', nom));
+  for (const f of ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png']) app.get(`/gestion/${f}`, statique(f));
+  app.get('/gestion/favicon.ico', statique('favicon.ico', 'image/x-icon'));
+  app.get('/gestion/manifest.webmanifest', (req, res) => res.set({ 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=3600' }).send(JSON.stringify({
+    id: '/gestion/', name: 'IGS Dashboard', short_name: 'IGS', description: 'Commandes, BAT, planches DTF, stock et commercial d\'IGS Custom Bar',
+    start_url: '/gestion/', scope: '/gestion/', display: 'standalone', orientation: 'any', lang: 'fr',
+    background_color: '#1E1E4B', theme_color: '#1E1E4B',
+    icons: [
+      { src: '/gestion/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/gestion/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: '/gestion/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    ],
+    shortcuts: [
+      { name: 'Commandes', url: '/gestion/commandes', icons: [{ src: '/gestion/icon-192.png', sizes: '192x192' }] },
+      { name: 'BAT', url: '/gestion/bat', icons: [{ src: '/gestion/icon-192.png', sizes: '192x192' }] },
+      { name: 'Planches DTF', url: '/gestion/planches', icons: [{ src: '/gestion/icon-192.png', sizes: '192x192' }] },
+    ],
+  })));
+  // Service worker minimal : tout passe par le réseau (données toujours fraîches) ; hors connexion, une page d'attente
+  app.get('/gestion/sw.js', (req, res) => res.set({ 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/gestion/' }).send(`
+const HORS_LIGNE = '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IGS Dashboard</title></head><body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1E1E4B;color:#fff;font-family:system-ui,sans-serif;text-align:center;padding:24px"><div><img src="/gestion/icon-192.png" width="120" height="120" alt=""><h2>Pas de connexion</h2><p>IGS Dashboard a besoin d\\'internet. Vérifie ta connexion puis réessaie.</p><button onclick="location.reload()" style="padding:12px 20px;border:0;border-radius:10px;background:#FF1E8E;color:#fff;font-weight:700">Réessayer</button></div></body></html>';
+self.addEventListener('install', e => { e.waitUntil(caches.open('igs-v1').then(c => c.add('/gestion/icon-192.png')).catch(() => {})); self.skipWaiting(); });
+self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('fetch', e => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => new Response(HORS_LIGNE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
+});
+`));
   app.get('/gestion/logo-igs.png', (req, res) => res.set('Cache-Control', 'public, max-age=604800').sendFile(require('path').join(__dirname, 'static', 'logo-igs.png')));
   app.get('/gestion/auth/login', (req, res) => {
     if (getUser(req)) return res.redirect('/gestion');
