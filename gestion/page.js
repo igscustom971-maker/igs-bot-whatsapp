@@ -5,6 +5,8 @@
 const esc = s => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function render(user, view = 'accueil') {
+  const aP = p => user.role === 'admin' || (user.profils || []).includes('admin') || (user.profils || []).includes(p);
+  const TECH = aP('technique'), COM = aP('commercial');
   const batSeul = view === 'bat';
   if (batSeul) view = 'commandes';
   // Compte perso (collaborateur ou admin) : son prénom ; compte d'équipe contact@ : « l'équipe »
@@ -16,7 +18,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin' })[view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', admin: 'Admin' })[view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/logo-igs.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -339,6 +341,9 @@ a.brand:hover h1{color:#FF1E8E}
 .lei-jours{display:flex;gap:6px;flex-wrap:wrap}
 .field .lei-j,.lei-j{flex-direction:row;text-transform:none;letter-spacing:0;margin:0;color:#1E1E4B;display:inline-flex;align-items:center;gap:5px;border:1px solid #E3D8C4;border-radius:10px;padding:6px 10px;font-weight:600;font-size:13px;cursor:pointer;background:#fff}
 .lei-j:has(input:checked){border-color:#FF1E8E;background:#FFF0F7;color:#1E1E4B}
+#co-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:1240px){#co-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){#co-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .lei-ta{width:100%;box-sizing:border-box;min-height:90px;border:1px solid #E3D8C4;border-radius:12px;padding:10px 12px;font:13px/1.45 'Poppins',sans-serif;resize:vertical;background:#fff}
 #lei-out{white-space:pre-wrap;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:#FBF6EC;border-radius:12px;padding:12px;max-height:420px;overflow:auto;margin:0}
 .btn.pink:hover{background:#E6127C}
@@ -348,18 +353,19 @@ a.brand:hover h1{color:#FF1E8E}
 <header><div class="bar">
   <a class="brand" href="/gestion" title="Retour à l’accueil"><div class="logo"><img src="/gestion/logo-igs.png" alt="IGS" onerror="this.replaceWith(document.createTextNode('IGS'))"></div><div><h1>IGS DASHBOARD</h1><small>IGS CUSTOM BAR</small></div></a>
   <nav>
-    <a class="${view === 'accueil' ? 'on' : ''}" href="/gestion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span class="lb" data-m="Accueil">Aujourd'hui</span></a>
+    ${TECH ? `<a class="${view === 'accueil' ? 'on' : ''}" href="/gestion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg><span class="lb" data-m="Accueil">Aujourd'hui</span></a>
     <a class="${view === 'commandes' && !batSeul ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg><span class="lb" data-m="Cmdes">Commandes</span><span class="nn" id="nav-n-cmd"></span></a>
     <a class="${batSeul ? 'on' : ''}" href="/gestion/bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg><span class="lb" data-m="BAT">BAT</span><span class="nn o" id="nav-n-bat"></span></a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span class="lb" data-m="Planches">Planches DTF</span></a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg><span class="lb" data-m="Stock">Stock</span></a>
-    <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>
+    <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
+    ${COM ? `<a class="${view === 'commercial' ? 'on' : ''}" href="/gestion/commercial"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/></svg><span class="lb" data-m="Commercial">Commercial</span><span class="nn o" id="nav-n-com"></span></a>` : ''}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
-    <a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>
+    ${TECH ? `<a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>` : ''}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
     <a class="off" title="Bientôt">Journal</a>
   </nav>
-  <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
+  <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : [TECH && 'Technique', COM && 'Commercial'].filter(Boolean).join(' · ') || 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="/gestion/auth/logout">Déconnexion</a></div>
 </div></header>
 
 <main>
@@ -401,7 +407,7 @@ ${view === 'accueil' ? `
     <div class="card" style="margin-bottom:12px" id="ad-notif"><h3>📣 Messages automatiques aux clients</h3><div class="skel"></div></div>
     <div class="card" style="margin-bottom:12px"><h3 style="display:flex;justify-content:space-between;align-items:center">Collaborateurs <span style="display:flex;gap:6px"><button class="btn" id="ad-col-inviter">✉️ Envoyer les invitations</button><button class="btn" id="ad-col-add">＋ Collaborateur</button></span></h3>
       <div class="note" style="margin-bottom:8px">Le <b>nom affiché</b> est celui de la colonne Affectation des commandes. Un collaborateur inactif n'apparaît plus dans les listes mais reste dans l'historique.</div>
-      <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th>Connexion à distance</th><th></th></tr></thead><tbody></tbody></table></div>
+      <div style="overflow-x:auto"><table class="stk" id="ad-col"><thead><tr><th>Nom affiché</th><th>Nom complet</th><th>Taux horaire (€)</th><th>Ordre</th><th>Actif</th><th>Profils</th><th>Connexion à distance</th><th></th></tr></thead><tbody></tbody></table></div>
     </div>
     <div class="cols" style="grid-template-columns:1.5fr 1fr">
       <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Produits du formulaire <button class="btn" id="ad-prod-add">＋ Produit</button></h3>
@@ -465,6 +471,16 @@ ${view === 'accueil' ? `
           <div class="btnrow"><button class="btn primary" data-lei="importer-historique">Importer</button></div></div>
       </div>` : '<div class="card"><h3>Accès</h3><div class="note">Tu peux activer ou désactiver Leïla. Le reste des réglages est réservé à l’administrateur.</div></div>'}
     </div>
+  </section>` : view === 'commercial' ? `
+  <section id="v-commercial">
+    <div class="hello"><div><h2>Commercial</h2><div class="sub">Devis en cours, relances, demandes prises par Leïla et reste à facturer.</div></div>
+      <div class="tools" style="margin:0"><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div></div>
+    <div class="kpis" id="co-kpis"><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div><div class="kpi"><div class="skel"></div></div></div>
+    <div class="card" style="margin-top:14px"><h3>📝 Demandes de devis</h3><div class="note" style="margin-bottom:8px">Prises par Leïla sur WhatsApp : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
+    <div class="card" style="margin-top:14px"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">📤 Devis en cours <label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label></h3><div id="co-cours"><div class="skel"></div></div></div>
+    <div class="card" style="margin-top:14px"><h3>💶 Reste à facturer</h3><div class="note" style="margin-bottom:8px">Commandes confirmées dont une partie n’est pas encore facturée (solde après acompte). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
+    <div class="card" style="margin-top:14px"><h3>✅ Derniers devis signés</h3><div id="co-signes"><div class="skel"></div></div></div>
+    <div class="msg" id="co-msg"></div>
   </section>` : view === 'heures' ? `
   <section id="v-heures">
     <div class="tools"><h2 style="margin:0;font-size:20px">⏱ Heures</h2><div style="flex:1"></div><span id="sync" class="sync"></span><button id="refresh" class="btn primary">↻ Actualiser</button></div>
@@ -634,6 +650,7 @@ async function charger(force, auto){
   try{
     if (VIEW === 'admin') { await adCharger(); return; }
     if (VIEW === 'leila') { await leiStatut(); await leiReglages(); return; }
+    if (VIEW === 'commercial') { await coCharger(force); return; }
     if (VIEW === 'heures') { await hrCharger(); return; }
     if (VIEW === 'caisse') {
       const r = await fetch('/gestion/api/caisse'); if (r.status === 401) return location.href = '/gestion/auth/login';
@@ -679,6 +696,88 @@ async function hrHome(){
       box.innerHTML = l.length ? l.map(c => '<span>'+esc(c.collaborateur)+'<b>'+c.duree+'</b></span>').join('') + '<span class="sub">Total <b>'+fhm(d.total.minutes)+'</b></span>' : '<span class="sub">Aucune heure saisie cette semaine</span>';
     }
   } catch(e){ box.innerHTML = '<span class="sub">Heures indisponibles</span>'; }
+}
+// ---------- Commercial ----------
+let coData = null;
+const eur2 = n => (n == null ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }));
+const ETATS_DEVIS = { draft: ['Brouillon', '#eef2ff;color:#3730a3'], sent: ['Envoyé', '#fef3c7;color:#92400e'], sale: ['Signé', '#dcfce7;color:#065f46'], cancel: ['Annulé', '#fee2e2;color:#991b1b'] };
+const pastille = (t, c) => '<span class="esp" style="background:'+c+'">'+esc(t)+'</span>';
+async function coCharger(force){
+  const r = await fetch('/gestion/api/commercial' + (force ? '?force=1' : ''));
+  if (r.status === 401) return location.href = '/gestion/auth/login';
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Erreur');
+  coData = j; coAfficher();
+  $('sync').className = 'sync'; $('sync').textContent = 'Actualisé à ' + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+}
+function coAfficher(){
+  const d = coData; if (!d) return;
+  const k = d.kpi;
+  $('co-kpis').innerHTML = [
+    ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ht) + ' HT', '#3E63F0'],
+    ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j', '#FF8A3D'],
+    ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ht) + ' HT', '#5BBE72'],
+    ['Transformation (90 j)', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', 'panier moyen ' + eur2(k.panier_moyen_ht) + ' HT', '#1E1E4B'],
+    ['Reste à facturer', k.reste_a_facturer.n, eur2(k.reste_a_facturer.ttc) + ' TTC', '#FF1E8E'],
+  ].map(([l, n, sub, c]) => '<div class="kpi" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></div>').join('');
+  if ($('nav-n-com')) $('nav-n-com').textContent = (d.demandes.filter(x => x.statut !== 'envoye').length + k.a_relancer) || '';
+  // Demandes
+  const dem = d.demandes;
+  $('co-dem').innerHTML = !dem.length ? '<div class="note">✅ Aucune demande en attente.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Reçue</th><th>Client</th><th>Demande</th><th>Devis</th><th></th></tr></thead><tbody>' + dem.map(x =>
+    '<tr data-dem="'+x.id+'"><td class="note">'+new Date(x.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</td>'
+    + '<td><b>'+esc(x.nom || '—')+'</b><div class="note">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div></td>'
+    + '<td>'+esc([x.quantite, x.produit].filter(Boolean).join(' × '))+(x.zone ? '<div class="note">zone : '+esc(x.zone)+'</div>' : '')+(x.details ? '<div class="note">'+esc(x.details)+'</div>' : '')+'</td>'
+    + '<td>'+(x.devis_numero ? '<b>'+esc(x.devis_numero)+'</b> '+pastille('brouillon prêt', '#eef2ff;color:#3730a3') : x.statut === 'erreur' ? pastille('à faire à la main', '#fee2e2;color:#991b1b')+'<div class="note">'+esc(x.erreur || '')+'</div>' : pastille('en préparation', '#fef3c7;color:#92400e'))+'</td>'
+    + '<td style="white-space:nowrap">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button> ' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button> ')+'<button class="btn" data-co="abandonner" title="Demande sans suite">✕</button></td></tr>').join('') + '</tbody></table></div>';
+  // Devis en cours
+  const f = $('co-f').value;
+  const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f));
+  $('co-cours').innerHTML = !cours.length ? '<div class="note">Rien à afficher.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Âge</th><th>Relances</th><th>État</th><th></th></tr></thead><tbody>' + cours.map(x =>
+    '<tr data-num="'+esc(x.numero)+'"><td><b>'+esc(x.numero)+'</b></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td>'
+    + '<td>'+(x.age == null ? '—' : x.age + ' j')+(x.a_relancer ? ' '+pastille('à relancer', '#ffedd5;color:#9a3412') : '')+'</td>'
+    + '<td class="note">'+(x.relances ? x.relances + ' · le ' + new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}) : '—')+'</td>'
+    + '<td>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</td>'
+    + '<td style="white-space:nowrap">'+(x.etat === 'sent' ? '<button class="btn" data-co="relancer">✉️ Relancer</button> ' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>';
+  // Reste à facturer
+  const reste = d.reste_a_facturer;
+  $('co-reste').innerHTML = !reste.length ? '<div class="note">✅ Tout est facturé.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Total TTC</th><th>Reste TTC</th><th>Factures</th><th>Atelier</th><th></th></tr></thead><tbody>' + reste.map(x =>
+    '<tr data-num="'+esc(x.numero)+'"><td><b>'+esc(x.numero)+'</b></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ttc)+'</td><td><b>'+eur2(x.reste_ttc)+'</b></td>'
+    + '<td class="note">'+(x.factures.length ? x.factures.map(f => esc(f.numero || 'brouillon')+(f.paiement === 'paid' ? ' ✓' : '')).join('<br>') : 'aucune')+'</td><td>'+(x.atelier ? badge(x.atelier) : '<span class="note">—</span>')+'</td>'
+    + '<td style="white-space:nowrap"><button class="btn" data-co="solde">Facturer le solde</button> <a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></td></tr>').join('') + '</tbody></table></div>';
+  // Signés
+  $('co-signes').innerHTML = !d.signes.length ? '<div class="note">Aucun.</div>' : '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Devis</th><th>Client</th><th>Montant HT</th><th>Signé le</th><th>Atelier</th></tr></thead><tbody>' + d.signes.slice(0, 25).map(x =>
+    '<tr><td><a href="'+esc(x.lien)+'" target="_blank" rel="noopener"><b>'+esc(x.numero)+'</b></a></td><td>'+esc(x.client ? x.client.nom : '—')+'</td><td>'+eur2(x.montant_ht)+'</td><td class="note">'+(x.date ? new Date(String(x.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+(x.atelier ? badge(x.atelier) : '<span class="note">pas encore dans l’atelier</span>')+'</td></tr>').join('') + '</tbody></table></div>';
+}
+function coEvents(){
+  $('co-f').onchange = coAfficher;
+  const msg = (t, k) => { $('co-msg').className = 'msg on ' + k; $('co-msg').innerHTML = t; setTimeout(() => { $('co-msg').className = 'msg'; }, 8000); };
+  document.getElementById('v-commercial').addEventListener('click', async e => {
+    const b = e.target.closest('[data-co]'); if (!b) return;
+    const a = b.dataset.co, tr = b.closest('tr'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;
+    let url, body = {};
+    if (a === 'relancer') {
+      const perso = prompt('Relance à l’amiable du devis ' + num + ' par mail.\\n\\nLaisse vide pour le message standard (« Je me permets de revenir vers vous… » + bouton vers le devis), ou écris ton propre message :', '');
+      if (perso === null) return;
+      url = '/gestion/api/commercial/relance/' + encodeURIComponent(num); body = { message: perso };
+    } else if (a === 'solde') {
+      if (!confirm('Créer la facture du solde de ' + num + ' dans Odoo et l’envoyer au client par mail ?')) return;
+      url = '/gestion/api/commercial/solde/' + encodeURIComponent(num);
+    } else if (a === 'envoyer') {
+      if (!confirm('Envoyer le devis au client depuis Odoo ? (Vérifie le brouillon avant : produit, prix, quantité)')) return;
+      url = '/gestion/api/commercial/demandes/' + dem + '/envoyer';
+    } else if (a === 'brouillon') {
+      const x = (coData.demandes || []).find(y => String(y.id) === String(dem)) || {};
+      let nom = x.nom || '';
+      if (!nom) { nom = prompt('Nom du client pour le devis (sa fiche Odoo sera retrouvée ou créée) :', ''); if (nom === null) return; }
+      url = '/gestion/api/commercial/demandes/' + dem + '/brouillon'; body = { nom };
+    }
+    else if (a === 'abandonner') { if (!confirm('Classer cette demande sans suite ?')) return; url = '/gestion/api/commercial/demandes/' + dem + '/abandonner'; }
+    b.disabled = true;
+    try {
+      const j = await post(url, body);
+      msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? '✅ Devis ' + esc(j.numero) + ' envoyé' : '✅ Fait', 'ok');
+      await coCharger(true);
+    } catch(err){ msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
+  });
 }
 // ---------- Leïla ----------
 async function leiAppel(action, corps){
@@ -1166,6 +1265,7 @@ function adColRow(c){
   const inp = (cls, v, w, type) => '<input class="'+cls+'" '+(type?'type="'+type+'" ':'')+'value="'+esc(v ?? '')+'" style="width:'+w+';font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px">';
   return '<tr data-id="'+(c.id||'')+'" data-ident="'+esc(c.identifiant||'')+'" data-email="'+esc(c.email_perso||'')+'" data-acces="'+(c.acces?1:'')+'"><td>'+inp('ad-c-aff', c.affichage, '130px')+'</td><td>'+inp('ad-c-nom', c.nom, '170px')+'</td><td>'+inp('ad-c-taux', c.taux_horaire, '90px', 'number')+'</td><td>'+inp('ad-c-ordre', c.ordre ?? 99, '60px', 'number')+'</td>'
     + '<td style="text-align:center"><input type="checkbox" class="ad-c-actif"'+(c.actif !== false ? ' checked' : '')+'></td>'
+    + '<td style="white-space:nowrap">'+[['admin','Admin'],['technique','Technique'],['commercial','Commercial']].map(([k, l]) => '<label style="display:block;font-size:12.5px;font-weight:600"><input type="checkbox" class="ad-c-prof" value="'+k+'"'+((c.profils || ['technique']).includes(k) ? ' checked' : '')+'> '+l+'</label>').join('')+'</td>'
     + '<td style="min-width:210px">'+(!c.id ? '<span class="sub">Enregistre d’abord</span>' : (c.acces || c.identifiant)
         ? '<b>'+esc(c.identifiant)+'</b>'+(c.acces ? (c.mdp_provisoire?' <span class="esp">provisoire</span>':'') : ' <span class="esp" style="background:#fef3c7;color:#92400e">'+(c.invitation ? '✉️ invitation envoyée' : 'mot de passe pas encore choisi')+'</span>')
           + '<div class="sub">'+esc(c.email_perso||'pas d’e-mail perso')+(c.derniere_connexion?' · vu le '+new Date(c.derniere_connexion).toLocaleDateString('fr-FR'):'')+'</div>'
@@ -1365,7 +1465,7 @@ function adEvents(){
     const tr = e.target.closest('tr'); if (!tr) return;
     if (e.target.closest('.ad-c-save')) {
       const v = c => tr.querySelector(c);
-      try { await post('/gestion/api/admin/collaborateurs', { id: tr.dataset.id ? Number(tr.dataset.id) : undefined, affichage: v('.ad-c-aff').value, nom: v('.ad-c-nom').value, taux_horaire: v('.ad-c-taux').value, ordre: v('.ad-c-ordre').value, actif: v('.ad-c-actif').checked }); adCharger(); }
+      try { await post('/gestion/api/admin/collaborateurs', { id: tr.dataset.id ? Number(tr.dataset.id) : undefined, affichage: v('.ad-c-aff').value, nom: v('.ad-c-nom').value, taux_horaire: v('.ad-c-taux').value, ordre: v('.ad-c-ordre').value, actif: v('.ad-c-actif').checked, profils: [...tr.querySelectorAll('.ad-c-prof:checked')].map(i => i.value) }); adCharger(); }
       catch(err){ alert(err.message); }
     }
     if (e.target.closest('.ad-c-acces')) {
@@ -2276,6 +2376,8 @@ if (VIEW === 'commandes') {
   if (location.hash === '#historique') onglet('histo');
 } else if (VIEW === 'leila') {
   leiEvents();
+} else if (VIEW === 'commercial') {
+  coEvents();
 } else if (VIEW === 'admin') {
   adEvents();
 } else if (VIEW === 'caisse') {

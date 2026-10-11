@@ -277,3 +277,29 @@ create index if not exists gestion_planches_present_idx on gestion_planches (pre
 -- Planches : date du dernier changement de statut (clients hebdo : un message « prête » à chaque fois)
 alter table gestion_planches add column if not exists statut_le timestamptz;
 notify pgrst, 'reload schema';
+
+-- Profils des collaborateurs (admin, technique, commercial ; cumulables)
+alter table gestion_collaborateurs add column if not exists profils text[] default '{technique}';
+
+-- Module Commercial : demandes de devis (Leïla, ou saisies à la main) avec brouillon Odoo pré-fait
+create table if not exists gestion_demandes (
+  id            bigserial primary key,
+  cree_le       timestamptz default now(),
+  source        text,             -- whatsapp (Leïla), manuel…
+  telephone     text,
+  nom           text,
+  email         text,
+  produit       text,
+  quantite      numeric,
+  zone          text,
+  details       text,
+  statut        text default 'nouvelle', -- nouvelle, brouillon, envoye, abandonnee
+  devis_id      bigint,
+  devis_numero  text,
+  erreur        text,
+  traite_par    text,
+  traite_le     timestamptz
+);
+create index if not exists gestion_demandes_statut on gestion_demandes (statut, cree_le desc);
+alter table gestion_demandes enable row level security;
+notify pgrst, 'reload schema';

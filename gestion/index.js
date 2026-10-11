@@ -52,19 +52,38 @@ module.exports = function mountGestion(app) {
 
   auth.mount(app);
 
+  // Profils : technique = atelier (commandes, BAT, planches, stock, espèces, Leïla) ; commercial = module Commercial ; admin = tout
+  const tech = auth.requireProfil('technique');
   app.get('/gestion', auth.requireUser, (req, res) => {
+    if (!auth.aProfil(req.user, 'technique')) return res.redirect(auth.aProfil(req.user, 'commercial') ? '/gestion/commercial' : '/gestion/heures');
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'accueil'));
   });
-  app.get('/gestion/commandes', auth.requireUser, (req, res) => {
+  // ---------- Module Commercial ----------
+  const commercial = require('./commercial');
+  const com = auth.requireProfil('commercial');
+  const quiCom = req => req.user.name || req.user.email;
+  const actCom = fn => async (req, res) => {
+    try { res.json((await fn(req)) || { ok: true }); }
+    catch (err) { console.error('Commercial :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  app.get('/gestion/commercial', auth.requireUser, com, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commercial')));
+  app.get('/gestion/api/commercial', auth.requireUser, com, actCom(req => commercial.tableauDeBord({ force: req.query.force === '1' })));
+  app.post('/gestion/api/commercial/relance/:numero', auth.requireUser, com, actCom(req => commercial.relancer(String(req.params.numero), quiCom(req), req.body?.message)));
+  app.post('/gestion/api/commercial/solde/:numero', auth.requireUser, com, actCom(req => commercial.facturerSolde(String(req.params.numero), quiCom(req))));
+  app.post('/gestion/api/commercial/demandes/:id/brouillon', auth.requireUser, com, actCom(req => commercial.preparerBrouillon(Number(req.params.id), quiCom(req), req.body?.nom)));
+  app.post('/gestion/api/commercial/demandes/:id/envoyer', auth.requireUser, com, actCom(req => commercial.envoyerDemande(Number(req.params.id), quiCom(req))));
+  app.post('/gestion/api/commercial/demandes/:id/abandonner', auth.requireUser, com, actCom(req => commercial.abandonnerDemande(Number(req.params.id), quiCom(req))));
+  app.post('/gestion/api/commercial/demandes', auth.requireUser, com, actCom(req => commercial.nouvelleDemande({ ...(req.body || {}), source: 'manuel' }, quiCom(req))));
+  app.get('/gestion/commandes', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'commandes'));
   });
-  app.get('/gestion/planches', auth.requireUser, (req, res) => {
+  app.get('/gestion/planches', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'planches'));
   });
-  app.get('/gestion/bat', auth.requireUser, (req, res) => {
+  app.get('/gestion/bat', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'bat'));
   });
-  app.get('/gestion/leila', auth.requireUser, (req, res) => {
+  app.get('/gestion/leila', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'leila'));
   });
   // ---------- Leïla (assistante WhatsApp) : pilotage depuis le dashboard ----------
@@ -154,7 +173,7 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/collaborateurs/:id/acces/retirer', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').retirerAcces(Number(req.params.id))));
   app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 
-  app.get('/gestion/caisse', auth.requireUser, (req, res) => {
+  app.get('/gestion/caisse', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'caisse'));
   });
   // ---------- Espèces ----------
@@ -190,7 +209,7 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/heures/recap-auto', auth.requireUser, auth.requireAdmin, actH(async req => { await heures.setReglage('heures_recap_auto', req.body?.active ? 'on' : 'off'); return { ok: true }; }));
   app.post('/gestion/api/heures/importer', auth.requireUser, auth.requireAdmin, actH(req => heures.importerExcel(quiH(req))));
 
-  app.get('/gestion/stock', auth.requireUser, (req, res) => {
+  app.get('/gestion/stock', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
   });
   // ---------- Stock ----------

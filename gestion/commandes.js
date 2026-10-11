@@ -867,6 +867,10 @@ async function modifier(cle, champs, user) {
     const { error } = await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'commande_modifiee', cle, details: { client: row.client, ...fields } });
     if (error) console.error('Gestion journal :', error.message);
   }
+  // Commande terminée / à expédier : facture du solde (acompte déjà facturé) envoyée par le module Commercial
+  if (fields.statut && row.n_devis && key(fields.statut) !== key(row.statut || '')) {
+    require('./commercial').surStatutCommande(row, fields.statut, user).catch(() => {});
+  }
   // Rangement du dossier SharePoint selon le statut (n'empêche pas l'enregistrement en cas d'échec)
   let dossierInfo = null;
   if (fields.statut && row.n_devis && key(fields.statut) !== key(row.statut || '')) {

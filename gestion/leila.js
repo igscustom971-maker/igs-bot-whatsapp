@@ -164,6 +164,26 @@ function extraireBat(texte) {
   return { clean: String(texte || '').replace(/###BAT:[^#]*###/gi, '').trim(), devis: m ? m[1].toUpperCase() : null };
 }
 
+// ###DEVIS:produit=T-shirt;qte=6;zone=avant;nom=Marie Dupont;email=marie@x.fr;details=photo### retiré de la réponse
+function extraireDevis(texte) {
+  const t = String(texte || '');
+  const m = t.match(/###DEVIS:([^#]*)###/i);
+  const clean = t.replace(/###DEVIS:[^#]*###/gi, '').trim();
+  if (!m) return { clean, devis: null };
+  const o = {};
+  for (const part of m[1].split(';')) {
+    const i = part.indexOf('=');
+    if (i > 0) o[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim();
+  }
+  const devis = { produit: o.produit || null, quantite: Number(String(o.qte || o.quantite || '').replace(',', '.')) || null, zone: o.zone || null, nom: o.nom || null, email: (o.email || '').toLowerCase() || null, details: o.details || null };
+  return { clean, devis: devis.produit || devis.quantite ? devis : null };
+}
+// Demande de devis prise par Leïla : notée dans le module Commercial avec un brouillon Odoo pré-fait
+async function enregistrerDemandeDevis(tel, d) {
+  try { await require('./commercial').nouvelleDemande({ ...d, telephone: tel, source: 'whatsapp' }); }
+  catch (err) { console.error(`Gestion Leïla : demande de devis non enregistrée pour ${tel} :`, err.message); }
+}
+
 // ###PLANCHE:2|pages 3 et 4 du Canva### retiré de la réponse
 function extrairePlanche(texte) {
   const t = String(texte || '');
@@ -294,4 +314,4 @@ async function question(cle, q, user) {
   return { reponse };
 }
 
-module.exports = { extrairePlanche, creerPlancheWhatsApp, trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
+module.exports = { extraireDevis, enregistrerDemandeDevis, extrairePlanche, creerPlancheWhatsApp, trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };

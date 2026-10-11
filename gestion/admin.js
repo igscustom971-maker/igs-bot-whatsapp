@@ -83,7 +83,7 @@ async function collaborateurs({ admin = false, tous = false } = {}) {
     .filter(c => tous || c.actif)
     .map(c => (admin
       ? { id: c.id, affichage: c.affichage, nom: c.nom, taux_horaire: c.taux_horaire, actif: c.actif, ordre: c.ordre,
-          identifiant: c.identifiant || null, email_perso: c.email_perso || null, acces: !!c.mdp_hash, invitation: !c.mdp_hash && !!c.identifiant && !!c.reset_expire && new Date(c.reset_expire) > new Date(), mdp_provisoire: !!c.mdp_provisoire, derniere_connexion: c.derniere_connexion || null }
+          identifiant: c.identifiant || null, profils: require('./comptes').profilsDe(c), email_perso: c.email_perso || null, acces: !!c.mdp_hash, invitation: !c.mdp_hash && !!c.identifiant && !!c.reset_expire && new Date(c.reset_expire) > new Date(), mdp_provisoire: !!c.mdp_provisoire, derniere_connexion: c.derniere_connexion || null }
       : { id: c.id, affichage: c.affichage, actif: c.actif }));
 }
 
@@ -99,9 +99,16 @@ async function enregistrerCollaborateur(d) {
   };
   if (!row.affichage) throw new Error('Le nom affiché est obligatoire (ex. Maureen G.)');
   if (row.taux_horaire !== null && !(row.taux_horaire >= 0 && row.taux_horaire < 1000)) throw new Error('Taux horaire invalide');
-  const q = d.id ? supabase.from('gestion_collaborateurs').update(row).eq('id', d.id) : supabase.from('gestion_collaborateurs').insert(row);
-  const { error } = await q;
+  if (Array.isArray(d.profils)) {
+    const { PROFILS } = require('./comptes');
+    row.profils = d.profils.filter(p => PROFILS.includes(p));
+    if (!row.profils.length) throw new Error('Choisis au moins un profil (admin, technique ou commercial)');
+  }
+  const q = () => (d.id ? supabase.from('gestion_collaborateurs').update(row).eq('id', d.id) : supabase.from('gestion_collaborateurs').insert(row));
+  let { error } = await q();
+  if (error && /profils/.test(error.message)) throw new Error('Colonne « profils » absente : passe le SQL du module Commercial dans Supabase');
   if (error) throw new Error(`Supabase : ${error.message}`);
+  if (d.id) require('./comptes').oublierCache(d.id);
 }
 
 async function supprimerCollaborateur(id) {

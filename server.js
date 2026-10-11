@@ -489,7 +489,7 @@ IMPORTANT : nos clients réguliers qui commandent des planches passent systémat
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
 1. Demande la zone de flocage, le produit, la quantité, puis le nom et l'email pour établir le devis (voir le VRAI PROCESS ci-dessus, rien de plus, pas de tailles/couleurs/visuels). EXCEPTION : si le contexte indique "CLIENT CONNU" (déjà échangé avant, déjà commandé ou déjà eu un devis), ne redemande PAS le nom ni l'email, on les a déjà de notre côté. Demande uniquement ce qui concerne cette nouvelle demande (zone, produit, quantité)
-2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis")
+2. Une fois ces infos obtenues, réponds en confirmant qu'un devis va être préparé et envoyé dans les plus brefs délais (varie la formulation, mais mentionne toujours le mot "devis"). Dans CE message (et une seule fois par demande), ajoute À LA FIN le marqueur interne ###DEVIS:produit=…;qte=…;zone=…;nom=…;email=…;details=…### avec ce que le client t'a donné (laisse vide ce que tu n'as pas, ex: nom= pour un client connu ; jamais de « ; » ni de « # » dans les valeurs ; details = précisions utiles en quelques mots : couleur, visuel, délai souhaité…). Ex : ###DEVIS:produit=T-shirt;qte=6;zone=avant;nom=Marie Dupont;email=marie@mail.fr;details=photo, anniversaire samedi###. Le client ne le voit jamais : la demande arrive toute seule dans le module Commercial avec un devis pré-rempli
 3. Si tu ne peux pas répondre avec certitude à un moment donné (info manquante, cas complexe, produit non listé, demande hors de ce que tu sais faire), réponds EXACTEMENT et UNIQUEMENT : "Ok, je regarde de mon côté et je reviens vers vous !", rien d'autre. Cette phrase précise est réservée aux cas où tu es réellement bloqué, pas pour une clôture normale de devis
 
 ⚠️ EXEMPLES DE STYLE (vrais messages de l'équipe, à imiter : phrases courtes, polies, directes, répondre d'abord à la question puis proposer la suite) :
@@ -997,7 +997,9 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   const { clean: replySansBat, devis: batDemande } = require('./gestion/leila').extraireBat(replyNoRecap);
   // Planche demandée sur WhatsApp : marqueur ###PLANCHE:METRES|DÉTAIL### retiré, la planche est ajoutée au tableau (module gestion)
   const { clean: replySansPlanche, planche: plancheDemandee } = require('./gestion/leila').extrairePlanche(replySansBat);
-  const reply = replySansPlanche.replace(URGENT_MARKER, '').trim();
+  // Demande de devis complète : marqueur ###DEVIS:…### retiré, notée dans le module Commercial (brouillon Odoo pré-fait)
+  const { clean: replySansDevis, devis: devisDemande } = require('./gestion/leila').extraireDevis(replySansPlanche);
+  const reply = replySansDevis.replace(URGENT_MARKER, '').trim();
 
   // Note libre demandée par Leïla (ex: nuancier à envoyer) : ajoutée au récap quoi qu'il arrive
   if (recapNote) {
@@ -1045,6 +1047,7 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   derniereReponseLeila = Date.now();
   if (batDemande) await require('./gestion/leila').renvoyerBat(from, batDemande);
   if (plancheDemandee) await require('./gestion/leila').creerPlancheWhatsApp(from, plancheDemandee);
+  if (devisDemande) await require('./gestion/leila').enregistrerDemandeDevis(from, devisDemande);
 
   // Logger un résumé court pour le récap groupé, uniquement au moment clé
   // (bot vraiment bloqué OU devis/commande à préparer), pas à chaque message
@@ -1809,7 +1812,8 @@ app.post('/admin/simuler', async (req, res) => {
     const isUrgent = rawReply.includes(URGENT_MARKER) || looksUrgent(message);
     const lei = require('./gestion/leila');
     const { clean: sansPl, planche: plSim } = lei.extrairePlanche(lei.extraireBat(rawReply).clean);
-    const reply = sansPl.replace(URGENT_MARKER, '').trim();
+    const { clean: sansDv, devis: dvSim } = lei.extraireDevis(sansPl);
+    const reply = sansDv.replace(URGENT_MARKER, '').trim();
 
     res.send(
       `🧪 SIMULATION (rien envoyé, rien enregistré)\n\n` +
@@ -1817,6 +1821,7 @@ app.post('/admin/simuler', async (req, res) => {
       `Message testé : "${message}"\n\n` +
       `Réponse du bot :\n${reply}` +
       (isUrgent ? `\n\n🚨 Aurait déclenché une alerte urgente` : '') +
+      (dvSim ? `\n\n📝 Aurait noté une demande de devis : ${[dvSim.quantite, dvSim.produit, dvSim.zone, dvSim.nom, dvSim.email].filter(Boolean).join(' · ')}` : '') +
       (plSim ? `\n\n🎞 Aurait ajouté une planche au tableau : ${plSim.metres}${/^A[34]$/.test(plSim.metres) ? '' : ' m'} (${plSim.detail})` : '')
     );
   } catch (err) {

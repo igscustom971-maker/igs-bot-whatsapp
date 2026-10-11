@@ -65,7 +65,10 @@ async function connecter(identifiant, mdp, ip) {
   console.log(`Gestion : connexion individuelle ${id} (${c.affichage})`);
   return session(c);
 }
-const session = c => ({ email: `local:${c.identifiant}`, name: c.affichage, role: 'equipe', collab: c.affichage, cid: c.id, pv: c.mdp_version || 0, provisoire: !!c.mdp_provisoire });
+// Profils : admin (tout), technique (atelier : commandes, BAT, planches, stock…), commercial (module Commercial). Cumulables.
+const PROFILS = ['admin', 'technique', 'commercial'];
+const profilsDe = c => { const p = (Array.isArray(c?.profils) ? c.profils : ['technique']).filter(x => PROFILS.includes(x)); return p.length ? p : ['technique']; };
+const session = c => { const profils = profilsDe(c); return { email: `local:${c.identifiant}`, name: c.affichage, role: profils.includes('admin') ? 'admin' : 'equipe', profils, collab: c.affichage, cid: c.id, pv: c.mdp_version || 0, provisoire: !!c.mdp_provisoire }; };
 
 // Contrôle à chaque requête (cache 60 s) : compte toujours actif, mot de passe pas changé depuis
 const cacheEtat = new Map();
@@ -74,13 +77,14 @@ async function sessionValide(u) {
   const k = u.cid;
   let e = cacheEtat.get(k);
   if (!e || Date.now() - e.at > 60e3) {
-    const { data } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage').eq('id', u.cid).maybeSingle();
+    let { data, error } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage, profils').eq('id', u.cid).maybeSingle();
+    if (error && /profils/.test(error.message)) ({ data } = await supabase.from('gestion_collaborateurs').select('actif, mdp_hash, mdp_version, mdp_provisoire, affichage').eq('id', u.cid).maybeSingle());
     e = { at: Date.now(), data };
     cacheEtat.set(k, e);
   }
   const d = e.data;
   if (!d || !d.actif || !d.mdp_hash || (d.mdp_version || 0) !== u.pv) return false;
-  return { provisoire: !!d.mdp_provisoire, affichage: d.affichage };
+  return { provisoire: !!d.mdp_provisoire, affichage: d.affichage, profils: profilsDe(d) };
 }
 const oublierCache = id => cacheEtat.delete(id);
 
@@ -213,4 +217,4 @@ async function reinitialiser(token, nouveau, confirmation) {
   return session({ ...c, mdp_version: version, mdp_provisoire: false });
 }
 
-module.exports = { inviter, inviterTous, connecter, sessionValide, definirAcces, retirerAcces, changerMdp, demanderReset, compteDuToken, reinitialiser, normIdentifiant, MDP_MIN, _test: { hacher, verifierHash } };
+module.exports = { PROFILS, profilsDe, oublierCache, inviter, inviterTous, connecter, sessionValide, definirAcces, retirerAcces, changerMdp, demanderReset, compteDuToken, reinitialiser, normIdentifiant, MDP_MIN, _test: { hacher, verifierHash } };

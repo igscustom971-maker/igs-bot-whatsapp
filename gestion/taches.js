@@ -147,6 +147,8 @@ async function nettoyerLivrees() {
 const TACHES = [
   { id: 'commandes_payees', nom: 'Commandes payées dans Odoo → ligne PAYÉE', flux: 'IGS - Commande payés Excel', rythme: 'toutes les 10 min', fn: commandesPayees,
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
+  { id: 'facture_solde', nom: 'Facture du solde envoyée au client quand une commande avec acompte passe en TERMINÉE ou À EXPÉDIER', flux: '(nouveau, module Commercial)', rythme: 'à chaque changement de statut', evenement: true,
+    fn: async () => 'se déclenche tout seul au changement de statut', quand: () => false },
   { id: 'depot_formulaire', nom: 'Formulaire reçu → dossier SharePoint, ligne de commande et BDC SEFI', flux: 'IGS - Dépôt fichiers commande + IGS - Remplissage BDC SEFI', rythme: 'à chaque formulaire', evenement: true,
     fn: async () => 'se déclenche tout seul à chaque formulaire reçu', quand: () => false },
   { id: 'sefi_envoi', nom: 'Envoi du bon de commande à SEFI', flux: 'IGS - Envoi SEFI Auto + IGS - Envoi BDC SEFI', rythme: '9 h, 11 h et 17 h', fn: async () => { const r = await require('./sefi').envoyer('Envoi automatique'); return r.raison || `lot ${r.lot} envoyé (${r.devis.join(', ')})${r.bdcVide ? '' : ' — BDC NON vidé, à vérifier'}`; },

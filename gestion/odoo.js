@@ -369,7 +369,130 @@ async function supprimerDevis(numero) {
   return { supprime: true };
 }
 
+
+// ================= MODULE COMMERCIAL =================
+const PLANCHE_CODES = () => [PRODUITS.METRE, PRODUITS.A3, PRODUITS.A4];
+const m2o = v => (Array.isArray(v) ? { id: v[0], nom: v[1] } : null);
+
+// Devis et commandes IGS des N derniers jours (hors planches DTF sauf demande) pour le tableau de bord commercial
+async function devisCommerciaux({ jours = 120, planches = false } = {}) {
+  const depuis = new Date(Date.now() - jours * 86400e3).toISOString().replace('T', ' ').slice(0, 19);
+  const dom = [...(await igsSeulement()), ['create_date', '>=', depuis]];
+  let exclus = [];
+  if (!planches) {
+    const pl = await kw('sale.order', 'search_read', [[...dom, ['order_line.product_id.default_code', 'in', PLANCHE_CODES()]]], { fields: ['id'] });
+    exclus = pl.map(p => p.id);
+  }
+  const champs = ['name', 'partner_id', 'state', 'amount_untaxed', 'amount_total', 'date_order', 'create_date', 'validity_date', 'invoice_status', 'invoice_ids', 'amount_to_invoice', 'user_id'];
+  let r;
+  try { r = await kw('sale.order', 'search_read', [[...dom, ['id', 'not in', exclus]]], { fields: champs, order: 'create_date desc', limit: 600 }); }
+  catch (err) { if (!/amount_to_invoice/.test(err.message)) throw err; r = await kw('sale.order', 'search_read', [[...dom, ['id', 'not in', exclus]]], { fields: champs.filter(c => c !== 'amount_to_invoice'), order: 'create_date desc', limit: 600 }); }
+  // Factures liées (acompte déjà facturé ?)
+  const invIds = [...new Set(r.flatMap(o => o.invoice_ids || []))];
+  const factures = new Map();
+  for (let i = 0; i < invIds.length; i += 200) {
+    const f = await kw('account.move', 'read', [invIds.slice(i, i + 200)], { fields: ['id', 'name', 'state', 'move_type', 'amount_untaxed', 'amount_total', 'payment_state'] });
+    for (const x of f) factures.set(x.id, x);
+  }
+  return r.map(o => {
+    const inv = (o.invoice_ids || []).map(id => factures.get(id)).filter(f => f && f.state !== 'cancel');
+    const factureHT = inv.reduce((s, f) => s + (f.move_type === 'out_refund' ? -1 : 1) * (f.amount_untaxed || 0), 0);
+    return {
+      id: o.id, numero: o.name, client: m2o(o.partner_id), etat: o.state, montant_ht: o.amount_untaxed, montant_ttc: o.amount_total,
+      cree_le: o.create_date, date: o.date_order, validite: o.validity_date || null, facturation: o.invoice_status,
+      reste_ttc: o.amount_to_invoice != null ? o.amount_to_invoice : null,
+      deja_facture_ht: Math.round(factureHT * 100) / 100, factures: inv.map(f => ({ numero: f.name, etat: f.state, paiement: f.payment_state, ttc: f.amount_total })),
+      lien: lienOdoo('sale.order', o.id),
+    };
+  });
+}
+
+// Lien client (portail) vers le devis : le client le consulte et le signe en ligne
+async function lienPortailDevis(id) {
+  try {
+    const u = await kw('sale.order', 'get_portal_url', [[id]]);
+    if (typeof u === 'string' && u) return u.startsWith('http') ? u : `${URL_}${u}`;
+  } catch {}
+  return null;
+}
+// Note dans l'historique (chatter) d'un devis
+async function noteDevis(id, texte) {
+  try { await kw('sale.order', 'message_post', [[id]], { body: texte, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note devis :', err.message); }
+}
+async function devisParNumero(numero) {
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id', 'name', 'state', 'partner_id', 'amount_untaxed', 'amount_total', 'invoice_ids', 'invoice_status'], limit: 1 });
+  return r[0] || null;
+}
+async function envoyerDevisOdoo(id) {
+  await sendWithTemplate('sale.order', id, DEVIS_TEMPLATE_ID, { mark_so_as_sent: true });
+  const [so] = await kw('sale.order', 'read', [[id]], { fields: ['name', 'state'] });
+  return so;
+}
+
+// Facture du SOLDE d'une commande dont l'acompte est déjà facturé : facture « reste à facturer » d'Odoo
+// (acompte déduit), validée puis envoyée au client par mail. exigerAcompte : seulement si une facture existe déjà.
+async function facturerSolde(numero, { exigerAcompte = true } = {}) {
+  const so = await devisParNumero(numero);
+  if (!so) return { statut: 'introuvable' };
+  if (so.state !== 'sale') return { statut: 'pas_confirme', etat: so.state };
+  const avant = new Set(so.invoice_ids || []);
+  const existantes = avant.size ? await kw('account.move', 'read', [[...avant]], { fields: ['state', 'move_type'] }) : [];
+  const actives = existantes.filter(f => f.state !== 'cancel' && f.move_type === 'out_invoice');
+  if (exigerAcompte && !actives.length) return { statut: 'pas_d_acompte' };
+  if (actives.some(f => f.state === 'draft')) return { statut: 'brouillon_existant' };
+  if (so.invoice_status === 'invoiced') return { statut: 'deja_facture' };
+  const ctx = { active_model: 'sale.order', active_ids: [so.id], active_id: so.id };
+  const wid = await kw('sale.advance.payment.inv', 'create', [{ advance_payment_method: 'delivered' }], { context: ctx });
+  try { await kw('sale.advance.payment.inv', 'create_invoices', [[wid]], { context: ctx }); }
+  catch (err) { if (/aucune ligne|no invoiceable|nothing to invoice|rien à facturer/i.test(err.message)) return { statut: 'rien_a_facturer' }; throw err; }
+  const [apres] = await kw('sale.order', 'read', [[so.id]], { fields: ['invoice_ids'] });
+  const nouvelles = (apres.invoice_ids || []).filter(id => !avant.has(id));
+  if (!nouvelles.length) return { statut: 'rien_a_facturer' };
+  const id = nouvelles[0];
+  await kw('account.move', 'action_post', [[id]]);
+  const [inv] = await kw('account.move', 'read', [[id]], { fields: ['name', 'amount_untaxed', 'amount_total'] });
+  await sendWithTemplate('account.move', id, await getInvoiceTemplateId());
+  return { statut: 'envoyee', numero: inv.name, montant_ht: inv.amount_untaxed, montant_ttc: inv.amount_total, client: so.partner_id?.[1], lien: lienOdoo('account.move', id) };
+}
+
+// Produit Odoo le plus proche d'une demande (« t-shirt », « polo »… ; variante avant/arrière selon la zone)
+const MOTS_PRODUITS = [[/t.?shirt|tee.?shirt|\btee\b/i, 't-shirt'], [/polo/i, 'polo'], [/sweat|hoodie|capuche/i, 'sweat'], [/d[ée]bardeur/i, 'débardeur'], [/casquette/i, 'casquette'], [/tote/i, 'tote'], [/gobelet|timbale|eco.?cup/i, 'gobelet'], [/mug|tasse/i, 'mug'], [/maillot/i, 'maillot']];
+async function produitPourDemande(produit, zone) {
+  const terme = (MOTS_PRODUITS.find(([re]) => re.test(produit || '')) || [null, String(produit || '').split(/\s+/)[0]])[1];
+  if (!terme) return null;
+  const r = await kw('product.product', 'search_read', [[...(await igsOuPartage()), ['sale_ok', '=', true], ['name', 'ilike', terme]]], { fields: ['id', 'name', 'default_code', 'list_price'], limit: 20 });
+  if (!r.length) return null;
+  const deuxFaces = /arri[eè]re|dos|verso|derri[eè]re|av\s*\/?\s*ar|deux/i.test(zone || '');
+  const estAvAr = p => /av\s*\/?\s*ar|avant.{0,3}arri|recto.?verso/i.test(`${p.name} ${p.default_code || ''}`);
+  const perso = r.filter(p => /personnalis/i.test(p.name));
+  const base = perso.length ? perso : r;
+  return base.find(p => estAvAr(p) === deuxFaces) || base[0];
+}
+
+// Brouillon de devis pour une demande (client retrouvé ou créé, produit + quantité, note avec la demande)
+async function brouillonDemande(d) {
+  let partner = null;
+  if (d.telephone) partner = await partnerParTelephone(d.telephone).catch(() => null);
+  if (!partner && d.email) partner = await partnerParEmail(d.email).catch(() => null);
+  if (!partner && d.nom) { const f = await findPartner(d.nom).catch(() => ({})); partner = f.partner || null; }
+  let cree = false;
+  if (!partner) {
+    if (!d.nom) throw new Error('nom du client manquant pour créer la fiche Odoo');
+    const id = await createPartner({ name: d.nom, email: d.email || undefined, phone: d.telephone ? formatTel(d.telephone) : undefined });
+    partner = { id: typeof id === 'object' ? id.id : id, name: d.nom };
+    cree = true;
+  }
+  const prod = await produitPourDemande(d.produit, d.zone).catch(() => null);
+  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
+  const lines = [];
+  if (prod) lines.push([0, 0, { product_id: prod.id, product_uom_qty: Number(d.quantite) > 0 ? Number(d.quantite) : 1 }]);
+  lines.push([0, 0, { display_type: 'line_note', name: note + (prod ? '' : ' (produit à choisir)') }]);
+  const id = await kw('sale.order', 'create', [{ partner_id: partner.id, company_id: companyId, order_line: lines }]);
+  const [so] = await kw('sale.order', 'read', [[id]], { fields: ['name', 'amount_untaxed', 'amount_total'] });
+  return { id, numero: so.name, montant_ht: so.amount_untaxed, client: partner.name, client_cree: cree, produit: prod ? prod.name : null, lien: lienOdoo('sale.order', id) };
+}
+
 module.exports = {
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, produitPourDemande, brouillonDemande,
 };

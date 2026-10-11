@@ -64,7 +64,19 @@ function roleFor(email) {
 // Une session a toujours un rôle et jamais de type : un lien signé (ex. BAT) ne peut pas servir de session
 function getUser(req) {
   const u = verify(parseCookies(req)[COOKIE]);
-  return u && !u.t && (u.role === 'admin' || u.role === 'equipe') ? u : null;
+  if (!(u && !u.t && (u.role === 'admin' || u.role === 'equipe'))) return null;
+  // Anciennes sessions sans profils : admin -> tout, équipe -> technique
+  if (!Array.isArray(u.profils) || !u.profils.length) u.profils = u.role === 'admin' ? ['admin'] : ['technique'];
+  return u;
+}
+// L'utilisateur a-t-il ce profil ? (admin = tous les profils)
+const aProfil = (u, p) => !!u && (u.role === 'admin' || (u.profils || []).includes('admin') || (u.profils || []).includes(p));
+function requireProfil(p) {
+  return (req, res, next) => {
+    if (aProfil(req.user, p)) return next();
+    if (req.path.startsWith('/gestion/api/')) return res.status(403).json({ error: 'Accès réservé (profil ' + p + ')' });
+    return res.redirect('/gestion');
+  };
 }
 
 // Middleware : page HTML -> redirige vers la connexion ; API -> 401
@@ -83,7 +95,7 @@ function requireUser(req, res, next) {
       if (req.path.startsWith('/gestion/api/')) return res.status(403).json({ error: 'Change ton mot de passe provisoire avant de continuer' });
       return res.redirect('/gestion/auth/mot-de-passe');
     }
-    req.user = { ...user, name: v.affichage, collab: v.affichage };
+    req.user = { ...user, name: v.affichage, collab: v.affichage, profils: v.profils, role: v.profils.includes('admin') ? 'admin' : 'equipe' };
     next();
   }).catch(err => { console.error('Gestion auth : contrôle de session', err.message); refuser(); });
 }
@@ -301,7 +313,7 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
         console.warn('Gestion auth : compte non autorisé', email);
         return res.status(403).send(`Le compte ${email} n'a pas accès à l'interface de gestion IGS.`);
       }
-      setCookie(res, COOKIE, sign({ email, name: claims.name || email, role, exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
+      setCookie(res, COOKIE, sign({ email, name: claims.name || email, role, profils: role === 'admin' ? ['admin'] : ['technique'], exp: Date.now() + SESSION_HOURS * 3600e3 }), SESSION_HOURS * 3600);
       console.log(`Gestion : connexion ${email} (${role})`);
       res.redirect('/gestion');
     } catch (err) {
@@ -318,4 +330,4 @@ ${u.provisoire ? '<div class="info">Ton mot de passe est provisoire : choisis to
   });
 }
 
-module.exports = { mount, requireUser, requireAdmin, getUser, baseUrl, sign, verify };
+module.exports = { mount, requireUser, requireAdmin, requireProfil, aProfil, getUser, baseUrl, sign, verify };
