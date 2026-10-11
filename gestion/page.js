@@ -1237,13 +1237,14 @@ async function adTel(){
     h += '<div class="btnrow" style="margin:0 0 10px">'+Object.keys(lib).filter(k => res[k]).map(k => '<span class="esp" style="background:'+lib[k][1]+'">'+lib[k][0]+' : '+res[k]+'</span>').join('')+'</div>';
     const aVoir = r.lignes.filter(l => l.statut !== 'deja_ok');
     if (aVoir.length) {
-      h += '<div style="overflow-x:auto;max-height:460px;overflow-y:auto"><table class="stk"><thead><tr><th></th><th>Client Odoo</th><th>Numéro trouvé</th><th>Dans Odoo</th><th>Trouvé dans</th></tr></thead><tbody>'
+      h += '<div style="overflow-x:auto;max-height:460px;overflow-y:auto"><table class="stk"><thead><tr><th></th><th>Client Odoo</th><th>Numéro trouvé</th><th>Dans Odoo</th><th>Ou saisir le bon numéro</th><th>Trouvé dans</th></tr></thead><tbody>'
         + aVoir.map(l => {
           const choix = l.statut === 'a_ajouter' ? '<input type="checkbox" class="tel-c" data-p="'+l.partnerId+'" data-n="'+l.numeros[0].numero+'" checked>'
             : l.statut === 'plusieurs' ? '<select class="tel-s" data-p="'+l.partnerId+'"><option value="">— choisir —</option>'+l.numeros.map(n => '<option value="'+n.numero+'">'+esc(n.affiche)+'</option>').join('')+'</select>' : '';
-          return '<tr><td>'+choix+'</td><td><b>'+esc(l.client)+'</b><div><span class="esp" style="background:'+lib[l.statut][1]+'">'+lib[l.statut][0]+'</span></div></td><td>'+(l.statut === 'a_ajouter' ? '<b>'+esc(l.numeros[0].affiche)+'</b>'+(l.numeros.length > 1 ? '<div class="note">aussi vu : '+l.numeros.slice(1).map(n => esc(n.affiche)).join(', ')+'</div>' : '') : l.numeros.map(n => esc(n.affiche)).join('<br>'))+'</td><td>'+esc(l.telephoneOdoo || '—')+'</td><td class="note" style="max-width:340px">'+l.numeros.flatMap(n => n.sources).slice(0, 3).map(esc).join('<br>')+'</td></tr>';
+          return '<tr><td>'+choix+'</td><td><b>'+esc(l.client)+'</b><div><span class="esp" style="background:'+lib[l.statut][1]+'">'+lib[l.statut][0]+'</span></div></td><td>'+(l.statut === 'a_ajouter' ? '<b>'+esc(l.numeros[0].affiche)+'</b>'+(l.numeros.length > 1 ? '<div class="note">aussi vu : '+l.numeros.slice(1).map(n => esc(n.affiche)).join(', ')+'</div>' : '') : l.numeros.map(n => esc(n.affiche)).join('<br>'))+'</td><td>'+esc(l.telephoneOdoo || '—')+'</td><td><input class="tel-m" data-p="'+l.partnerId+'" data-odoo="'+(l.telephoneOdoo ? 1 : '')+'" placeholder="0690 12 34 56" style="width:140px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px">'+(l.telephoneOdoo ? '<div class="note">remplacera celui d’Odoo</div>' : '')+'</td><td class="note" style="max-width:340px">'+l.numeros.flatMap(n => n.sources).slice(0, 3).map(esc).join('<br>')+'</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
+    if ((r.exclus || []).length) h += '<div class="note" style="margin-top:8px">Numéros écartés car trouvés chez plusieurs clients différents (numéro de l’équipe ou faux numéro) : '+r.exclus.map(x => esc(x.affiche)+' ('+x.clients+' clients)').join(', ')+'</div>';
     const autres = (r.sansNumero || []).length + (r.introuvables || []).length + (r.illisibles || []).length;
     if (autres) h += '<details style="margin-top:8px"><summary class="note">Non traités : '+(r.sansNumero||[]).length+' dossier(s) sans numéro lisible, '+(r.introuvables||[]).length+' devis introuvable(s) dans Odoo, '+(r.illisibles||[]).length+' fichier(s) illisible(s)</summary><div class="note pre" style="max-height:260px;overflow:auto">'+[...(r.sansNumero||[]).map(x => '• '+x.dossier+' : '+x.raison), ...(r.introuvables||[]).map(x => '• '+x.devis+' ('+(x.client||'?')+') : '+x.raison), ...(r.illisibles||[]).map(x => '• '+x.dossier+(x.fichier?'/'+x.fichier:'')+' : '+x.raison)].map(esc).join('<br>')+'</div></details>';
   }
@@ -1253,10 +1254,14 @@ async function adTel(){
   const tm = (t, k) => { $('tel-msg').className = 'msg on ' + k; $('tel-msg').innerHTML = t; };
   if ($('tel-analyser')) $('tel-analyser').onclick = async () => { try { await post('/gestion/api/admin/telephones/analyser'); setTimeout(adTel, 800); } catch(err){ tm('❌ ' + esc(err.message), 'err'); } };
   if ($('tel-appliquer')) $('tel-appliquer').onclick = async () => {
+    const manuels = [...box.querySelectorAll('.tel-m')].filter(i => i.value.trim()).map(i => ({ partnerId: Number(i.dataset.p), numero: i.value.trim(), manuel: true, remplacer: !!i.dataset.odoo }));
+    const avecManuel = new Set(manuels.map(m => m.partnerId));
     const choix = [...box.querySelectorAll('.tel-c:checked')].map(c => ({ partnerId: Number(c.dataset.p), numero: c.dataset.n }))
-      .concat([...box.querySelectorAll('.tel-s')].filter(s => s.value).map(s => ({ partnerId: Number(s.dataset.p), numero: s.value })));
-    if (!choix.length) { tm('Coche au moins un numéro', 'err'); return; }
-    if (!confirm('Ajouter ' + choix.length + ' numéro(s) dans Odoo ? (seulement sur les fiches qui n’en ont pas)')) return;
+      .concat([...box.querySelectorAll('.tel-s')].filter(s => s.value).map(s => ({ partnerId: Number(s.dataset.p), numero: s.value })))
+      .filter(c => !avecManuel.has(c.partnerId)).concat(manuels);
+    if (!choix.length) { tm('Coche ou saisis au moins un numéro', 'err'); return; }
+    const rempl = manuels.filter(m => m.remplacer).length;
+    if (!confirm('Enregistrer ' + choix.length + ' numéro(s) dans Odoo ?' + (rempl ? '\\n\\n⚠️ ' + rempl + ' numéro(s) saisi(s) à la main REMPLACERONT celui déjà présent dans Odoo.' : '\\n(Seulement sur les fiches qui n’en ont pas.)'))) return;
     $('tel-appliquer').disabled = true;
     try { const o = await post('/gestion/api/admin/telephones/appliquer', { choix }); await adTel(); tm('✅ ' + o.ajoutes + ' numéro(s) ajouté(s)' + (o.ignores ? ', ' + o.ignores + ' ignoré(s)' : '') + (o.details && o.details.length ? '<br>' + o.details.map(esc).join('<br>') : ''), 'ok'); }
     catch(err){ tm('❌ ' + esc(err.message), 'err'); $('tel-appliquer').disabled = false; }

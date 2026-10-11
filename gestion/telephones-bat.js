@@ -16,7 +16,27 @@ const { supabase } = require('./db');
 const CLE = 'odoo_telephones_rapport';
 const norm = commandes.normalizePhone;
 // Numéros d'IGS (pied de page des BAT, signatures) : jamais pris pour celui d'un client
-const NUMEROS_IGS = new Set(['590690691863', ...String(process.env.IGS_TELEPHONES || '').split(',').map(norm).filter(Boolean)]);
+// + le numéro perso d'Ismaël (souvent mis sur les commandes) et le faux numéro de saisie
+const NUMEROS_IGS = new Set(['590690691863', '590690955977', process.env.RECAP_PHONE_NUMBER, ...String(process.env.IGS_TELEPHONES || '').split(',')].map(x => norm(x)).filter(Boolean));
+
+// Numéro remis au bon format international, ou null s'il n'est pas plausible.
+// Corrige les erreurs fréquentes : +590 sur un mobile de Martinique (0696/0697), +596 sur un mobile de Guadeloupe,
+// +33 sur un numéro des Antilles, chiffre doublé (06696…), 0 en trop après l'indicatif.
+function telValide(brut) {
+  let d = String(brut || '').replace(/[^\d+]/g, '');
+  if (d.startsWith('+')) d = d.slice(1); else if (d.startsWith('00')) d = d.slice(2);
+  d = d.replace(/^(590|596|594|262|33)0/, '$1');                 // +590 0690… -> +590 690…
+  let m;
+  if ((m = d.match(/^0?6?(69[0-7]\d{6})$/))) d = m[1];          // 0690…, 06696… (6 doublé), 690…
+  else if ((m = d.match(/^0(5(90|96|94)\d{6})$/))) d = m[1];   // fixe 0590 / 0596
+  else if ((m = d.match(/^(?:590|596|33)(69[0-7]\d{6}|59[06]\d{6})$/))) d = m[1];
+  else if ((m = d.match(/^0([1-79]\d{8})$/))) d = '33' + m[1];
+  if (/^69[0-4]\d{6}$/.test(d) || /^590\d{6}$/.test(d)) d = '590' + d;  // Guadeloupe
+  else if (/^69[67]\d{6}$/.test(d) || /^596\d{6}$/.test(d)) d = '596' + d; // Martinique
+  if (/^(590(590|690|691|694)|596(596|696|697)|594(594|694)|262(262|692|693))\d{6}$/.test(d)) return d;
+  if (/^33[1-79]\d{8}$/.test(d)) return d;
+  return null;
+}
 const RE_TEL = /(?:(?:\+|00)\s?(?:33|590|596|594|262)[\s.\-]?(?:\(0\)\s?)?|0)[1-9](?:[\s.\-]?\d){8}/g;
 const RE_DEVIS = /\bDE\s?\d{6,8}\b/i;
 
@@ -52,9 +72,9 @@ const MOT_TEL = /(t[ée]l[ée]?(phone)?|phone|portable|mobile|gsm|contact|joindr
 function numerosDans(texte) {
   const t = String(texte), out = new Set();
   for (const m of t.matchAll(RE_TEL)) {
-    const n = norm(m[0]);
-    if (!n || n.length < 11 || n.length > 12 || NUMEROS_IGS.has(n)) continue;
-    const dom = /^(590(590|690|691|694)|596(596|696|697)|594(594|694)|262(262|692|693))\d{6}$/.test(n);
+    const n = telValide(m[0]);
+    if (!n || NUMEROS_IGS.has(n)) continue;
+    const dom = !n.startsWith('33');
     const mobileFr = /^33[67]\d{8}$/.test(n);
     const fixeFr = /^33[1-59]\d{8}$/.test(n) && MOT_TEL.test(t.slice(Math.max(0, m.index - 30), m.index));
     if (dom || mobileFr || fixeFr) out.add(n);
@@ -140,7 +160,7 @@ async function analyser(user) {
             const html = String(m.body?.content || '');
             let nums = [];
             const cellule = html.match(/T[ée]l[ée]phone\s*<\/b>\s*<\/td>\s*<td>([^<]{6,40})</i);
-            if (cellule && norm(cellule[1])) nums = [norm(cellule[1])];
+            if (cellule && telValide(cellule[1])) nums = [telValide(cellule[1])];
             else nums = numerosDans(html.replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').split(/De\s*:|From\s*:|Le .{5,60} a écrit/)[0]);
             const client = formulaire ? sujet.split(/\s+-\s+/).slice(2).join(' - ') : (m.from?.emailAddress?.name || null);
             for (const n of nums) if (!NUMEROS_IGS.has(n)) ajoute(devis, client, n, `mail « ${sujet.slice(0, 60)} » du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')}`);
@@ -152,7 +172,7 @@ async function analyser(user) {
       // 3. Commandes du dashboard (téléphone donné dans le formulaire), y compris l'historique
       if (supabase) {
         const { data } = await supabase.from('gestion_commandes').select('n_devis, client, telephone').not('telephone', 'is', null).not('n_devis', 'is', null).limit(5000);
-        for (const c of data || []) { const n = norm(c.telephone); if (n && !NUMEROS_IGS.has(n)) ajoute(c.n_devis, c.client, n, 'formulaire de commande (dashboard)'); }
+        for (const c of data || []) { const n = telValide(c.telephone); if (n && !NUMEROS_IGS.has(n)) ajoute(c.n_devis, c.client, n, 'formulaire de commande (dashboard)'); }
       }
       // 4. Rapprochement avec Odoo (client du devis), regroupé par fiche client
       const fiches = new Map(); // partnerId -> { partner, numeros: Map(n -> sources), devis: [] }
@@ -166,15 +186,22 @@ async function analyser(user) {
         fi.devis.push(s.devis);
         for (const [n, src] of s.numeros) fi.numeros.set(n, [...(fi.numeros.get(n) || []), ...src.map(x => `${s.devis} · ${x}`)]);
       });
+      // Un même numéro trouvé chez plusieurs clients différents = numéro de l'équipe ou faux numéro : exclu partout
+      const parNumero = new Map();
+      for (const fi of fiches.values()) for (const n of fi.numeros.keys()) parNumero.set(n, (parNumero.get(n) || new Set()).add(fi.partner.id));
+      const exclus = [...parNumero].filter(([, ids]) => ids.size > 1).map(([n, ids]) => ({ numero: n, affiche: odoo.formatTel(n), clients: ids.size }));
+      for (const fi of fiches.values()) for (const e of exclus) fi.numeros.delete(e.numero);
       const lignes = [];
       for (const fi of fiches.values()) {
-        const actuel = norm(fi.partner.phone || '');
+        if (!fi.numeros.size && !fi.partner.phone) continue;
+        const actuel = telValide(fi.partner.phone || '') || norm(fi.partner.phone || '');
         // Le numéro trouvé dans le plus de sources passe en premier ; s'il est nettement devant, il est retenu
         const nums = [...fi.numeros.keys()].sort((a, b) => fi.numeros.get(b).length - fi.numeros.get(a).length);
         const net = nums.length > 1 && fi.numeros.get(nums[0]).length > fi.numeros.get(nums[1]).length;
         let statut;
         if (actuel && nums.includes(actuel)) statut = 'deja_ok';
         else if (actuel) statut = 'different';
+        else if (!nums.length) continue;
         else if (nums.length === 1 || net) statut = 'a_ajouter';
         else statut = 'plusieurs';
         lignes.push({
@@ -186,7 +213,7 @@ async function analyser(user) {
       const ordre = { a_ajouter: 0, plusieurs: 1, different: 2, deja_ok: 3 };
       lignes.sort((a, b) => ordre[a.statut] - ordre[b.statut] || a.client.localeCompare(b.client));
       const resume = lignes.reduce((m, l) => (m[l.statut] = (m[l.statut] || 0) + 1, m), {});
-      await ecrire({ le: new Date().toISOString(), par: user, duree_s: Math.round((Date.now() - t0) / 1000), dossiers: etat.progression.total, pdf: etat.progression.pdf, mails: etat.progression.mails || 0, resume, lignes, introuvables: introuvables.slice(0, 200), sansNumero: sansNumeroFinal.slice(0, 300), illisibles: illisibles.slice(0, 100) });
+      await ecrire({ le: new Date().toISOString(), par: user, duree_s: Math.round((Date.now() - t0) / 1000), dossiers: etat.progression.total, pdf: etat.progression.pdf, mails: etat.progression.mails || 0, resume, lignes, introuvables: introuvables.slice(0, 200), exclus, sansNumero: sansNumeroFinal.slice(0, 300), illisibles: illisibles.slice(0, 100) });
       console.log(`Gestion téléphones Odoo : analyse terminée (${lignes.length} fiches, ${JSON.stringify(resume)})`);
     } catch (err) {
       console.error('Gestion téléphones Odoo (analyse) :', err.message);
@@ -204,16 +231,22 @@ async function appliquer(choix, user) {
   const liste = Array.isArray(choix) && choix.length ? choix : r.lignes.filter(l => l.statut === 'a_ajouter').map(l => ({ partnerId: l.partnerId, numero: l.numeros[0].numero }));
   for (const c of liste) {
     const l = r.lignes.find(x => x.partnerId === Number(c.partnerId));
-    if (!l || !['a_ajouter', 'plusieurs'].includes(l.statut) || !l.numeros.some(n => n.numero === c.numero)) { out.ignores++; continue; }
+    const manuel = !!c.manuel;
+    if (manuel) {
+      const n = telValide(c.numero);
+      if (!n) { out.ignores++; out.details.push(`${l ? l.client : c.partnerId} : numéro « ${c.numero} » invalide`); continue; }
+      c.numero = n;
+    }
+    if (!l || (!manuel && (!['a_ajouter', 'plusieurs'].includes(l.statut) || !l.numeros.some(n => n.numero === c.numero)))) { out.ignores++; continue; }
     try {
       const p = await odoo.readPartner(l.partnerId);
       if (!p) { out.ignores++; out.details.push(`${l.client} : fiche introuvable`); continue; }
-      if (p.phone && String(p.phone).trim()) { out.ignores++; l.statut = norm(p.phone) === c.numero ? 'deja_ok' : 'different'; l.telephoneOdoo = p.phone; continue; }
+      if (p.phone && String(p.phone).trim() && !(manuel && c.remplacer)) { out.ignores++; l.statut = norm(p.phone) === c.numero ? 'deja_ok' : 'different'; l.telephoneOdoo = p.phone; continue; }
       const phone = odoo.formatTel(c.numero);
       await odoo.ecrirePartner(l.partnerId, { phone });
       l.statut = 'ajoute'; l.telephoneOdoo = phone;
       out.ajoutes++;
-      if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'odoo_telephone_ajoute', cle: `partner-${l.partnerId}`, details: { client: l.client, partner_id: l.partnerId, telephone: phone, source: 'BAT / commandes' } });
+      if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'odoo_telephone_ajoute', cle: `partner-${l.partnerId}`, details: { client: l.client, partner_id: l.partnerId, telephone: phone, ancien: p.phone || null, source: manuel ? 'saisie manuelle' : 'BAT / commandes' } });
     } catch (err) { out.ignores++; out.details.push(`${l.client} : ${err.message.slice(0, 100)}`); }
   }
   r.resume = r.lignes.reduce((m, x) => (m[x.statut] = (m[x.statut] || 0) + 1, m), {});
@@ -226,4 +259,4 @@ async function rapport() {
   return { enCours: etat.enCours, progression: etat.progression, rapport: await lire() };
 }
 
-module.exports = { analyser, appliquer, rapport, _test: { numerosDans, textePdf } };
+module.exports = { analyser, appliquer, rapport, telValide, _test: { numerosDans, textePdf, telValide } };
