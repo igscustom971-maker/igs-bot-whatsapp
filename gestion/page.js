@@ -544,7 +544,8 @@ ${view === 'accueil' ? `
           <div class="field"><label>Ton nom dans l’export</label><input id="lei-imp-nom" value="Igs Custom bar"></div>
           <input type="file" id="lei-imp-fichier" accept=".txt" style="margin:8px 0">
           <textarea id="lei-imp" class="lei-ta" placeholder="…ou colle ici le contenu du fichier .txt exporté depuis WhatsApp"></textarea>
-          <div class="btnrow"><button class="btn primary" data-lei="importer-historique">Importer</button></div></div>
+          <div class="btnrow"><button class="btn primary" data-lei="importer-historique">Importer</button></div>
+          <div class="note" style="margin-top:6px">Chaque message garde sa vraie date et se range au bon endroit dans la conversation existante ; ceux déjà enregistrés par Leïla sont ignorés (pas de doublon). Numéro accepté sous la forme 590690…, +590 690… ou 0690….</div></div>
       </div>` : '<div class="card"><h3>Accès</h3><div class="note">Tu peux activer ou désactiver Leïla. Le reste des réglages est réservé à l’administrateur.</div></div>'}
     </div>
   </section>` : view === 'commercial' ? `

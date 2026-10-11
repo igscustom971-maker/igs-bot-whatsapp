@@ -44,11 +44,29 @@ async function setHistoryLimit(phoneNumber, limit) {
 }
 
 // Insère plusieurs messages d'un coup (import d'un historique exporté WhatsApp)
+// m.at (Date, facultatif) : vraie date du message (import d'un export WhatsApp), sinon l'heure actuelle
 async function bulkAppendMessages(phoneNumber, messages) {
   if (!supabase || messages.length === 0) return;
-  const rows = messages.map(m => ({ phone_number: phoneNumber, role: m.role, content: m.content }));
-  const { error } = await supabase.from('conversations').insert(rows);
-  if (error) console.error('Supabase bulkAppendMessages erreur:', error.message);
+  const rows = messages.map(m => ({ phone_number: phoneNumber, role: m.role, content: m.content, ...(m.at ? { created_at: new Date(m.at).toISOString() } : {}) }));
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await supabase.from('conversations').insert(rows.slice(i, i + 500));
+    if (error) { console.error('Supabase bulkAppendMessages erreur:', error.message); throw new Error(error.message); }
+  }
+}
+
+// Messages déjà enregistrés pour un numéro sur une période (anti-doublon de l'import)
+async function getMessagesBetween(phoneNumber, depuis, jusqua) {
+  if (!supabase) return [];
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from('conversations').select('role, content, created_at')
+      .eq('phone_number', phoneNumber).gte('created_at', new Date(depuis).toISOString()).lte('created_at', new Date(jusqua).toISOString())
+      .order('created_at', { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
 }
 
 // Récupère les N derniers messages d'un client, triés du plus ancien au plus récent
@@ -248,5 +266,6 @@ module.exports = {
   getHistoryLimit,
   setHistoryLimit,
   bulkAppendMessages,
+  getMessagesBetween,
   getPhoneNumbersActiveSince,
 };

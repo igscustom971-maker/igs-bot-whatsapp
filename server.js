@@ -1850,60 +1850,112 @@ app.get('/cron/keepalive', async (req, res) => {
 
 // ============================================
 // IMPORT D'HISTORIQUE WHATSAPP EXPORTÉ
-// Format WhatsApp : "JJ/MM/AAAA, HH:MM - Nom: message" (les lignes suivantes sans ce motif
-// sont considérées comme la suite du message précédent)
+// Formats WhatsApp reconnus (Android et iPhone) :
+//   « 11/10/2026, 14:05 - Nom: message »   « [11/10/2026 14:05:32] Nom: message »   (AM/PM accepté)
+// Les lignes suivantes sans date sont la suite du message précédent ; les lignes système (chiffrement, ajouts…) sont ignorées.
+// Chaque message garde sa VRAIE date (heure de Guadeloupe dans l'export) ; ceux déjà enregistrés en direct sont ignorés.
 // ============================================
-function parseWhatsAppExport(rawText, teamLabel) {
-  const lineRegex = /^\u200E?(\d{1,2}\/\d{1,2}\/\d{2,4}),?\s(\d{1,2}:\d{2}(?:\s?[APap][Mm])?)\s-\s([^:]+):\s(.*)$/;
-  const lines = rawText.split(/\r?\n/);
-  const messages = [];
-  const normalizedTeamLabel = teamLabel.trim().toLowerCase();
-
-  for (const line of lines) {
-    const match = line.match(lineRegex);
-    if (match) {
-      const sender = match[3].trim();
-      const content = match[4].trim();
-      const role = sender.toLowerCase() === normalizedTeamLabel ? 'assistant' : 'user';
-      messages.push({ role, content });
-    } else if (messages.length > 0 && line.trim()) {
-      // Ligne de continuation d'un message multi-lignes
-      messages[messages.length - 1].content += '\n' + line.trim();
-    }
-  }
-  // On retire les messages au contenu vide (ex: média/ligne système mal interprétée),
-  // puis on fusionne les rôles consécutifs identiques (l'API Claude exige une alternance stricte)
-  const cleaned = messages.filter(m => m.content && m.content.trim().length > 0);
-  const result = [];
-  for (const m of cleaned) {
-    const last = result[result.length - 1];
-    if (last && last.role === m.role) {
-      last.content += '\n' + m.content;
-    } else {
-      result.push({ role: m.role, content: m.content });
-    }
-  }
-  return result;
+const LIGNE_EXPORT = /^[‎‏\s]*\[?(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp]\.?\s?[Mm]\.?)?\]?\s*(?:-\s+)?(.*)$/;
+const MEDIA_EXPORT = /^[‎\s]*(<\s*(m[ée]dias?|media)\s+omis\s*>|<media omitted>|(image|vid[ée]o|audio|sticker|document|GIF)\s+omis(e)?|.*\(fichier joint\)|‎?(image|video|audio|sticker|document) omitted)\s*$/i;
+function dateExport(j, m, a, h, mi, se, ampm) {
+  let an = Number(a); if (an < 100) an += 2000;
+  let hh = Number(h);
+  if (ampm) { const pm = /p/i.test(ampm); if (pm && hh < 12) hh += 12; if (!pm && hh === 12) hh = 0; }
+  // Heure de Guadeloupe (UTC-4, pas d'heure d'été) -> UTC
+  const d = new Date(Date.UTC(an, Number(m) - 1, Number(j), hh + 4, Number(mi), Number(se || 0)));
+  return isNaN(d) ? null : d;
 }
+function parseWhatsAppExport(rawText, teamLabel) {
+  const lines = String(rawText || '').split(/\r?\n/);
+  const messages = [];
+  const equipe = String(teamLabel || '').trim().toLowerCase();
+  let courant = null; // message en cours (null après une ligne système : ses suites sont ignorées)
+  for (const line of lines) {
+    const m = line.match(LIGNE_EXPORT);
+    if (m) {
+      const reste = m[8];
+      const i = reste.indexOf(': ');
+      const at = dateExport(m[1], m[2], m[3], m[4], m[5], m[6], m[7]);
+      if (i <= 0 || !at) { courant = null; continue; } // ligne système (« Les messages sont chiffrés… », « X a ajouté Y »)
+      const sender = reste.slice(0, i).replace(/^[‎‏~\s]+/, '').trim();
+      let content = reste.slice(i + 2).trim();
+      const roleMsg = sender.toLowerCase() === equipe ? 'assistant' : 'user';
+      // Même libellé que les médias enregistrés en direct (anti-doublon)
+      if (MEDIA_EXPORT.test(content)) content = roleMsg === 'assistant' ? '[Image ou fichier envoyé par l\'équipe]' : '[Image ou fichier reçu, sans texte]';
+      if (/^(ce message a été supprimé|this message was deleted|vous avez supprimé ce message)\.?$/i.test(content.replace(/[‎]/g, '').trim())) { courant = null; continue; }
+      courant = { role: roleMsg, content, at, sender };
+      messages.push(courant);
+    } else if (courant && line.trim()) {
+      courant.content += '\n' + line.trim();
+    }
+  }
+  return messages.filter(x => x.content && x.content.trim());
+}
+// Numéro saisi librement (+590 690…, 0690…, 00590…) -> format WhatsApp 590690XXXXXX
+function normaliserNumeroImport(v) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.length === 10 && d.startsWith('0')) {
+    const p = d.slice(0, 4), r = d.slice(1);
+    if (['0690', '0691', '0590'].includes(p)) d = '590' + r;
+    else if (['0696', '0697', '0596'].includes(p)) d = '596' + r;
+    else if (['0694', '0594'].includes(p)) d = '594' + r;
+    else if (['0692', '0693', '0262'].includes(p)) d = '262' + r;
+    else d = '33' + r;
+  }
+  return d;
+}
+const normTexte = t => String(t || '').replace(/[‎‏]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 app.post('/admin/importer-historique', async (req, res) => {
-  if (req.body.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
-  const { numero, nomEquipe, texte } = req.body;
+  if (!ADMIN_TOKEN || !egalSur(String(req.body.token || ''), ADMIN_TOKEN)) return res.status(403).send('Token invalide');
+  const { nomEquipe, texte } = req.body;
+  const numero = normaliserNumeroImport(req.body.numero);
   if (!numero || !nomEquipe || !texte) {
     return res.status(400).send('Champs manquants (numero, nomEquipe, texte requis)');
   }
+  if (numero.length < 9) return res.status(400).send('Numéro invalide : écris-le comme 590690XXXXXX (ou 0690 XX XX XX)');
 
   const parsed = parseWhatsAppExport(texte, nomEquipe);
   if (parsed.length === 0) {
     return res.send('⚠️ Aucun message reconnu dans le texte fourni. Vérifie le format et le nom d\'équipe.');
   }
+  if (!parsed.some(m => m.role === 'assistant')) {
+    const noms = [...new Set(parsed.map(m => m.sender))].slice(0, 5).join(', ');
+    return res.send(`⚠️ Aucun message de l'équipe reconnu : le nom « ${nomEquipe} » ne correspond à personne dans l'export (noms trouvés : ${noms}). Corrige le nom et réimporte.`);
+  }
 
-  // On ne garde que les 200 derniers messages pour rester cohérent avec la nouvelle limite
-  const trimmed = parsed.slice(-200);
-  await db.bulkAppendMessages(numero, trimmed);
+  // On ne garde que les 200 derniers messages (limite d'historique de ce client)
+  const derniers = parsed.slice(-200);
+  // Anti-doublon : un message déjà enregistré (reçu ou envoyé en direct, ou import précédent) avec le même texte,
+  // le même rôle et une heure proche (± 10 min, l'export n'a que la minute) n'est pas réimporté
+  const t0 = derniers[0].at.getTime() - 3600e3, t1 = derniers[derniers.length - 1].at.getTime() + 3600e3;
+  let existants = [];
+  try { existants = await db.getMessagesBetween(numero, t0, t1); }
+  catch (err) { return res.status(500).send(`⚠️ Impossible de vérifier l'historique existant (${err.message}) : import annulé pour éviter les doublons.`); }
+  const deja = existants.map(e => ({ role: e.role, t: normTexte(e.content), at: Date.parse(e.created_at), pris: false }));
+  const proche = (a, b) => Math.abs(a - b) <= 10 * 60e3;
+  const aImporter = [];
+  let doublons = 0;
+  for (const m of derniers) {
+    const t = normTexte(m.content);
+    // Correspondance exacte, ou message en direct qui regroupait plusieurs lignes (texte contenu dans l'existant)
+    const e = deja.find(x => !x.pris && x.role === m.role && proche(x.at, m.at.getTime()) && (x.t === t || (t.length >= 12 && x.t.includes(t))));
+    if (e) { if (e.t === t) e.pris = true; doublons++; continue; }
+    aImporter.push(m);
+  }
+  // Même minute dans l'export : on décale de quelques millisecondes pour garder l'ordre exact
+  aImporter.forEach((m, i) => { m.at = new Date(m.at.getTime() + (i % 1000)); });
+  if (aImporter.length) {
+    try { await db.bulkAppendMessages(numero, aImporter); }
+    catch (err) { return res.status(500).send(`⚠️ Import impossible : ${err.message}`); }
+  }
   await db.setHistoryLimit(numero, 200);
 
-  res.send(`✅ ${trimmed.length} message(s) importé(s) pour ${numero}, limite d'historique passée à 200 pour ce client`);
+  const jour = d => d.toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe' });
+  res.send(`✅ ${aImporter.length} message(s) importé(s) pour ${numero} (du ${jour(derniers[0].at)} au ${jour(derniers[derniers.length - 1].at)}, à leur vraie date)`
+    + (doublons ? ` · ${doublons} déjà enregistré(s), ignoré(s)` : '')
+    + (parsed.length > 200 ? ` · seuls les 200 derniers messages de l'export sont gardés` : ''));
 });
 
 // TEST UNIQUEMENT : simule la réponse du bot pour un numéro donné avec un message fictif,
