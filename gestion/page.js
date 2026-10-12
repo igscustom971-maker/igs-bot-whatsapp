@@ -141,6 +141,7 @@ tr.row:last-child td{border-bottom:none}
 a.mod:hover{border-color:var(--pink)}
 .ok-empty{color:var(--ok);font-weight:600;padding:8px 0}
 /* Planches */
+.urg{display:inline-block;margin-top:4px;font-size:11px;font-weight:800;letter-spacing:.02em;padding:2px 8px;border-radius:6px;background:#fee2e2;color:#b91c1c;vertical-align:middle}
 .tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:var(--soft);color:var(--ink);margin-left:6px;vertical-align:middle}
 .num{font-variant-numeric:tabular-nums;white-space:nowrap}
 .pay{font-size:11px;font-weight:700;white-space:nowrap}
@@ -1268,15 +1269,16 @@ function plListe(){
   let rows = planches.filter(p => filtre==='TOUS' || (filtre==='ACTIFS' ? plActive(p) : filtre==='NONPAYEES' ? nonPayee(p) : filtre==='HEBDO' ? p.hebdo
     : filtre==='A RECUPERER' ? ['A RECUPERER','A EXPEDIER'].includes(plKey(p.statut)) : filtre==='A PREPARER' ? ['A PREPARER','A IMPRIMER'].includes(plKey(p.statut)) : plKey(p.statut)===filtre));
   if (q) rows = rows.filter(p => norm([p.n_devis,p.client,p.remarques,p.paiement,p.frequence].join(' ')).includes(q));
-  rows.sort((a,b) => (PL_STATUTS.indexOf(plKey(a.statut))+1||0) - (PL_STATUTS.indexOf(plKey(b.statut))+1||0) || String(b.date_commande||'').localeCompare(String(a.date_commande||'')));
+  // Clients hebdo toujours en haut, puis les planches urgentes / prioritaires, puis par statut et date
+  rows.sort((a,b) => (b.hebdo?1:0) - (a.hebdo?1:0) || (plUrgente(b)?1:0) - (plUrgente(a)?1:0) || (PL_STATUTS.indexOf(plKey(a.statut))+1||0) - (PL_STATUTS.indexOf(plKey(b.statut))+1||0) || String(b.date_commande||'').localeCompare(String(a.date_commande||'')));
 
   $('rows').innerHTML = rows.length ? rows.map(p => '<tr class="row" data-k="'+esc(p.cle)+'">'
       + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
-      + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div></td>'
+      + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div>'+(plUrgente(p)?'<div class="urg">🔥 URGENT / PRIORITAIRE</div>':'')+'</td>'
       + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS))+'</td>'
       + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
       + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
-      + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || '', null, true)+'</td>'
+      + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || (p.hebdo ? 'FACTURE HEBDO' : ''), null, true)+'</td>'
       + '<td class="c-hide devis"><a href="#" class="open">'+esc(p.n_devis||'—')+'</a></td>'
       + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td>'
       + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
@@ -1291,7 +1293,9 @@ function inlSel(kind, cle, field, options, value, colors, plain){
   return '<select class="inl'+(plain?' plain':'')+'" data-kind="'+kind+'" data-k="'+esc(cle)+'" data-f="'+field+'" data-old="'+esc(v)+'"'+(c?' style="background:'+c[0]+';color:'+c[1]+'"':'')+'>'
     + (v ? '' : '<option value="">—</option>') + opts.map(o => '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('') + '</select>';
 }
-const PAIEMENTS = ['NON PAYÉE','PAYÉE','ESPECE','CB','VIREMENT'];
+const PAIEMENTS = ['NON PAYÉE','PAYÉE','FACTURE HEBDO','ESPECE','CB','VIREMENT'];
+// « urgent » ou « prioritaire » dans les remarques d'une planche
+const plUrgente = p => /urgen|priorit/i.test(p.remarques || '');
 const ttc = ht => ht == null ? '' : String(Math.round(ht * 1.085 * 100) / 100).replace('.', ',');
 async function encaisserEspeces(source, ref, client, defaut){
   const v = prompt('Montant reçu en espèces pour '+client+' (TTC) :', defaut || '');
@@ -2231,7 +2235,7 @@ async function chargerAuto(){
 async function ouvrirPlanche(cle){
   const p = planches.find(x => x.cle === cle); if (!p) return;
   $('pbody').onclick = null;
-  $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '');
+  $('ptitle').innerHTML = esc(p.client) + ' ' + (p.statut ? plBadge(p.statut) : '') + (plUrgente(p) ? ' <span class="urg">🔥 URGENT / PRIORITAIRE</span>' : '');
   $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
     + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
