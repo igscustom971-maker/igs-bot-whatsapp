@@ -356,8 +356,10 @@ function extractRecapNote(raw) {
 }
 
 // Génère un résumé très court (une phrase) d'une conversation pour le récap
-async function summarizeForRecap(history) {
-  const conversationText = history.map(m => `${m.role === 'user' ? 'Client' : 'Bot'}: ${m.content}`).join('\n');
+async function summarizeForRecap(history, display = '') {
+  const nomClient = String(display || '').replace(/\s*-\s*\d{6,}\s*$/, '').trim();
+  const conversationText = (nomClient && !/^\d+$/.test(nomClient) ? `(Nom du client : ${nomClient})\n` : '')
+    + history.map(m => `${m.role === 'user' ? 'Client' : 'IGS'}: ${m.content}`).join('\n');
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -371,7 +373,8 @@ async function summarizeForRecap(history) {
       system: `Résume cette conversation client en UNE seule phrase narrative, claire et précise, en français, sans guillemets et sans tiret cadratin.
 
 Règles :
-- Si le client a donné son prénom (ou nom) à un moment dans la conversation, commence la phrase par ce prénom. Sinon, commence par "Le client" ou "La cliente" si le genre est déductible, sinon "Un client".
+- Si le nom du client est indiqué en tête, commence la phrase par ce nom. Sinon, si le client a donné son prénom (ou nom) dans la conversation, commence par ce prénom.
+- Les messages « IGS » sont ceux de l'équipe IGS (Ismaël, Maureen, Leïla…) : un prénom qui y apparaît n'est JAMAIS celui du client. Sinon, commence par "Le client" ou "La cliente" si le genre est déductible, sinon "Un client".
 - Précise le produit, la quantité si connue, et l'action encore à faire (ex: devis à envoyer, visuel en attente, relance sans réponse).
 - Reste concis mais informatif, une seule phrase.
 
@@ -908,13 +911,15 @@ async function triggerUrgentAlert(from, fullHistory, { label = '', afternoon = f
   urgentAlertedAt.set(from, Date.now());
 
   const display = await resolveClientDisplay(from, fullHistory);
-  const summary = await summarizeForRecap(fullHistory);
+  const summary = await summarizeForRecap(fullHistory, display);
   urgencesInfos.set(from, { display, summary, at: Date.now() });
   let sent = false;
 
   if (canSendUrgentNow()) {
     urgentCountToday++; // réservé avant l'envoi (plusieurs alertes simultanées ne dépassent pas le plafond)
-    sent = await envoyerAIsmael(`🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`, 'Alerte Leïla');
+    const texteAlerte = `🚨 URGENT${label}, intervention nécessaire\n\n${summary}\n\nClient : ${display}`;
+    sent = await envoyerAIsmael(texteAlerte, 'Alerte Leïla');
+    if (sent) { try { require('./gestion/assistant-ismael').noter(texteAlerte); } catch {} }
     if (sent) {
       console.log(`Alerte urgente envoyée pour ${from} (${urgentCountToday}/${MAX_URGENT_PER_DAY} aujourd'hui)`);
     } else {
@@ -965,7 +970,7 @@ async function handleAfternoonHandoff(from, rawText) {
     loggedForRecapAt.set(from, Date.now());
     const display = await resolveClientDisplay(from, fullHistory);
     const summary = realText
-      ? await summarizeForRecap(fullHistory)
+      ? await summarizeForRecap(fullHistory, display)
       : "A envoyé un vocal ou une image/un fichier sans texte, à regarder dans la conversation";
     const dateKey = getGuadeloupeDateKey(new Date());
     if (!dailyLogs[dateKey]) dailyLogs[dateKey] = [];
@@ -1140,6 +1145,11 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
     console.log(`Planche urgente de ${from} prise par Leïla : planche PRIORITAIRE, pas d'alerte`);
   }
   const reply = nettoyerPourClient(replySansDevis);
+  if (!reply && !resteMarqueur(replySansDevis)) {
+    // Leïla n'avait rien à dire (remerciement, emoji…) : silence, rien n'est rejoué (planche/devis déjà pris au message précédent)
+    console.log(`Pas de réponse de Leïla pour ${from} : rien à répondre (réponse vide après les marqueurs internes)`);
+    return;
+  }
   if (!reply || resteMarqueur(reply)) {
     console.error(`Réponse de Leïla bloquée pour ${from} (marqueur interne restant ou vide) : ${JSON.stringify(replySansDevis).slice(0, 200)}`);
     await triggerUrgentAlert(from, fullHistory, { label: ' (réponse de Leïla bloquée, à reprendre)' }).catch(() => {});
@@ -1201,8 +1211,8 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
 
   if ((isEscalation || isDevisOrPlanche) && shouldTrigger(loggedForRecapAt, from)) {
     loggedForRecapAt.set(from, Date.now()); // dédoublonné 12h ou jusqu'à une réponse manuelle
-    const summary = await summarizeForRecap(fullHistory);
     const display = await resolveClientDisplay(from, fullHistory);
+    const summary = await summarizeForRecap(fullHistory, display);
     const logEntry = { from, display, summary, urgent: isEscalation };
 
     if (manualOverride === true) {
