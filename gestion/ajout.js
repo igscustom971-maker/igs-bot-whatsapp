@@ -125,6 +125,11 @@ async function faire(cle, data, user) {
   let tailles = null;
   try {
     tailles = await fichierTailles(c.n_devis);
+    // Pas encore de tableau (commande refaite sans Tailles.xlsx…) : créé depuis le modèle si le dossier existe
+    if (!tailles) {
+      const dossier = await commandes.findCommandeFolder(c.n_devis).catch(() => null);
+      if (dossier) { await require('./duplication').taillesDepuisModele(dossier.id); tailles = await fichierTailles(c.n_devis); }
+    }
     if (tailles) { await ajouterTailles(tailles.id, lignes); etapes.push('✅ Tableau de la commande (Tailles.xlsx) complété'); }
     else etapes.push('⚠️ Pas de Tailles.xlsx dans le dossier (formulaire pas encore reçu ?) : le client ou l\'équipe ajoutera les articles dans le formulaire');
   } catch (err) { etapes.push(`❌ Tailles.xlsx non complété : ${err.message}`); tailles = null; }

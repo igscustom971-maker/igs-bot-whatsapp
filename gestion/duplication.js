@@ -1,7 +1,8 @@
 // ============================================
 // IGS GESTION - HISTORIQUE ET DUPLICATION DES COMMANDES
 // Deux cas, choisis à chaque fois par l'utilisateur :
-//  - "refaire"  : erreur de production -> même devis suffixé -R1, -R2… (pas de nouveau devis Odoo), BAT recopié
+//  - "refaire"  : erreur de production -> même devis suffixé -R1, -R2… (pas de nouveau devis Odoo), BAT recopié si les
+//                 articles sont identiques (sinon BAT à refaire, PAYÉE), bon de commande SEFI rempli tout de suite
 //  - "nouveau"  : nouvelle commande -> copie du devis Odoo d'origine (brouillon, à ajuster et envoyer depuis Odoo)
 // Dans les deux cas : nouveau dossier SharePoint (visuels recopiés + Tailles.xlsx avec les lignes ajustées)
 // et nouvelle ligne dans le tableau Commandes de l'Excel.
@@ -113,6 +114,18 @@ async function ecrireTailles(fileId, lignes) {
   await g.patchRange(fileId, sheet, address, values);
 }
 
+// Tailles.xlsx neuf à partir du modèle client (commande d'origine sans tableau des tailles)
+async function taillesDepuisModele(dossierId, nomDossier = 'Tailles') {
+  const r = await fetch(process.env.FORM_TEMPLATE_URL || 'https://igscustom.fr/Template_Commande_IGS.xlsx');
+  if (!r.ok) throw new Error(`modèle Tailles.xlsx indisponible (${r.status})`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  let sd;
+  try { sd = await g.createFolder(dossierId, nomDossier); }
+  catch (err) { sd = (await g.children(dossierId)).find(i => i.folder && i.name.toLowerCase() === nomDossier.toLowerCase()); if (!sd) throw err; }
+  const it = await g.uploadFile(sd.id, 'Tailles.xlsx', buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', undefined, 'replace');
+  return it.id;
+}
+
 async function dupliquer(cleSource, data, user) {
   const mode = data.mode === 'nouveau' ? 'nouveau' : data.mode === 'refaire' ? 'refaire' : null;
   if (!mode) throw new Error('Choisis : refaire la commande ou nouvelle commande');
@@ -155,7 +168,7 @@ async function dupliquer(cleSource, data, user) {
       const estBat = it.file && /\.pdf$/i.test(it.name) && /bonatirer/.test(key(it.name));
       const copier = async () => { try { await g.copyItem(it.id, dossier.id, it.name); return true; } catch (err) { if (existait) return false; throw err; } };
       if (it.folder && !estTailles) { if (await copier()) etapes.push(`Visuel « ${it.name} » recopié`); }
-      else if (estBat && mode === 'refaire') { if (await copier()) etapes.push('BAT recopié'); }
+      else if (estBat && mode === 'refaire' && !data.lignesModifiees) { if (await copier()) etapes.push('BAT recopié'); }
       else if (it.file && /\.(png|jpe?g|webp|svg)$/i.test(it.name)) { await copier(); }
     }
     // Tailles.xlsx : copie du fichier d'origine puis réécriture des lignes
@@ -172,13 +185,22 @@ async function dupliquer(cleSource, data, user) {
       }
       await ecrireTailles(copieId, lignes);
       etapes.push(`Tailles.xlsx créé (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`);
-    } else etapes.push('⚠️ Pas de Tailles.xlsx dans la commande d\'origine : tailles non créées');
-  } else etapes.push('⚠️ Dossier d\'origine introuvable : visuels non recopiés');
+    } else {
+      try { await ecrireTailles(await taillesDepuisModele(dossier.id), lignes); etapes.push(`Tailles.xlsx créé depuis le modèle (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`); }
+      catch (err) { etapes.push(`⚠️ Pas de Tailles.xlsx dans la commande d'origine et modèle indisponible (${err.message}) : tailles non créées`); }
+    }
+  } else {
+    etapes.push('⚠️ Dossier d\'origine introuvable : visuels non recopiés');
+    try { await ecrireTailles(await taillesDepuisModele(dossier.id), lignes); etapes.push('Tailles.xlsx créé depuis le modèle'); }
+    catch (err) { etapes.push(`⚠️ Tailles.xlsx non créé (${err.message})`); }
+  }
+  if (mode === 'refaire' && data.lignesModifiees) etapes.push('Articles modifiés : le BAT est à refaire (commande en PAYÉE)');
 
   // 3. Ligne dans le tableau Commandes
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const statut = txt(data.statut).toUpperCase() || (mode === 'refaire' ? 'VALIDÉE' : 'EN DEVIS');
+  // Reprise à l'identique : BAT déjà validé (VALIDÉE) ; reprise avec articles changés : BAT à refaire (PAYÉE)
+  const statut = txt(data.statut).toUpperCase() || (mode === 'refaire' ? (data.lignesModifiees ? 'PAYÉE' : 'VALIDÉE') : 'EN DEVIS');
   const infosDup = mode === 'refaire' && !data.lignesModifiees ? (src.infos || resume(lignes)) : resume(lignes);
   const remarqueDup = [`${mode === 'refaire' ? 'Reprise' : 'Nouvelle commande'} de ${src.n_devis}`, txt(data.remarque)].filter(Boolean).join(' - ');
   if (require('./source').estBase()) {
@@ -199,10 +221,19 @@ async function dupliquer(cleSource, data, user) {
   etapes.push(`Ligne de commande ajoutée (${statut})`);
   await commandes.syncNow();
 
+  // Reprise : le textile est à recommander -> bon de commande SEFI rempli tout de suite avec le Tailles.xlsx de la reprise
+  // (nouvelle commande : rempli au paiement, comme d'habitude)
+  if (mode === 'refaire') {
+    try {
+      const b = await require('./depot').remplirApresPaiement(numero, src.client);
+      etapes.push(b && b.ok ? (b.deja ? 'BDC SEFI : déjà rempli' : `BDC SEFI rempli${b.lignes != null ? ` (${b.lignes} ligne(s))` : ''}`) : `⚠️ BDC SEFI non rempli (${(b && b.raison) || 'raison inconnue'}) : à commander à la main`);
+    } catch (err) { etapes.push(`⚠️ BDC SEFI non rempli (${err.message}) : à commander à la main`); }
+  }
+
   if (supabase) {
     await supabase.from('gestion_actions').insert({ utilisateur: user, action: mode === 'refaire' ? 'commande_refaite' : 'commande_dupliquee', cle: numero, details: { source: src.n_devis, client: src.client, lignes: lignes.length, devis } });
   }
   return { numero, dossier: dossier.webUrl || null, devis, etapes };
 }
 
-module.exports = { historique, dupliquer };
+module.exports = { historique, dupliquer, taillesDepuisModele };
