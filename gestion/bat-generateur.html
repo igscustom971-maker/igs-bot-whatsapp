@@ -330,7 +330,7 @@ function reglages(){
       + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div><div class="note" data-alerte="' + k + '" style="color:#b91c1c;font-weight:600"></div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
     + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
-    + (p.articles.some(a => a.produit === 'tote' && a.actif) && totePlacement(p) ? '<label class="f">Tote bag (une face)</label><div class="pl" data-tote="1"><div class="row"><select data-f="toteImage">' + optImg(p.totePl.image) + '</select><input type="number" step="0.5" min="1" max="40" data-f="toteLargeur" value="' + p.totePl.largeur + '" title="Largeur (cm)" style="max-width:80px"><span class="note" style="flex:none">cm</span></div>'
+    + (p.articles.some(a => PRODUITS[a.produit] && PRODUITS[a.produit].tote && a.actif) && totePlacement(p) ? '<label class="f">Tote bag / tablier (une face)</label><div class="pl" data-tote="1"><div class="row"><select data-f="toteImage">' + optImg(p.totePl.image) + '</select><input type="number" step="0.5" min="1" max="40" data-f="toteLargeur" value="' + p.totePl.largeur + '" title="Largeur (cm)" style="max-width:80px"><span class="note" style="flex:none">cm</span></div>'
       + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="toteBlanc"' + (p.totePl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="toteReset" title="Recentrer">↺</button></div></div>' : '')
     + '<label class="f">Couleurs et produits</label>'
     + p.articles.map((a, k) => '<div class="coul" data-c="' + k + '"><input type="checkbox" data-f="actif"' + (a.actif ? ' checked' : '') + '><input type="color" data-f="hex" value="' + a.hex + '" title="Teinte exacte">'
@@ -346,7 +346,7 @@ function positionTexte(p, pl){
   const a = p.articles.find(x => x.actif) || p.articles[0]; if (!a) return '';
   const P = PRODUITS[a.produit], zd = P.tote ? P.zones.centre : (P.zones[pl.zone] || P.zones.poitrine);
   const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0), r = n => (Math.round(n * 2) / 2).toString().replace('.', ',');
-  if (P.tote) return '📏 ' + r(zd.x + dx) + ' cm du centre · centre du logo à ' + r(zd.yCentre + dy) + ' cm du haut du sac · largeur ' + r(pl.largeur) + ' cm';
+  if (P.tote) return '📏 ' + r(zd.x + dx) + ' cm du centre · centre du logo à ' + r(zd.yCentre + dy) + ' cm du haut ' + (a.produit === 'tablier' ? 'de la bavette' : 'du sac') + ' · largeur ' + r(pl.largeur) + ' cm';
   if (zd.fx != null) return '📏 décalage ' + r(dx) + ' / ' + r(dy) + ' cm par rapport à la position standard manche';
   if (zd.yBas != null) return '📏 ' + r(zd.x + dx) + ' cm du centre · bas du logo à ' + r(zd.yBas - dy) + ' cm du bas du vêtement';
   return '📏 ' + (zd.x + dx === 0 ? 'centré' : r(Math.abs(zd.x + dx)) + ' cm du centre (' + (zd.x + dx > 0 ? 'côté cœur' : 'côté opposé') + ')') + ' · haut du logo à ' + r(zd.y + dy) + ' cm sous le haut du col · largeur ' + r(pl.largeur) + ' cm';

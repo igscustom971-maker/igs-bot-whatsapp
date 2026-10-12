@@ -19,6 +19,9 @@
                  zones: { coeur: { x: 10, y: 13 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 7 } } },
     tote:      { nom: 'Tote bag', avant: 'tote', dos: 'tote', A: 42, B: 38, tote: true, echelle: 0.9,
                  zones: { centre: { x: 0, yCentre: 21 } } },
+    // Tablier (Wordans, 65 x 90 cm) : une seule face comme le tote bag, logo 27 cm sur la bavette ; y depuis le haut de la bavette
+    tablier:   { nom: 'Tablier', avant: 'tablier', dos: 'tablier', A: 90, B: 65, tote: true,
+                 zones: { centre: { x: 0, yCentre: 35 } } },
     // Sweats SOL'S : SPIDER (col rond), CONNOR (capuche, oversize), STONE (zippé à capuche) ; y depuis l'épaule
     sweat:     { nom: 'Sweat col rond', avant: 'sweat-avant', dos: 'sweat-dos', A: 68, B: 54,
                  zones: { coeur: { x: 12.5, y: 15 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 10 }, manche: { fx: 0.11, fy: 0.42, rot: -6 } } },
@@ -29,8 +32,8 @@
   };
   // Gabarits avec capuche : part de la hauteur de l'image au-dessus des épaules (le vêtement « commence » là),
   // et hauteur de la ligne où mesurer le corps (manches détachées du corps)
-  const HAUTS = { 'zip-avant': 0.27, 'zip-dos': 0.27, 'hoodie-avant': 0.27, 'hoodie-dos': 0.14 };
-  const LIGNES_CORPS = { 'zip-avant': 0.72, 'zip-dos': 0.72, 'hoodie-avant': 0.8, 'hoodie-dos': 0.8 };
+  const HAUTS = { tablier: 0.105, 'zip-avant': 0.27, 'zip-dos': 0.27, 'hoodie-avant': 0.27, 'hoodie-dos': 0.14 };
+  const LIGNES_CORPS = { tablier: 0.6, 'zip-avant': 0.72, 'zip-dos': 0.72, 'hoodie-avant': 0.8, 'hoodie-dos': 0.8 };
   // Mesures fournisseur par taille (A longueur / B largeur à plat, cm) : sert aux alertes "visuel trop grand"
   const TAILLES = {
     tshirt: {
@@ -44,6 +47,7 @@
       homme: { S: [66, 44], M: [68, 47], L: [70, 50], XL: [71, 53], XXL: [73, 56], '3XL': [74, 59], '4XL': [76, 62], '5XL': [77, 65] },
       femme: { XS: [62, 39], S: [64, 41], M: [66, 43], L: [68, 45], XL: [69, 47], XXL: [70, 49] } },
     tote: { homme: { TU: [42, 38] } },
+    tablier: { homme: { TU: [90, 65] } },
     sweat: { homme: { S: [67, 51], M: [68, 54], L: [69, 57], XL: [70, 60], XXL: [71, 63], '3XL': [72, 66] } },
     hoodie: { homme: { XS: [68, 60], S: [69, 63], M: [70, 66], L: [71, 69], XL: [72, 72], XXL: [73, 75] } },
     zip: { homme: { XS: [69, 48], S: [70, 51], M: [71, 54], L: [72, 57], XL: [73, 60], XXL: [74, 63], '3XL': [75, 66] } },
@@ -82,6 +86,7 @@
 
   function produitDe(type) {
     const t = norm(type);
+    if (/tablier/.test(t)) return 'tablier';
     if (/tote|sac/.test(t)) return 'tote';
     if (/sweat|hoodie|capuche|zip/.test(t)) return /zip/.test(t) ? 'zip' : /capuche|hoodie/.test(t) ? 'hoodie' : 'sweat';
     if (/polo/.test(t)) return 'polo';
@@ -184,7 +189,7 @@
         majTextes(page);
         if (!page.zone) page.zone = C.zone_flocage || '';
         // Commande uniquement en tote bags : une face, 27 cm
-        if (articles.every(a => a.produit === 'tote') && placements.length) Object.assign(page, { face: 'Face (27cm)', dos: '', autres: '', zone: 'Face (27cm)' });
+        if (articles.every(a => PRODUITS[a.produit] && PRODUITS[a.produit].tote) && placements.length) Object.assign(page, { face: 'Face (27cm)', dos: '', autres: '', zone: 'Face (27cm)' });
         return page;
       });
     }
@@ -216,7 +221,7 @@
       const w = pl.largeur * pxW * etat.echelle * (p.echelle || 1), h = w * (ih / iw);
       const dx = pl.dx + (zd.ddx || 0), dy = pl.dy + (zd.ddy || 0);
       let cx, top;
-      if (p.tote) { cx = m.cx + (zd.x + dx) * pxW; top = m.hautCorps + (zd.yCentre + dy) * pxH - h / 2; }
+      if (p.tote) { cx = m.cx + (zd.x + dx) * pxW; top = (m.hautCorps || m.haut || 0) + (zd.yCentre + dy) * pxH - h / 2; }
       else if (zd.fx != null) { cx = m.w * zd.fx + dx * pxW; top = m.h * zd.fy + dy * pxH - h / 2; }
       else if (zd.yBas != null) { top = m.h - (zd.yBas - dy) * pxH - h; cx = centreA(m, top + h / 2) + (zd.x + dx) * pxW; }
       else { top = y0 + (zd.y + dy) * pxH; cx = centreA(m, top + h / 2) + (zd.x + dx) * pxW; }
@@ -290,7 +295,7 @@
     // Ligne opaque à une hauteur donnée ; si les manches sont détachées du corps (plusieurs morceaux), seul le
     // morceau du milieu (le corps) compte
     const simple = fr => { const y = Math.min(h - 1, Math.round(h * fr)); let a = -1, b = -1; for (let i = 0; i < w; i++) if (alpha(i, y) > 40) { if (a < 0) a = i; b = i; } return [a, b]; };
-    const ligne = !/^(sweat|zip|hoodie)-/.test(nom) ? simple : fr => {
+    const ligne = !/^(sweat|zip|hoodie)-|^tablier$/.test(nom) ? simple : fr => {
       const y = Math.min(h - 1, Math.round(h * fr)), segs = [];
       let a = -1;
       for (let i = 0; i <= w; i++) {

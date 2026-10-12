@@ -20,6 +20,7 @@ const DEFAUT = {
     { nom: 'Sweat col rond', tailles: ['S', 'M', 'L', 'XL', '2XL', '3XL'], coupe: false, couleurs: ['Gris clair', 'Gris chiné', 'Gris foncé', 'Noir profond', 'Blanc', 'Bordeaux', 'Rouge', 'Orange', 'Vert bouteille'] },
     { nom: 'Sweat zippé à capuche', tailles: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'], coupe: false, couleurs: ['Noir profond', 'Blanc', 'Rouge', 'Vert prairie', 'French marine', 'Royal'] },
     { nom: 'Tote Bag', tailles: ['TU'], coupe: false },
+    { nom: 'Tablier', tailles: ['TU'], coupe: false, couleurs: ['Blanc', 'Noir profond'] },
     { nom: 'Casquette', tailles: ['TU'], coupe: false },
     { nom: 'T-Shirt Enfant', tailles: T_ENFANT, coupe: false },
     { nom: 'T-shirt fourni', tailles: T_ADULTE, coupe: true },
@@ -46,18 +47,19 @@ async function getListes() {
   if (supabase) {
     const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'listes').maybeSingle();
     if (data && data.valeur) { try { v = { ...DEFAUT, ...JSON.parse(data.valeur) }; } catch {} }
-    // Nouveaux produits (sweats SOL'S, oct. 2026) ajoutés une fois aux listes déjà enregistrées depuis l'Admin
+    // Nouveaux produits ajoutés une seule fois aux listes déjà enregistrées depuis l'Admin (un retrait ensuite est respecté)
     if (data && data.valeur) {
-      const { data: f } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'listes_sweats_ajoutes').maybeSingle();
-      if (!f) {
+      for (const [flag, re, avant] of [['listes_sweats_ajoutes', /^sweat/i, /tote/i], ['listes_tablier_ajoute', /^tablier$/i, /casquette/i]]) {
+        const { data: f } = await supabase.from('gestion_reglages').select('valeur').eq('cle', flag).maybeSingle();
+        if (f) continue;
         const noms = new Set(v.produits.map(p => p.nom.toLowerCase()));
-        const ajout = DEFAUT.produits.filter(p => /^sweat/i.test(p.nom) && !noms.has(p.nom.toLowerCase()));
+        const ajout = DEFAUT.produits.filter(p => re.test(p.nom) && !noms.has(p.nom.toLowerCase()));
         if (ajout.length) {
-          const i = v.produits.findIndex(p => /tote/i.test(p.nom));
+          const i = v.produits.findIndex(p => avant.test(p.nom));
           v = { ...v, produits: i >= 0 ? [...v.produits.slice(0, i), ...ajout, ...v.produits.slice(i)] : [...v.produits, ...ajout] };
           await supabase.from('gestion_reglages').upsert({ cle: 'listes', valeur: JSON.stringify(v), updated_at: new Date().toISOString() });
         }
-        await supabase.from('gestion_reglages').upsert({ cle: 'listes_sweats_ajoutes', valeur: new Date().toISOString(), updated_at: new Date().toISOString() });
+        await supabase.from('gestion_reglages').upsert({ cle: flag, valeur: new Date().toISOString(), updated_at: new Date().toISOString() });
       }
     }
   }
