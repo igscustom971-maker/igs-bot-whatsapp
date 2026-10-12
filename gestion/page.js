@@ -1314,7 +1314,7 @@ function inlSel(kind, cle, field, options, value, colors, plain){
 }
 const PAIEMENTS = ['NON PAYÉE','PAYÉE','FACTURE HEBDO','ESPECE','CB','VIREMENT'];
 // « urgent » ou « prioritaire » dans les remarques d'une planche
-const plUrgente = p => /urgen|priorit/i.test(p.remarques || '');
+const plUrgente = p => !!p.prioritaire || /urgen|priorit/i.test(p.remarques || '');
 const ttc = ht => ht == null ? '' : String(Math.round(ht * 1.085 * 100) / 100).replace('.', ',');
 async function encaisserEspeces(source, ref, client, defaut){
   const v = prompt('Montant reçu en espèces pour '+client+' (TTC) :', defaut || '');
@@ -2263,6 +2263,7 @@ async function ouvrirPlanche(cle){
     + kv('N° de suivi', esc(p.numero_suivi))
     + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + '<label class="espbox" style="cursor:pointer;background:#fef2f2;border-color:#fecaca"><input type="checkbox" id="pl-prio"'+(p.prioritaire?' checked':'')+' style="width:18px;height:18px"><b>🔥 Prioritaire</b><span class="sub">la planche passe en haut de la liste avec la mention</span></label>'
     + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
     + plActionsHtml(p)
     + '<div class="card" id="pl-vis"><h3>🖼 Importer un visuel</h3>'
@@ -2273,6 +2274,18 @@ async function ouvrirPlanche(cle){
     + '<div id="pl-bd"></div>'
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherActions(p);
+  $('pl-prio').onchange = async e => {
+    const actif = e.target.checked; e.target.disabled = true;
+    try {
+      const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/prioritaire', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ actif }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+      p.prioritaire = actif;
+      if (!actif && plUrgente(p)) alert('Mention retirée, mais la remarque contient encore « urgent » ou « prioritaire » : la planche reste en haut tant que la remarque n’est pas modifiée.');
+      await charger(false);
+      if (panelCle === cle) await ouvrirPlanche(cle);
+    } catch(err){ e.target.checked = !actif; e.target.disabled = false; alert('❌ ' + err.message); }
+  };
   $('pl-vis-ok').onclick = async () => {
     const fs = $('pl-vis-f').files, m = $('pl-vis-msg');
     const dire = (h, k) => { m.className = 'msg on ' + k; m.innerHTML = h; };

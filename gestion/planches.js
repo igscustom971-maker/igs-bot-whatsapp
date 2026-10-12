@@ -200,7 +200,37 @@ async function syncNow() {
 
 async function listPlanches({ force = false } = {}) {
   if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
-  return cache;
+  const prio = await chargerPrioritaires();
+  return { ...cache, rows: cache.rows.map(r => ({ ...r, prioritaire: prio.has(r.cle) })) };
+}
+
+// ---------- Planches prioritaires (case « 🔥 Prioritaire » de la fiche) ----------
+// Liste des clés dans gestion_reglages (« planches_prioritaires ») : pas de colonne à ajouter dans la base.
+let prioritaires = { set: new Set(), le: 0 };
+async function chargerPrioritaires(force = false) {
+  if (!supabase) return prioritaires.set;
+  if (!force && Date.now() - prioritaires.le < 30e3) return prioritaires.set;
+  try {
+    const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'planches_prioritaires').maybeSingle();
+    const l = data && data.valeur ? JSON.parse(data.valeur) : [];
+    prioritaires = { set: new Set(Array.isArray(l) ? l : []), le: Date.now() };
+  } catch (err) { console.error('Planches prioritaires :', err.message); }
+  return prioritaires.set;
+}
+async function setPrioritaire(cle, actif, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Planche introuvable');
+  const set = await chargerPrioritaires(true);
+  if (actif) set.add(cle); else set.delete(cle);
+  const presentes = new Set(cache.rows.map(r => r.cle));
+  const liste = [...set].filter(k => presentes.has(k));
+  if (supabase) {
+    const { error } = await supabase.from('gestion_reglages').upsert({ cle: 'planches_prioritaires', valeur: JSON.stringify(liste), updated_at: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+  }
+  prioritaires = { set: new Set(liste), le: Date.now() };
+  await journal(user, actif ? 'planche_prioritaire' : 'planche_non_prioritaire', cle, { client: row.client });
+  return { prioritaire: !!actif };
 }
 
 // ---------- Fichiers de la planche ----------
@@ -701,4 +731,4 @@ async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' })
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { setPrioritaire, supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
