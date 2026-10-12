@@ -253,6 +253,47 @@ async function getFichiers(cle) {
   return { fichiers: out };
 }
 
+// ---------- Bordereau d'expédition d'une planche ----------
+// Rangé dans Technique/Planches/BORDEREAUX (jamais vidé par les nettoyages automatiques),
+// nommé « <clé> - <client> - BORDEREAU.pdf » ; déposable à tout moment, dès la création de la planche.
+const sansInterdits = s => String(s || '').replace(/[\\"*:<>?/|#%]/g, '').replace(/\s+/g, ' ').trim();
+async function dossierBordereaux() {
+  const root = await planchesRoot();
+  const D = { drive: planchesDrive };
+  const f = (await g.children(root.id, D)).find(i => i.folder && /^bordereaux$/i.test(i.name.trim()));
+  return { f: f || await g.createFolder(root.id, 'BORDEREAUX', D), D };
+}
+async function bordereaux(cle) {
+  const p = cache.rows.find(r => r.cle === cle);
+  if (!p) throw new Error('Planche introuvable');
+  const { f, D } = await dossierBordereaux();
+  const pre = key(sansInterdits(cle));
+  return (await g.children(f.id, D)).filter(i => i.file && key(i.name.split(' - ')[0]) === pre)
+    .map(i => ({ id: i.id, nom: i.name, modifie: i.lastModifiedDateTime }))
+    .sort((a, b) => String(a.modifie).localeCompare(String(b.modifie)));
+}
+async function ajouterBordereau(cle, file, user) {
+  const p = cache.rows.find(r => r.cle === cle);
+  if (!p) throw new Error('Planche introuvable');
+  if (!file) throw new Error('Aucun fichier reçu');
+  if (!/\.(pdf|png|jpe?g)$/i.test(file.originalname || '')) throw new Error('Format accepté : PDF, PNG ou JPG');
+  const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0].toLowerCase();
+  const { f, D } = await dossierBordereaux();
+  const nom = `${sansInterdits(cle)} - ${sansInterdits(p.client).slice(0, 60)} - BORDEREAU${ext}`;
+  const it = await g.uploadFile(f.id, nom, file.buffer, file.mimetype, D, 'rename');
+  await journal(user, 'bordereau_ajoute', cle, { nom: it.name });
+  console.log(`Gestion : bordereau ${it.name} déposé pour la planche ${cle} (${user})`);
+  return { bordereaux: await bordereaux(cle) };
+}
+async function supprimerBordereau(cle, itemId, user) {
+  const liste = await bordereaux(cle);
+  const b = liste.find(x => x.id === itemId);
+  if (!b) throw new Error('Fichier non autorisé');
+  await g.deleteItem(b.id, { drive: planchesDrive });
+  await journal(user, 'bordereau_supprime', cle, { nom: b.nom });
+  return { bordereaux: await bordereaux(cle) };
+}
+
 // Proxy : uniquement des fichiers du dossier Planches
 async function fichierAutorise(itemId) {
   if (!planchesDrive) await planchesRoot();
@@ -626,4 +667,4 @@ async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' })
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

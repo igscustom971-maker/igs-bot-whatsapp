@@ -1014,7 +1014,8 @@ async function ajouterBordereau(cle, file, user) {
   if (!row.n_devis) throw new Error('Pas de N° de devis : impossible de retrouver le dossier de la commande');
   if (!file) throw new Error('Aucun fichier reçu');
   if (!/\.(pdf|png|jpe?g)$/i.test(file.originalname || '')) throw new Error('Format accepté : PDF, PNG ou JPG');
-  const f = await findCommandeFolder(row.n_devis);
+  // Bordereau déposé tôt (avant le formulaire du client) : le dossier « N° devis - Client » est créé s'il n'existe pas encore
+  const f = (await findCommandeFolder(row.n_devis)) || await dossierCommande(`${row.n_devis} - ${row.client || ''}`.replace(/[\\"*:<>?/|#%]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120), row.n_devis);
   if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
   const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0].toLowerCase();
   const it = await g.uploadFile(f.id, `BORDEREAU${ext}`, file.buffer, file.mimetype);

@@ -388,6 +388,22 @@ module.exports = function mountGestion(app) {
     try { res.json(await commandes.supprimerBordereau(req.params.cle, req.params.id, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // Planches : même chose (dossier Technique/Planches/BORDEREAUX), à tout moment
+  app.get('/gestion/api/planches/:cle/bordereaux', auth.requireUser, async (req, res) => {
+    try { res.json({ bordereaux: await planches.bordereaux(req.params.cle) }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/planches/:cle/bordereau', auth.requireUser, (req, res, next) => uploadBordereau(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (15 Mo max)' : err.message });
+    next();
+  }), async (req, res) => {
+    try { res.json(await planches.ajouterBordereau(req.params.cle, req.file, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion bordereau planche :', err.message); res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/planches/:cle/bordereau/:id/supprimer', auth.requireUser, async (req, res) => {
+    try { res.json(await planches.supprimerBordereau(req.params.cle, req.params.id, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
 
   // BAT : marqué envoyé au client (ou annulé) ; relecture des dossiers à la demande
   app.post('/gestion/api/commandes/:cle/bat-envoye', auth.requireUser, async (req, res) => {

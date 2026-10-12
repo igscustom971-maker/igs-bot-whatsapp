@@ -1628,24 +1628,27 @@ const fichierUrl = (id, dl) => '/gestion/api/fichier/'+encodeURIComponent(id)+(d
 function bordereauxLiens(c){
   return c && c.bordereaux && c.bordereaux.length ? c.bordereaux.map(b => '<a class="esp bd" href="'+fichierUrl(b.id)+'" target="_blank" rel="noopener" title="Ouvrir '+esc(b.nom)+' pour l\\'imprimer">🖨 '+esc(b.nom.replace(/\\.[a-z0-9]+$/i,''))+'</a>').join(' ') : '';
 }
-function bordereauCard(c, liste){
+// type 'planche' : fichiers servis par le proxy des planches, routes /api/planches/:cle/bordereau
+const bdFichierUrl = (type, id, dl) => type === 'planche' ? '/gestion/api/planches/fichier/'+encodeURIComponent(id)+(dl?'?dl=1':'') : fichierUrl(id, dl);
+function bordereauCard(c, liste, type){
   return '<div class="card" id="bd-card"><h3>📦 Bordereau d\\'expédition</h3>'
     + (liste.length ? liste.map(b => '<div class="cand"><div><b>'+esc(b.nom)+'</b>'+(b.modifie?'<div class="sub">déposé le '+new Date(b.modifie).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</div>':'')+'</div>'
-        + '<div style="display:flex;gap:6px"><a class="btn primary" href="'+fichierUrl(b.id)+'" target="_blank" rel="noopener">🖨 Imprimer</a><a class="btn" href="'+fichierUrl(b.id,1)+'">⬇</a><button class="btn" data-bd-del="'+esc(b.id)+'" title="Supprimer ce bordereau">×</button></div></div>').join('')
-      : '<div class="note">Aucun bordereau pour l\\'instant.</div>')
+        + '<div style="display:flex;gap:6px"><a class="btn primary" href="'+bdFichierUrl(type, b.id)+'" target="_blank" rel="noopener">🖨 Imprimer</a><a class="btn" href="'+bdFichierUrl(type, b.id,1)+'">⬇</a><button class="btn" data-bd-del="'+esc(b.id)+'" title="Supprimer ce bordereau">×</button></div></div>').join('')
+      : '<div class="note">Aucun bordereau pour l\\'instant. Tu peux le déposer dès maintenant, même si '+(type === 'planche' ? 'la planche' : 'la commande')+' n\\'est pas encore prête.</div>')
     + '<div class="btnrow" style="margin-top:10px"><label class="btn" style="cursor:pointer">⬆ Déposer un bordereau (PDF, PNG, JPG)<input type="file" id="bd-file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/*" style="display:none"></label></div>'
     + '<div class="msg" id="bd-msg"></div></div>';
 }
-function brancherBordereau(c){
+function brancherBordereau(c, type){
   const card = $('bd-card'); if (!card) return;
+  const base = '/gestion/api/'+(type === 'planche' ? 'planches' : 'commandes')+'/'+encodeURIComponent(c.cle);
   const m = (t, k) => { $('bd-msg').className = 'msg on ' + k; $('bd-msg').innerHTML = t; };
-  const maj = liste => { c.bordereaux = liste.length ? liste.map(b => ({ id: b.id, nom: b.nom })) : null; card.outerHTML = bordereauCard(c, liste); brancherBordereau(c); afficher(); };
+  const maj = liste => { c.bordereaux = liste.length ? liste.map(b => ({ id: b.id, nom: b.nom })) : null; card.outerHTML = bordereauCard(c, liste, type); brancherBordereau(c, type); if (type !== 'planche') afficher(); };
   $('bd-file').onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
-    m('Dépôt de '+esc(f.name)+' dans le dossier de la commande…', 'info');
+    m('Dépôt de '+esc(f.name)+'…', 'info');
     const fd = new FormData(); fd.append('fichier', f);
     try {
-      const r = await fetch('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bordereau', { method: 'POST', body: fd });
+      const r = await fetch(base+'/bordereau', { method: 'POST', body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
       maj(j.bordereaux || []); m('✅ Bordereau déposé : l\\'équipe peut l\\'imprimer', 'ok');
@@ -1654,7 +1657,7 @@ function brancherBordereau(c){
   card.onclick = async e => {
     const b = e.target.closest('[data-bd-del]'); if (!b) return;
     if (!confirm('Supprimer ce bordereau ?')) return;
-    try { const j = await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/bordereau/'+encodeURIComponent(b.dataset.bdDel)+'/supprimer'); maj(j.bordereaux || []); }
+    try { const j = await post(base+'/bordereau/'+encodeURIComponent(b.dataset.bdDel)+'/supprimer'); maj(j.bordereaux || []); }
     catch(err){ m('❌ ' + esc(err.message), 'err'); }
   };
 }
@@ -2237,8 +2240,14 @@ async function ouvrirPlanche(cle){
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
     + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
     + plActionsHtml(p)
+    + '<div id="pl-bd"></div>'
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherActions(p);
+  fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/bordereaux').then(r => r.json()).then(j => {
+    if (cle !== panelCle || !$('pl-bd')) return;
+    $('pl-bd').innerHTML = bordereauCard(p, j.bordereaux || [], 'planche');
+    brancherBordereau(p, 'planche');
+  }).catch(() => {});
   chargerClientOdoo(p);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   try{
@@ -2416,7 +2425,7 @@ async function ouvrir(cle){
     if (d.erreur) throw new Error(d.erreur);
     if (!d.trouve) { $('dossier').innerHTML = '<div class="card note">Aucun dossier « '+esc(c.n_devis)+' - … » trouvé dans Clients/Commandes.</div>'; return; }
     let h = '';
-    if (statutKey(c.statut) === 'A EXPEDIER' || (d.bordereaux && d.bordereaux.length)) h += bordereauCard(c, d.bordereaux || []);
+    if (norm(c.statut || '') !== norm('LIVRÉE') || (d.bordereaux && d.bordereaux.length)) h += bordereauCard(c, d.bordereaux || [], 'commande');
     if (d.controle) h += d.controle.ecart
       ? '<div class="warnbox">⚠️ <b>Incohérence devis / tableau</b> : le devis indique <b>'+d.controle.devis+' pièce(s)</b>, le tableau des tailles du client en contient <b>'+d.controle.tableau+'</b> ('+(d.controle.ecart>0?'+':'')+d.controle.ecart+'). Vérifie avec le client avant de commander les t-shirts.</div>'
       : '<div class="note" style="color:var(--ok);font-weight:600">✅ Tableau des tailles cohérent avec le devis ('+d.controle.devis+' pièces)</div>';
@@ -2454,7 +2463,7 @@ async function ouvrir(cle){
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
     $('dossier').onclick = batClic;
-    brancherBordereau(c);
+    brancherBordereau(c, 'commande');
     if (d.bordereaux) { const avant = JSON.stringify(c.bordereaux||null); c.bordereaux = d.bordereaux.length ? d.bordereaux.map(b => ({ id: b.id, nom: b.nom })) : null; if (avant !== JSON.stringify(c.bordereaux)) afficher(); }
     dernierDossier = d;
   } catch(e){
