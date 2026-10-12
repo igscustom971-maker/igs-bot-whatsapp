@@ -532,6 +532,7 @@ IMPORTANT : nos clients réguliers qui commandent des planches passent systémat
 2. Demande un email UNIQUEMENT si on ne l'a pas déjà de notre côté (contexte "CLIENT CONNU" = on l'a déjà, ne redemande rien)
 3. Réponds en confirmant brièvement que c'est noté et que tu lui dis quand c'est prêt (ex: "Salut ! C'est noté, je te dis quand c'est prêt"). Le devis / lien de paiement part tout seul par mail, inutile de le détailler à un habitué. Reste très court
 3 bis. Dès que les pages (donc le métrage) sont claires, ajoute À LA FIN de ta réponse le marqueur interne ###PLANCHE:METRES|DÉTAIL### (ex: ###PLANCHE:2|pages 3 et 4 du Canva###, ou ###PLANCHE:A3|visuel A3### pour un format A3/A4). Le client ne le voit jamais : la planche est ajoutée toute seule au tableau des planches. Une seule fois par demande, pas quand tu poses encore la question
+3 ter. Planche URGENTE ou PRIORITAIRE (« c'est urgent », « pour ce midi », « au plus vite ») : ce n'est PAS une urgence à remonter. Dis simplement ok (ex: "Ok c'est noté, on la passe en priorité !"), sans promettre d'heure précise, et termine le marqueur par |URGENT (ex: ###PLANCHE:2|pages 3 et 4 du Canva|URGENT###) : la planche est créée en prioritaire pour l'équipe. N'ajoute pas ###URGENT### pour ça
 4. Rappelle les infos de retrait/livraison adaptées à sa localisation (voir CATALOGUE ci-dessus) uniquement si besoin
 
 **FLOW B, tout le reste (nouveau client, devis textile, situation ambiguë, ou client connu mais demande différente) :**
@@ -1122,7 +1123,7 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
 
   // Détecter le marqueur d'urgence, et le retirer avant d'envoyer quoi que ce soit au client
   // Urgence = marqueur du modèle OU mots-clés évidents (relance, paiement annoncé, annulation, plainte...)
-  const isUrgent = URGENT_RE.test(rawReply) || /^\s*PLAINTE\s*:/i.test(rawReply) || looksUrgent(lastUserText);
+  let isUrgent = URGENT_RE.test(rawReply) || /^\s*PLAINTE\s*:/i.test(rawReply) || looksUrgent(lastUserText);
   const { clean: replyNoRecap, note: recapNote } = extractRecapNote(rawReply);
   // Renvoi du BAT demandé par le client : marqueur ###BAT:N°DEVIS### retiré (module gestion)
   const { clean: replySansBat, devis: batDemande } = require('./gestion/leila').extraireBat(replyNoRecap);
@@ -1130,6 +1131,14 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   const { clean: replySansPlanche, planche: plancheDemandee } = require('./gestion/leila').extrairePlanche(replySansBat);
   // Demande de devis complète : marqueur ###DEVIS:…### retiré, notée dans le module Commercial (brouillon Odoo pré-fait)
   const { clean: replySansDevis, devis: devisDemande } = require('./gestion/leila').extraireDevis(replySansPlanche);
+  // Planche urgente d'un client régulier : Leïla la prend (planche ajoutée en PRIORITAIRE), ce n'est pas une alerte.
+  // Le mot « urgent » du client suffit à la rendre prioritaire ; seule une vraie urgence notée par Leïla (plainte…) alerte encore.
+  if (plancheDemandee && /\b(urgent|urgente|urgence|prioritaire|au plus vite|asap)\b/i.test(lastUserText || '')) plancheDemandee.prioritaire = true;
+  if (plancheDemandee && isUrgent && !/PLAINTE/i.test(`${rawReply.match(/^\s*PLAINTE\s*:/i) ? 'PLAINTE' : ''} ${recapNote || ''}`)) {
+    isUrgent = false;
+    plancheDemandee.prioritaire = true;
+    console.log(`Planche urgente de ${from} prise par Leïla : planche PRIORITAIRE, pas d'alerte`);
+  }
   const reply = nettoyerPourClient(replySansDevis);
   if (!reply || resteMarqueur(reply)) {
     console.error(`Réponse de Leïla bloquée pour ${from} (marqueur interne restant ou vide) : ${JSON.stringify(replySansDevis).slice(0, 200)}`);
@@ -2021,9 +2030,10 @@ app.post('/admin/simuler', async (req, res) => {
       );
     }
 
-    const isUrgent = URGENT_RE.test(rawReply) || looksUrgent(message);
+    let isUrgent = URGENT_RE.test(rawReply) || looksUrgent(message);
     const lei = require('./gestion/leila');
     const { clean: sansPl, planche: plSim } = lei.extrairePlanche(lei.extraireBat(rawReply).clean);
+    if (plSim && (isUrgent || /\b(urgent|urgente|urgence|prioritaire|au plus vite|asap)\b/i.test(message)) && !/PLAINTE/i.test(rawReply)) { isUrgent = false; plSim.prioritaire = true; }
     const { clean: sansDv, devis: dvSim } = lei.extraireDevis(sansPl);
     const reply = nettoyerPourClient(sansDv);
 
@@ -2034,7 +2044,7 @@ app.post('/admin/simuler', async (req, res) => {
       `Réponse du bot :\n${reply}` +
       (isUrgent ? `\n\n🚨 Aurait déclenché une alerte urgente` : '') +
       (dvSim ? `\n\n📝 Aurait noté une demande de devis : ${[dvSim.quantite, dvSim.produit, dvSim.zone, dvSim.nom, dvSim.email].filter(Boolean).join(' · ')}` : '') +
-      (plSim ? `\n\n🎞 Aurait ajouté une planche au tableau : ${plSim.metres}${/^A[34]$/.test(plSim.metres) ? '' : ' m'} (${plSim.detail})` : '')
+      (plSim ? `\n\n🎞 Aurait ajouté une planche au tableau : ${plSim.metres}${/^A[34]$/.test(plSim.metres) ? '' : ' m'} (${plSim.detail})${plSim.prioritaire ? ' · 🔥 PRIORITAIRE' : ''}` : '')
     );
   } catch (err) {
     console.error('Erreur simulation:', err);

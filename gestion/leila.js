@@ -193,12 +193,16 @@ function extrairePlanche(texte) {
   if (!m) return { clean, planche: null };
   const v = m[1].trim().toUpperCase().replace(',', '.');
   const metres = /^A[34]$/.test(v) ? v : Number(v) > 0 && Number(v) < 100 ? String(Math.round(Number(v) * 100) / 100) : null;
-  return { clean, planche: metres ? { metres, detail: m[2].trim().slice(0, 200) || 'demande WhatsApp' } : null };
+  // ###PLANCHE:2|pages 3 et 4 du Canva|URGENT### : planche prioritaire
+  const parts = m[2].split('|').map(x => x.trim()).filter(Boolean);
+  const prioritaire = parts.some(x => /^(urgent|urgente|prioritaire)$/i.test(x));
+  const detail = parts.filter(x => !/^(urgent|urgente|prioritaire)$/i.test(x)).join(' · ').slice(0, 200) || 'demande WhatsApp';
+  return { clean, planche: metres ? { metres, detail, prioritaire } : null };
 }
 
 // Planche commandée sur WhatsApp : ajoutée au tableau des planches (À PRÉPARER), au nom déjà utilisé pour ce client
 const planchesRecentes = new Map(); // anti-doublon : même client + même demande dans les 6 h
-async function creerPlancheWhatsApp(tel, { metres, detail }) {
+async function creerPlancheWhatsApp(tel, { metres, detail, prioritaire }) {
   const cleDoublon = `${tel}|${metres}|${detail}`;
   if (Date.now() - (planchesRecentes.get(cleDoublon) || 0) < 6 * 3600e3) return;
   planchesRecentes.set(cleDoublon, Date.now());
@@ -220,13 +224,14 @@ async function creerPlancheWhatsApp(tel, { metres, detail }) {
     // (Pas de rapprochement par le nom WhatsApp : n'importe qui peut prendre le nom d'un client. Sans numéro connu, l'équipe l'ajoute à la main.)
     if (!client) throw new Error('client non reconnu par son numéro (ni dans les planches, ni dans Odoo)');
     const res = await planches.ajouter({ client, ...(partnerId ? { partnerId } : {}), metres, statut: 'A PREPARER', remarques: `Demande WhatsApp (Leïla) : ${detail} · ${tel}${sur ? ' · ' + sur : ''}` }, 'Leïla (WhatsApp)');
-    console.log(`Gestion Leïla : planche ${metres} ajoutée pour ${client} (${detail})${res?.compteur ? ' sur son compteur hebdo' : ''}`);
+    if (prioritaire && res?.planche?.cle) await planches.setPrioritaire(res.planche.cle, true, 'Leïla (WhatsApp)').catch(err => console.error('Gestion Leïla : planche non marquée prioritaire :', err.message));
+    console.log(`Gestion Leïla : planche ${metres} ajoutée pour ${client} (${detail})${res?.compteur ? ' sur son compteur hebdo' : ''}${prioritaire ? ' · PRIORITAIRE' : ''}`);
   } catch (err) {
     console.error(`Gestion Leïla : planche WhatsApp non ajoutée pour ${tel} :`, err.message);
     try {
       const g = require('./graph');
       const box = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
-      await g.sendMail(box, { to: box, subject: `Planche WhatsApp à ajouter à la main - ${tel}`, html: `<p>Leïla a pris une commande de planche sur WhatsApp mais n'a pas pu l'ajouter au tableau (${String(err.message).replace(/</g, '&lt;')}).</p><p>Numéro : ${tel}<br>Métrage : ${metres}<br>Détail : ${String(detail).replace(/</g, '&lt;')}</p>` });
+      await g.sendMail(box, { to: box, subject: `${prioritaire ? '🔥 URGENT - ' : ''}Planche WhatsApp à ajouter à la main - ${tel}`, html: `<p>Leïla a pris une commande de planche sur WhatsApp mais n'a pas pu l'ajouter au tableau (${String(err.message).replace(/</g, '&lt;')}).</p><p>Numéro : ${tel}<br>Métrage : ${metres}<br>Détail : ${String(detail).replace(/</g, '&lt;')}</p>` });
     } catch {}
   }
 }

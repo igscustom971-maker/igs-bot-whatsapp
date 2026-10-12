@@ -472,8 +472,15 @@ async function ajouter(data, user) {
     if (ligne) {
       if (format || ligne.format) throw new Error('Client hebdo : le compteur se fait en mètres (pas en A3/A4)');
       const total = Math.round(((ligne.metres || 0) + metres) * 100) / 100;
-      if (source.estBase()) await ecrireBase(ligne.cle, { metres: total });
-      else await ecrireLigne(t, ligne._row, { metres: total });
+      const maj = { metres: total };
+      // Infos de la demande (pages du Canva…) ajoutées à la suite des remarques de la ligne hebdo
+      const info = String(data.remarques || '').trim();
+      if (info) {
+        const d = new Date().toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit' });
+        maj.remarques = [String(ligne.remarques || '').trim(), `${d} +${metres} m : ${info}`].filter(Boolean).join(' | ').slice(-500);
+      }
+      if (source.estBase()) await ecrireBase(ligne.cle, maj);
+      else await ecrireLigne(t, ligne._row, maj);
       await syncNow();
       await journal(user, 'compteur_hebdo_ajoute', ligne.cle, { client: ligne.client, ajout: metres, total });
       return { planche: cache.rows.find(r => r._row === ligne._row) || null, compteur: { avant: ligne.metres || 0, ajout: metres, total } };
