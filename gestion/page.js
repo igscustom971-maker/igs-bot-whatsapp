@@ -869,7 +869,7 @@ function coAfficher(){
     ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ht), '#68677D', 'clients'],
   ];
   $('co-kpis').innerHTML = tuiles.map(([l, n, sub, c, go]) => '<a class="kpi" href="#" data-go="'+go+'" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></a>').join('');
-  if ($('nav-n-com')) $('nav-n-com').textContent = (nDem + k.a_relancer + ((k.impayes && k.impayes.a_relancer) || 0)) || '';
+  if ($('nav-n-com')) { $('nav-n-com').textContent = nDem || ''; $('nav-n-com').title = nDem ? nDem + ' demande(s) de devis à traiter' : ''; }
   $('nb-demandes').textContent = nDem || ''; $('nb-devis').textContent = k.a_relancer || ''; $('nb-facturer').textContent = k.reste_a_facturer.n || '';
   if ($('nb-impayes')) $('nb-impayes').textContent = (k.impayes && k.impayes.a_relancer) || '';
   const pl = id => coLimite[id] || 12;
@@ -1244,6 +1244,12 @@ function navCompteurs(){
     if ($('nav-n-bat')) $('nav-n-bat').textContent = bat || '';
   } catch(e){}
 }
+// Menu Commercial : nombre de demandes de devis à traiter (Leïla WhatsApp, mails / formulaire du site, Ismaël), sur toutes les pages
+async function navDemandes(){
+  if (!$('nav-n-com')) return;
+  try { const r = await fetch('/gestion/api/commercial/demandes-compte'); if (!r.ok) return; const j = await r.json(); $('nav-n-com').textContent = j.n || ''; $('nav-n-com').title = j.n ? j.n + ' demande(s) de devis à traiter' : ''; } catch(e){}
+}
+if (document.getElementById('nav-n-com')) { navDemandes(); setInterval(() => { if (!document.hidden) navDemandes(); }, 120000); }
 function afficher(){ navCompteurs(); if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else if (VIEW === 'commandes') liste(); }
 
 // ---------- Planches DTF ----------

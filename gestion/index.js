@@ -80,6 +80,9 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/commercial/solde/:numero', auth.requireUser, com, actCom(req => commercial.facturerSolde(String(req.params.numero), quiCom(req))));
   app.post('/gestion/api/commercial/demandes/:id/brouillon', auth.requireUser, com, actCom(req => commercial.preparerBrouillon(Number(req.params.id), quiCom(req), req.body?.nom)));
   app.post('/gestion/api/commercial/demandes/:id/envoyer', auth.requireUser, com, actCom(req => commercial.envoyerDemande(Number(req.params.id), quiCom(req))));
+  app.get('/gestion/api/commercial/demandes-compte', auth.requireUser, com, async (req, res) => {
+    try { res.json(await commercial.compteDemandes()); } catch (err) { res.json({ n: 0 }); }
+  });
   app.post('/gestion/api/commercial/demandes/:id/annuler', auth.requireUser, com, actCom(req => commercial.annulerDemande(Number(req.params.id), quiCom(req), req.body?.motif)));
   app.post('/gestion/api/commercial/devis/:num/annuler', auth.requireUser, com, actCom(req => commercial.annulerDevis(String(req.params.num), quiCom(req), req.body?.motif)));
   app.post('/gestion/api/commercial/depuis-conversation', auth.requireUser, com, actCom(req => commercial.depuisConversation(String(req.body?.telephone || ''), quiCom(req), { nom: req.body?.nom })));

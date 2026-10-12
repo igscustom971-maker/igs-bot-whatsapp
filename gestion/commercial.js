@@ -111,6 +111,12 @@ async function demandes() {
     return rows.map(d => ({ ...d, lien_odoo: d.devis_id ? odoo.lienOdoo('sale.order', d.devis_id) : null }));
   }
 }
+// Nombre de demandes à traiter (menu du dashboard, sans interroger Odoo)
+async function compteDemandes() {
+  if (!supabase) return { n: 0 };
+  const { count } = await supabase.from('gestion_demandes').select('id', { count: 'exact', head: true }).in('statut', ['nouvelle', 'brouillon', 'erreur']);
+  return { n: count || 0 };
+}
 async function marquerDepuisOdoo(d, e) {
   const statut = e.etat === 'cancel' ? 'annulee' : 'envoye';
   await supabase.from('gestion_demandes').update({ statut, traite_par: statut === 'envoye' ? 'Odoo (envoyé depuis Odoo)' : 'Odoo (annulé dans Odoo)', traite_le: new Date().toISOString() }).eq('id', d.id);
@@ -568,4 +574,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };
+module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, compteDemandes, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };
