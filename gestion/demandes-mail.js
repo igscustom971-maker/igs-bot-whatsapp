@@ -56,7 +56,7 @@ function scoreSpam({ message, telephone, entreprise, page, formulaire }) {
 
 const SYSTEME = `Tu tries les mails reçus par IGS CUSTOM BAR, atelier de personnalisation textile et d'impression DTF en Guadeloupe.
 Réponds uniquement avec un objet JSON, sans texte autour.
-Champs : spam (true pour un message automatique, générique ou suspect sans besoin concret : « je souhaite plus d'informations, contactez-moi par mail », prospection SEO/marketing, lien douteux, texte qui reprend juste le nom de l'atelier ; false pour un vrai client, même bref, qui décrit ce qu'il veut), demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom de la personne ou de la structure, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion).`;
+Champs : spam (true pour un message automatique, générique ou suspect sans besoin concret : « je souhaite plus d'informations, contactez-moi par mail », prospection SEO/marketing, lien douteux, texte qui reprend juste le nom de l'atelier ; false pour un vrai client, même bref, qui décrit ce qu'il veut), demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom et prénom de la personne, sinon ""), entreprise (nom de la société, association, club, mairie, école… pour laquelle la personne écrit, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion).`;
 
 async function reglage(cle, defaut = null) {
   if (!supabase) return defaut;
@@ -126,9 +126,11 @@ async function relever() {
       const valide = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || '').trim());
       // Formulaire : l'adresse du client est dans le champ « Adresse mail », jamais l'expéditeur (@igscustom.fr)
       const email = valide(a.email) && !/@igscustom\.fr$/i.test(a.email) ? String(a.email).trim().toLowerCase() : f ? (valide(f.email) ? f.email.toLowerCase() : null) : exp;
-      const nom = String(a.nom || (f && (f.entreprise || f.nom)) || (f ? '' : m.from?.emailAddress?.name) || '').trim();
+      const nom = String((f && f.nom) || a.nom || (f ? '' : m.from?.emailAddress?.name) || '').trim();
+      // Champ « Entreprise » du formulaire (prioritaire), sinon la structure repérée dans le mail
+      const entreprise = String((f && f.entreprise) || a.entreprise || '').trim();
       const d = await commercial.nouvelleDemande({
-        source: 'mail', email, nom, telephone: normTel(a.telephone || (f && f.telephone)),
+        source: 'mail', email, nom, entreprise, telephone: normTel(a.telephone || (f && f.telephone)),
         produit: String(a.produit || '').trim(), quantite: Number(a.quantite) || null, zone: String(a.zone || '').trim(),
         details: [String(a.details || '').trim(), f ? `(formulaire du site, ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')})` : `(mail du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')} : « ${sujet.slice(0, 80)} »)`].filter(Boolean).join(' '),
       }, 'Leïla (mail)');

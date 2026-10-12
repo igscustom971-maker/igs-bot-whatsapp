@@ -294,6 +294,41 @@ async function demandeDevis({ texte }) {
   return { resultat: await require('./demandes-ismael').traiter(`Devis ${txt(texte)}`) };
 }
 
+// Devis à partir de la conversation WhatsApp d'un client (Ismaël a discuté avec lui lui-même) : exécuté tout de suite
+// (rien n'est envoyé au client : la demande et le brouillon Odoo vont dans « Demandes à traiter »)
+async function devisConversation({ client }) {
+  const c = txt(client);
+  if (!c) return { erreur: 'précise le nom ou le numéro du client' };
+  let tel = null;
+  if (/\d{6,}/.test(c.replace(/\D/g, ''))) tel = require('./commandes').normalizePhone(c);
+  else if (supabase) {
+    const motif = c.replace(/[%_,()]/g, ' ').trim();
+    const { data } = await supabase.from('clients').select('phone_number, name').ilike('name', `%${motif}%`).limit(6);
+    const l = data || [];
+    if (!l.length) return { erreur: `aucun client WhatsApp nommé « ${c} » : demande son numéro à Ismaël` };
+    if (l.length > 1) return { plusieurs: l.map(x => `${x.name} (${x.phone_number})`), consigne: 'Demande à Ismaël lequel (ou son numéro).' };
+    tel = l[0].phone_number;
+  }
+  if (!tel) return { erreur: 'numéro invalide' };
+  try {
+    const r = await require('./commercial').depuisConversation(tel, PAR);
+    return { fait: true, demande: { client: r.nom, produit: r.produit, quantite: r.quantite, zone: r.zone, details: r.details, email: r.email }, brouillon_odoo: r.devis_numero || null, erreur_brouillon: r.erreur, consigne: 'Dis à Ismaël en 2-3 lignes ce que tu as noté (client, articles) et que c\'est dans « Demandes à traiter » du dashboard (brouillon Odoo à vérifier puis envoyer). Signale ce qui manque (e-mail, tailles, visuel…).' };
+  } catch (err) { return { erreur: err.message }; }
+}
+
+// Annuler un devis (erreur, incompréhension) : préparé, exécuté après le « oui » d'Ismaël
+async function preparerAnnulationDevis({ numero_devis, motif }) {
+  const n = txt(numero_devis).toUpperCase();
+  if (!n) return { erreur: 'n° de devis manquant' };
+  const so = await require('./odoo').devisParNumero(n).catch(() => null);
+  if (!so) return { erreur: `devis ${n} introuvable dans Odoo` };
+  if (so.state === 'cancel') return { erreur: `${n} est déjà annulé` };
+  if (!['draft', 'sent'].includes(so.state)) return { erreur: `${n} est déjà confirmé : l'annulation se fait à la main dans Odoo` };
+  const resume = `✖ Annuler le devis *${so.name}* (${so.partner_id ? so.partner_id[1] : 'client ?'}, ${Number(so.amount_untaxed || 0).toFixed(2).replace('.', ',')} € HT)${txt(motif) ? ` – motif : ${txt(motif)}` : ''}.\nIl passera « Annulé » dans Odoo (pas supprimé).`;
+  enAttente = { type: 'annuler_devis', le: Date.now(), resume, numero: so.name, motif: txt(motif), cle: so.name };
+  return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
+}
+
 const OUTILS = [
   { name: 'chercher_commandes', description: 'Cherche des commandes textile par nom de client ou n° de devis : commandes en cours (statut, contenu, livraison, remarque, BAT) et commandes déjà livrées récemment. À utiliser pour toute question sur une commande.', input_schema: { type: 'object', properties: { recherche: { type: 'string', description: 'nom du client (même partiel) ou n° de devis' } }, required: ['recherche'] } },
   { name: 'detail_commande', description: 'Détail complet d\'une commande en cours : tailles du tableau, contact, instructions, ton à employer avec le client (tutoiement/vouvoiement).', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'cle ou n° de devis renvoyé par chercher_commandes' } }, required: ['cle'] } },
@@ -309,9 +344,11 @@ const OUTILS = [
   { name: 'mails_sefi', description: 'Mails reçus du fournisseur SEFI (rupture, remplacement de couleur, délai…) en attente de réponse, avec résumé, texte et devis concernés.', input_schema: { type: 'object', properties: {} } },
   { name: 'preparer_reponse_sefi', description: 'PRÉPARE la réponse à un mail de SEFI (dans le fil du mail, depuis contact@) et les remarques à ajouter aux commandes concernées (ex. « Rouge remplacé par jaune (accord SEFI du 12/10) »). Rédige une réponse courte et polie au nom d\'IGS CUSTOM BAR. Sans mail_id : le dernier mail en attente. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { mail_id: { type: 'string' }, reponse: { type: 'string', description: 'texte de la réponse à SEFI (vide = classer sans répondre)' }, remarques: { type: 'array', items: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, texte: { type: 'string' } }, required: ['cle', 'texte'] } } } } },
   { name: 'tableau_de_bord', description: 'Vue d\'ensemble IGS : demandes de devis en cours, urgences WhatsApp sans réponse, commandes par statut et en retard, BAT en attente, planches par statut, devis à relancer, reste à facturer, impayés.', input_schema: { type: 'object', properties: {} } },
+  { name: 'devis_depuis_conversation', description: 'Ismaël a discuté d\'un devis avec un client sur le WhatsApp IGS (« prépare le devis de Marie, on en a parlé sur WhatsApp ») : relit la conversation avec ce client, en tire la demande (structure, produit, quantité, marquage…) et la met dans « Demandes à traiter » avec le brouillon Odoo. Rien n\'est envoyé au client. Exécuté tout de suite.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom WhatsApp du client ou son numéro' } }, required: ['client'] } },
+  { name: 'preparer_annulation_devis', description: 'PRÉPARE l\'annulation d\'un devis Odoo en brouillon ou envoyé (erreur, incompréhension, client qui renonce). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, motif: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -322,7 +359,7 @@ function systeme() {
 - Plusieurs commandes correspondent ? Liste-les en une ligne chacune et demande laquelle.
 - Actions (ajout d'articles, message à un client, modification d'une commande ou d'une planche) : appelle l'outil preparer_… correspondant ; le résumé et la demande de confirmation sont ajoutés automatiquement à ta réponse. Ne dis jamais qu'une action est faite : elle ne l'est qu'après son « oui ».
 - « Livrée » = statut LIVRÉE (ou dans les livrées récentes) ; TERMINÉE = prête, pas encore remise ; EXPÉDIÉE = colis parti.
-- Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis.
+- Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
 - Ce que tu ne sais pas faire ici (chiffre d'affaires, heures, suppression…) : dis-le et renvoie vers le dashboard ; « récap » donne le récap de production.`;
@@ -363,6 +400,10 @@ async function executer(a) {
     await require('./planches').modifier(a.cle, a.champs, PAR);
     await journal(a.champs);
     return `✅ Planche mise à jour${a.champs.statut ? ` (statut *${a.champs.statut}*)` : ''}.`;
+  }
+  if (a.type === 'annuler_devis') {
+    const r = await require('./commercial').annulerDevis(a.numero, PAR, a.motif);
+    return r.deja ? `ℹ️ ${r.numero} était déjà annulé.` : `✅ Devis ${r.numero} annulé dans Odoo.`;
   }
   if (a.type === 'message') {
     if (a.canal === 'whatsapp') await require('./notifications').envoyerTexteWhatsApp(a.tel, a.texte);

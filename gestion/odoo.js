@@ -325,7 +325,7 @@ async function partnerParTelephone(telIntl) {
   const d = String(telIntl || '').replace(/\D/g, '');
   if (d.length < 9) return null;
   const a = d.slice(-4, -2), b = d.slice(-2);
-  const r = await kw('res.partner', 'search_read', [['|', ['phone', 'ilike', `%${a} ${b}`], ['phone', 'ilike', `%${a}${b}`]]], { fields: ['id', 'name', 'email', 'phone'], limit: 80 });
+  const r = await kw('res.partner', 'search_read', [['|', ['phone', 'ilike', `%${a} ${b}`], ['phone', 'ilike', `%${a}${b}`]]], { fields: ['id', 'name', 'email', 'phone', 'parent_id'], limit: 80 });
   const norm = require('./commandes').normalizePhone;
   return r.find(p => norm(p.phone || '') === d) || null;
 }
@@ -333,7 +333,7 @@ async function partnerParTelephone(telIntl) {
 async function partnerParEmail(email) {
   const e = String(email || '').trim();
   if (!e || !e.includes('@')) return null;
-  const r = await kw('res.partner', 'search_read', [[['email', '=ilike', e]]], { fields: ['id', 'name', 'email', 'phone'], limit: 1 });
+  const r = await kw('res.partner', 'search_read', [[['email', '=ilike', e]]], { fields: ['id', 'name', 'email', 'phone', 'parent_id'], limit: 1 });
   return r[0] || null;
 }
 
@@ -422,6 +422,19 @@ async function noteDevis(id, texte) {
 async function devisParNumero(numero) {
   const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id', 'name', 'state', 'partner_id', 'amount_untaxed', 'amount_total', 'invoice_ids', 'invoice_status'], limit: 1 });
   return r[0] || null;
+}
+// Annuler un devis (erreur, incompréhension, client qui renonce…) : passé « Annulé » dans Odoo, jamais supprimé (trace).
+// Seulement un devis en brouillon ou envoyé : une commande confirmée ou facturée se traite à la main dans Odoo.
+async function annulerDevisOdoo({ id, numero }, motif, par) {
+  const dom = id ? [['id', '=', Number(id)]] : [...(await igsSeulement()), ['name', '=', String(numero || '').trim().toUpperCase()]];
+  const [so] = await kw('sale.order', 'search_read', [dom], { fields: ['id', 'name', 'state', 'partner_id'], limit: 1 });
+  if (!so) throw new Error('Devis introuvable dans Odoo');
+  if (so.state === 'cancel') return { numero: so.name, deja: true };
+  if (!['draft', 'sent'].includes(so.state)) throw new Error(`${so.name} est déjà confirmé : à annuler à la main dans Odoo (commande, facture, acompte…)`);
+  await kw('sale.order', 'action_cancel', [[so.id]], { context: { disable_cancel_warning: true } });
+  const e = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  await noteDevis(so.id, `Devis annulé depuis le dashboard IGS par ${e(par || '?')}${motif ? ' : ' + e(motif) : ''}.`);
+  return { numero: so.name, client: so.partner_id ? so.partner_id[1] : null };
 }
 async function envoyerDevisOdoo(id) {
   // Pas d'e-mail sur la fiche client : on s'arrête avant (sinon Odoo marque le devis « envoyé » sans rien envoyer)
@@ -708,13 +721,40 @@ async function produitPourDemande(produit, zone) {
 // Brouillon de devis pour une demande (client retrouvé ou créé, produit + quantité, note avec la demande)
 async function brouillonDemande(d) {
   let partner = null;
-  if (d.telephone) partner = await partnerParTelephone(d.telephone).catch(() => null);
+  const tel = d.telephone ? formatTel(d.telephone) : undefined;
+  let cree = false;
+  if (d.contact && d.nom) {
+    // Demande pour une structure (d.nom) faite par une personne (d.contact) : devis au nom de la structure
+    const f = await findPartner(d.nom, { memoriser: false }).catch(() => ({}));
+    partner = f.partner || null;
+    if (!partner) {
+      // La personne a peut-être déjà une fiche rattachée à cette structure
+      let pers = d.telephone ? await partnerParTelephone(d.telephone).catch(() => null) : null;
+      if (!pers && d.email) pers = await partnerParEmail(d.email).catch(() => null);
+      const parent = pers && pers.parent_id ? (Array.isArray(pers.parent_id) ? pers.parent_id : null) : null;
+      if (parent && parent[1].toLowerCase().includes(d.nom.toLowerCase().slice(0, 12))) partner = await readPartner(parent[0]);
+    }
+    if (!partner) {
+      const soc = await createPartner({ name: d.nom, email: d.email || undefined, phone: tel });
+      const socId = typeof soc === 'object' ? soc.id : soc;
+      await kw('res.partner', 'write', [[socId], { is_company: true }]).catch(err => console.error('Odoo fiche société :', err.message));
+      partner = { id: socId, name: d.nom };
+      cree = true;
+    }
+    // La personne en contact rattaché (si elle n'y est pas déjà)
+    try {
+      const enfants = await kw('res.partner', 'search_read', [[['parent_id', '=', partner.id]]], { fields: ['id', 'name'], limit: 50 });
+      if (!enfants.some(e => String(e.name || '').trim().toLowerCase() === d.contact.toLowerCase())) {
+        await kw('res.partner', 'create', [{ name: d.contact, parent_id: partner.id, type: 'contact', company_id: companyId, email: d.email || false, phone: tel || false }]);
+      }
+    } catch (err) { console.error('Odoo contact de la société :', err.message); }
+  }
+  if (!partner && d.telephone) partner = await partnerParTelephone(d.telephone).catch(() => null);
   if (!partner && d.email) partner = await partnerParEmail(d.email).catch(() => null);
   if (!partner && d.nom) { const f = await findPartner(d.nom, { memoriser: false }).catch(() => ({})); /* nom WhatsApp : pas mémorisé comme alias */ partner = f.partner || null; }
-  let cree = false;
   if (!partner) {
     if (!d.nom) throw new Error('nom du client manquant pour créer la fiche Odoo');
-    const id = await createPartner({ name: d.nom, email: d.email || undefined, phone: d.telephone ? formatTel(d.telephone) : undefined });
+    const id = await createPartner({ name: d.nom, email: d.email || undefined, phone: tel });
     partner = { id: typeof id === 'object' ? id.id : id, name: d.nom };
     cree = true;
   }
@@ -790,7 +830,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { facturesPayeesNonEnvoyees, envoyerFactureReglee,
+module.exports = { facturesPayeesNonEnvoyees, annulerDevisOdoo, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

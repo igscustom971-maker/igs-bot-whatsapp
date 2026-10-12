@@ -565,7 +565,7 @@ ${view === 'accueil' ? `
       <button data-tab="clients">👥 Clients</button>
       ${user.role === 'admin' ? '<button data-tab="ca">📊 Chiffre d’affaires</button>' : ''}
     </div>
-    <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp ou dans les mails de contact@ : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div id="co-dem"><div class="skel"></div></div></div>
+    <div class="co-panneau" data-p="demandes"><div class="note co-intro">Prises par Leïla sur WhatsApp ou dans les mails de contact@ : le brouillon Odoo est déjà préparé (client, produit, quantité). Vérifie-le dans Odoo, puis « Envoyer le devis ».</div><div class="btnrow" style="margin:0 0 12px"><button class="btn" data-co-conv title="Tu as discuté du devis avec le client sur WhatsApp : Leïla relit la conversation et prépare la demande + le brouillon Odoo">💬 Devis depuis une conversation WhatsApp</button></div><div id="co-dem"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="devis"><div class="co-filtres"><label class="filtre">Afficher <select id="co-f"><option value="tous">Tous</option><option value="relancer">À relancer</option><option value="sent">Envoyés</option><option value="draft">Brouillons</option></select></label><label class="filtre">Trier <select id="co-tri"><option value="age">Plus anciens d’abord</option><option value="recent">Plus récents d’abord</option><option value="montant">Montant</option></select></label></div><div id="co-cours"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="facturer"><div class="note co-intro">Commandes signées dont l’acompte est facturé mais pas encore le solde (la 2e partie). Si la tâche « Facture du solde » est active (Admin), la facture part toute seule quand la commande passe en TERMINÉE ou À EXPÉDIER.</div><div id="co-reste"><div class="skel"></div></div></div>
     <div class="co-panneau" data-p="impayes"><div class="note co-intro">Factures validées et pas encore payées. Relances : amiable à J+7, ferme à J+15, dernier rappel à J+30 après l’échéance. Le mail part de comptabilite@ avec la facture en PDF et un bouton « Payer en ligne ».</div><div id="co-imp"><div class="skel"></div></div></div>
@@ -882,7 +882,7 @@ function coAfficher(){
     + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
     + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
     + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'
-    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+'<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button></div></div>').join('') + '</div>' + coPlus('dem', dem.length);
+    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+(x.devis_id ? '<button class="btn" data-co="annuler-dem" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler le devis</button>' : '<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button>')+'</div></div>').join('') + '</div>' + coPlus('dem', dem.length);
   // Devis en cours
   const f = $('co-f').value, tri = $('co-tri').value;
   const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f))
@@ -892,7 +892,7 @@ function coAfficher(){
     '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-num="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.numero)+'</b>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</div>'
     + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
     + '<div class="mt">'+(x.age == null ? '' : 'il y a ' + x.age + ' j')+(x.relances ? ' · relancé '+x.relances+' fois (le '+new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+')' : '')+(x.a_relancer ? ' · <b style="color:#9a3412">à relancer</b>' : '')+'</div>'
-    + '<div class="ac">'+(x.etat === 'sent' ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-co="relancer">✉️ Relancer</button>' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('cours', cours.length)) + masques;
+    + '<div class="ac">'+(x.etat === 'sent' ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-co="relancer">✉️ Relancer</button>' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a><button class="btn" data-co="annuler" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler</button></div></div>').join('') + '</div>' + coPlus('cours', cours.length)) + masques;
   // Reste à facturer
   const reste = d.reste_a_facturer;
   $('co-reste').innerHTML = !reste.length ? coVide('✅ Tout est facturé.') : '<div class="co-grid">' + reste.slice(0, pl('reste')).map(x =>
@@ -1097,6 +1097,18 @@ function coEvents(){
     } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   });
   document.getElementById('v-commercial').addEventListener('click', async e => {
+    const bc = e.target.closest('[data-co-conv]');
+    if (bc) {
+      const tel = prompt('Numéro WhatsApp du client (ex. 0690 12 34 56) :' + String.fromCharCode(10, 10) + 'Leïla relit vos derniers échanges avec lui et prépare la demande et le brouillon Odoo.', '');
+      if (!tel || !tel.trim()) return;
+      bc.disabled = true; coEnCours++; msg('⏳ Leïla relit la conversation…', 'ok');
+      try {
+        const j = await post('/gestion/api/commercial/depuis-conversation', { telephone: tel.trim() });
+        msg('✅ Demande ajoutée : ' + esc(j.nom || 'client') + (j.produit ? ' · ' + esc([j.quantite, j.produit].filter(Boolean).join(' × ')) : '') + (j.devis_numero ? ' · brouillon ' + esc(j.devis_numero) + ' prêt' : j.erreur ? ' · brouillon à faire : ' + esc(j.erreur) : ''), 'ok');
+        coEnCours--; bc.disabled = false; await coCharger(true);
+      } catch(err){ coEnCours--; bc.disabled = false; msg('❌ ' + esc(err.message), 'err'); }
+      return;
+    }
     const b = e.target.closest('[data-co]'); if (!b) return;
     const a = b.dataset.co, tr = b.closest('[data-num],[data-dem],[data-pid]'), num = tr && tr.dataset.num, dem = tr && tr.dataset.dem;
     let url, body = {};
@@ -1123,11 +1135,18 @@ function coEvents(){
       if (!nom) { nom = prompt('Nom du client pour le devis (sa fiche Odoo sera retrouvée ou créée) :', ''); if (nom === null) return; }
       url = '/gestion/api/commercial/demandes/' + dem + '/brouillon'; body = { nom };
     }
+    else if (a === 'annuler' || a === 'annuler-dem') {
+      const x = a === 'annuler-dem' ? ((coData.demandes || []).find(y => String(y.id) === String(dem)) || {}) : {};
+      const n = a === 'annuler' ? num : (x.devis_numero || 'ce devis');
+      const motif = prompt('Annuler le devis ' + n + ' ? Il passera « Annulé » dans Odoo (il n’est pas supprimé).' + String.fromCharCode(10, 10) + 'Motif (facultatif : erreur, incompréhension, le client renonce…) :', '');
+      if (motif === null) return;
+      url = a === 'annuler' ? '/gestion/api/commercial/devis/' + encodeURIComponent(num) + '/annuler' : '/gestion/api/commercial/demandes/' + dem + '/annuler'; body = { motif };
+    }
     else if (a === 'abandonner') { if (!confirm('Classer cette demande sans suite ?')) return; url = '/gestion/api/commercial/demandes/' + dem + '/abandonner'; }
     b.disabled = true; coEnCours++;
     try {
       const j = await post(url, body);
-      msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? '✅ Devis ' + esc(j.numero) + ' envoyé' : '✅ Fait', 'ok');
+      msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? '✅ Devis ' + esc(j.numero) + ' envoyé' : a.indexOf('annuler') === 0 ? '✅ ' + (j.numero ? 'Devis ' + esc(j.numero) + (j.deja ? ' déjà annulé' : ' annulé dans Odoo') : 'Demande annulée') : '✅ Fait', 'ok');
       coEnCours--; await coCharger(true);
     } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   });
