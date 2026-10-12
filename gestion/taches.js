@@ -36,8 +36,10 @@ async function archiverPlanches() {
   const { f, D } = await sousDossier('PLANCHES A IMPRIMER');
   const { f: arch } = await sousDossier('ARCHIVES');
   const fichiers = (await g.children(f.id, D)).filter(i => i.file && Date.parse(i.lastModifiedDateTime) < Date.now() - 24 * 3600e3);
-  for (const i of fichiers) await g.moveItem(i.id, arch.id, D);
-  return `${fichiers.length} fichier(s) archivé(s)`;
+  let n = 0; const erreurs = [];
+  for (const i of fichiers) { try { await g.moveItem(i.id, arch.id, D); n++; } catch (err) { erreurs.push(`${i.name} : ${err.message.slice(0, 80)}`); } }
+  if (erreurs.length && !n) throw new Error(erreurs.join(' ; '));
+  return `${n} fichier(s) archivé(s)${erreurs.length ? `, ${erreurs.length} non déplacé(s) : ${erreurs.join(' ; ')}` : ''}`;
 }
 // « Vider dossier planches » : fichiers posés directement dans Technique/Planches depuis plus de 48 h -> corbeille
 async function viderRacinePlanches() {
@@ -46,10 +48,12 @@ async function viderRacinePlanches() {
   for (const i of vieux) await g.deleteItem(i.id, D);
   return `${vieux.length} fichier(s) supprimé(s)`;
 }
-// « vider archive planche » : Archives vidé une fois par mois (corbeille SharePoint, récupérable 93 jours)
+// « vider archive planche » : une fois par mois, les fichiers archivés depuis plus de 30 jours partent à la corbeille
+// SharePoint (récupérables 93 jours) ; les planches archivées récemment restent consultables.
 async function viderArchivesPlanches() {
   const { f, D } = await sousDossier('ARCHIVES');
-  const fichiers = (await g.children(f.id, D)).filter(i => i.file);
+  const limite = Date.now() - 30 * 86400e3;
+  const fichiers = (await g.children(f.id, D)).filter(i => i.file && Date.parse(i.lastModifiedDateTime || i.createdDateTime || 0) < limite);
   for (const i of fichiers) await g.deleteItem(i.id, D);
   return `${fichiers.length} fichier(s) supprimé(s)`;
 }
@@ -193,8 +197,9 @@ const TACHES = [
     quand: (h, d) => [2, 3, 4, 5, 6].includes(h.getDay()) && h.getHours() <= 1 && autreJour(h, d) },
   { id: 'vider_racine_planches', nom: 'Nettoyage du dossier Planches (fichiers de plus de 48 h)', flux: 'IGS - Vider dossier planches', rythme: 'chaque nuit (minuit)', fn: viderRacinePlanches,
     quand: (h, d) => autreJour(h, d) },
-  { id: 'vider_archives_planches', nom: 'Vidage mensuel des archives de planches', flux: 'IGS - vider archive planche', rythme: 'le 8 de chaque mois (10 h)', fn: viderArchivesPlanches,
-    quand: (h, d) => h.getDate() >= 8 && h.getHours() >= 10 && (!d || heureGP(d).getMonth() !== h.getMonth() || Date.now() - d > 32 * 86400e3) },
+  { id: 'vider_archives_planches', nom: 'Vidage mensuel des archives de planches', flux: 'IGS - vider archive planche', rythme: 'le 8 de chaque mois (10 h), fichiers archivés depuis plus de 30 jours', fn: viderArchivesPlanches,
+    // Le 8 du mois (rattrapage les jours suivants si le serveur était arrêté) ; jamais dès l'activation de la tâche
+    quand: (h, d) => h.getDate() >= 8 && h.getDate() <= 15 && h.getHours() >= 10 && (d ? (heureGP(d).getMonth() !== h.getMonth() && Date.now() - d > 20 * 86400e3) : h.getDate() === 8) },
 ];
 
 const etatMemoire = new Map(); // id -> { le, ok, resultat }
