@@ -2311,9 +2311,19 @@ async function ouvrirPlanche(cle){
           return '<div><a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
             + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
             + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>'
-            + '<a class="btn" style="display:block;text-align:center;margin-top:4px;font-size:12px;padding:5px" href="'+src+'?dl=1">⬇ Télécharger</a></div>';
+            + '<div style="display:flex;gap:4px;margin-top:4px"><a class="btn" style="flex:1;text-align:center;font-size:12px;padding:5px" href="'+src+'?dl=1">⬇ Télécharger</a><button class="btn" data-pl-fsuppr="'+esc(f.id)+'" data-nom="'+esc(f.nom)+'" title="Supprimer ce fichier (aussi dans SharePoint)" style="font-size:12px;padding:5px 9px;color:#b91c1c">🗑</button></div></div>';
         }).join('') + '</div>'
       : '<div class="note">Aucun fichier « '+esc(p.client)+' - P… » dans les dossiers Planches (peut-être déjà vidé de l\\'archive mensuelle, ou envoyé par lien).</div>') + '</div>';
+    $('dossier').querySelectorAll('[data-pl-fsuppr]').forEach(b => b.onclick = async () => {
+      if (!confirm('Supprimer le fichier « ' + b.dataset.nom + ' » ?' + String.fromCharCode(10) + 'Il est aussi supprimé dans SharePoint (récupérable dans la corbeille du site pendant 93 jours).')) return;
+      b.disabled = true;
+      try {
+        const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichier/'+encodeURIComponent(b.dataset.plFsuppr)+'/supprimer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+        if (cle === panelCle) ouvrirPlanche(cle);
+      } catch(err){ b.disabled = false; alert('Suppression impossible : ' + err.message); }
+    });
   } catch(e){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Fichiers indisponibles : '+esc(e.message)+'</div>';
   }

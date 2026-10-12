@@ -420,6 +420,10 @@ module.exports = function mountGestion(app) {
     try { res.json(await planches.ajouterBordereau(req.params.cle, req.file, req.user.name || req.user.email)); }
     catch (err) { console.error('Gestion bordereau planche :', err.message); res.status(400).json({ error: err.message }); }
   });
+  app.post('/gestion/api/planches/:cle/fichier/:id/supprimer', auth.requireUser, async (req, res) => {
+    try { res.json(await planches.supprimerFichier(req.params.cle, req.params.id, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/planches/:cle/bordereau/:id/supprimer', auth.requireUser, async (req, res) => {
     try { res.json(await planches.supprimerBordereau(req.params.cle, req.params.id, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }

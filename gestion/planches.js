@@ -315,6 +315,19 @@ async function supprimerBordereau(cle, itemId, user) {
   return { bordereaux: await bordereaux(cle) };
 }
 
+// Supprimer un fichier d'une planche (visuel en double, mauvais fichier…) : supprimé dans SharePoint (corbeille du site,
+// récupérable 93 jours). Uniquement un fichier rattaché à cette planche (même client, dossiers Planches).
+async function supprimerFichier(cle, itemId, user) {
+  const liste = (await getFichiers(cle)).fichiers || [];
+  const f = liste.find(x => x.id === String(itemId));
+  if (!f) throw new Error('Fichier non autorisé ou déjà supprimé : actualise');
+  await g.deleteItem(f.id, { drive: planchesDrive });
+  dossiers.at = 0;
+  await journal(user, 'planche_fichier_supprime', cle, { nom: f.nom, dossier: f.dossier });
+  console.log(`Gestion : fichier ${f.nom} (${f.dossier}) supprimé pour la planche ${cle} (${user})`);
+  return { ok: true, nom: f.nom };
+}
+
 // Proxy : uniquement des fichiers du dossier Planches
 async function fichierAutorise(itemId) {
   if (!planchesDrive) await planchesRoot();
@@ -688,4 +701,4 @@ async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' })
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
