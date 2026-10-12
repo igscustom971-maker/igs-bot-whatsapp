@@ -253,6 +253,27 @@ async function getFichiers(cle) {
   return { fichiers: out };
 }
 
+// ---------- Visuel importé depuis le dashboard (même rangement que les planches reçues par mail) ----------
+// « Client - P<n>.ext » dans PLANCHES A IMPRIMER : un fichier déjà présent fait passer le suivant en P2, P3… ;
+// archivé au bout de 24 h comme les autres. note : info pour l'équipe, ajoutée aux remarques de la planche.
+async function importerVisuels(cle, fichiers, note, user) {
+  const p = cache.rows.find(r => r.cle === cle);
+  if (!p) throw new Error('Planche introuvable');
+  const ok = (fichiers || []).filter(f => f && f.buffer && f.buffer.length);
+  if (!ok.length) throw new Error('Choisis le fichier du visuel');
+  for (const f of ok) if (!/\.(png|pdf|jpe?g|tiff?)$/i.test(f.originalname || '')) throw new Error(`Format non accepté : ${f.originalname} (PNG, PDF, JPG ou TIFF)`);
+  const noms = await require('./planches-mail').deposer(p.client, ok.map(f => ({ name: f.originalname, buffer: f.buffer, contentType: f.mimetype })));
+  dossiers.at = 0; // liste des fichiers relue
+  const info = String(note || '').trim().slice(0, 300);
+  if (info) {
+    const d = new Date().toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit' });
+    await modifier(cle, { remarques: [p.remarques, `${d} ${user} : ${info}`].filter(Boolean).join(' | ').slice(0, 500) }, user);
+  }
+  await journal(user, 'planche_visuel_importe', cle, { fichiers: noms, note: info || null });
+  console.log(`Gestion : visuel(s) ${noms.join(', ')} importé(s) pour la planche ${cle} (${user})`);
+  return { fichiers: noms };
+}
+
 // ---------- Bordereau d'expédition d'une planche ----------
 // Rangé dans Technique/Planches/BORDEREAUX (jamais vidé par les nettoyages automatiques),
 // nommé « <clé> - <client> - BORDEREAU.pdf » ; déposable à tout moment, dès la création de la planche.
@@ -667,4 +688,4 @@ async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' })
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };

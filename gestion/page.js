@@ -2242,9 +2242,33 @@ async function ouvrirPlanche(cle){
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
     + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
     + plActionsHtml(p)
+    + '<div class="card" id="pl-vis"><h3>🖼 Importer un visuel</h3>'
+      + '<div class="note" style="margin-bottom:8px">Le fichier est rangé comme une planche reçue par mail : « '+esc(p.client)+' - P1 », puis P2, P3… s’il y en a déjà un. Il part en archives au bout de 24 h.</div>'
+      + '<input type="file" id="pl-vis-f" multiple accept=".png,.pdf,.jpg,.jpeg,.tif,.tiff,image/png,application/pdf,image/jpeg,image/tiff" style="margin-bottom:8px">'
+      + '<textarea id="pl-vis-note" placeholder="Info pour l’équipe (facultatif) : ajoutée aux remarques de la planche" style="width:100%;min-height:54px;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px"></textarea>'
+      + '<div class="btnrow" style="margin-top:8px"><button class="btn pink" id="pl-vis-ok">⬆ Importer</button></div><div class="msg" id="pl-vis-msg"></div></div>'
     + '<div id="pl-bd"></div>'
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherActions(p);
+  $('pl-vis-ok').onclick = async () => {
+    const fs = $('pl-vis-f').files, m = $('pl-vis-msg');
+    const dire = (h, k) => { m.className = 'msg on ' + k; m.innerHTML = h; };
+    if (!fs.length) return dire('Choisis le fichier du visuel', 'err');
+    const fd = new FormData();
+    for (const f of fs) fd.append('fichiers', f, f.name);
+    fd.append('note', $('pl-vis-note').value.trim());
+    $('pl-vis-ok').disabled = true; dire('Import en cours…', 'info');
+    try {
+      const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/visuel', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+      const ok = '✅ Importé : ' + j.fichiers.map(esc).join(', ');
+      await charger(false);
+      if (panelCle === cle) await ouvrirPlanche(cle);
+      if ($('pl-vis-msg')) { $('pl-vis-msg').className = 'msg on ok'; $('pl-vis-msg').innerHTML = ok; }
+    } catch(err) { dire('❌ ' + esc(err.message), 'err'); }
+    finally { if ($('pl-vis-ok')) $('pl-vis-ok').disabled = false; }
+  };
   fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/bordereaux').then(r => r.json()).then(j => {
     if (cle !== panelCle || !$('pl-bd')) return;
     $('pl-bd').innerHTML = bordereauCard(p, j.bordereaux || [], 'planche');

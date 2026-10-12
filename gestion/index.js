@@ -396,6 +396,15 @@ module.exports = function mountGestion(app) {
     try { res.json(await commandes.supprimerBordereau(req.params.cle, req.params.id, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // Visuel d'une planche importé depuis le dashboard (« Client - P1.png » dans PLANCHES A IMPRIMER)
+  const uploadVisuelPlanche = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 80 * 1024 * 1024, files: 5 } }).array('fichiers', 5);
+  app.post('/gestion/api/planches/:cle/visuel', auth.requireUser, (req, res, next) => uploadVisuelPlanche(req, res, err => {
+    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (80 Mo max)' : err.code === 'LIMIT_FILE_COUNT' ? '5 fichiers maximum à la fois' : err.message });
+    next();
+  }), async (req, res) => {
+    try { res.json(await planches.importerVisuels(req.params.cle, req.files, req.body?.note, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion visuel planche :', err.message); res.status(400).json({ error: err.message }); }
+  });
   // Planches : même chose (dossier Technique/Planches/BORDEREAUX), à tout moment
   app.get('/gestion/api/planches/:cle/bordereaux', auth.requireUser, async (req, res) => {
     try { res.json({ bordereaux: await planches.bordereaux(req.params.cle) }); }

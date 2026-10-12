@@ -70,7 +70,8 @@ async function deposer(client, pjs) {
   for (const pj of pjs) {
     const existants = (await g.children(dossier.id, D)).filter(i => i.file && i.name.includes(nomSur)).length;
     const ext = (pj.name.match(/\.[A-Za-z0-9]+$/) || ['.png'])[0].toLowerCase();
-    const it = await g.uploadFile(dossier.id, `${nomSur} - P${existants + 1}${ext}`, Buffer.from(pj.contentBytes, 'base64'), pj.contentType, D);
+    const buf = pj.buffer || Buffer.from(pj.contentBytes, 'base64');
+    const it = await g.uploadFile(dossier.id, `${nomSur} - P${existants + 1}${ext}`, buf, pj.contentType, D);
     noms.push(it.name);
   }
   return noms;
@@ -151,4 +152,4 @@ async function relever() {
   return res.length ? res.join(' ; ') : 'aucun nouveau mail';
 }
 
-module.exports = { relever, _test: { analyser, traiter, SYSTEME } };
+module.exports = { relever, deposer, _test: { analyser, traiter, SYSTEME } };
