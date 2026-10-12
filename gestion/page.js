@@ -657,7 +657,7 @@ ${view === 'accueil' ? `
   <div class="tablewrap">
     <table>
       <thead><tr>
-        <th>Date</th><th>Client</th><th>Statut</th><th>Métrage</th><th>Montant HT</th><th>Paiement</th><th>Devis</th><th>Remarques</th><th></th>
+        <th>Date</th><th>Client</th><th>Statut</th><th>Métrage</th><th>Montant TTC</th><th>Paiement</th><th>Devis</th><th>Remarques</th><th></th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="8"><div class="skel"></div><div class="skel"></div><div class="skel"></div></td></tr></tbody>
     </table>
@@ -862,11 +862,11 @@ function coAfficher(){
   const nDem = d.demandes.filter(x => x.statut !== 'envoye').length;
   const tuiles = [
     ['Demandes à traiter', nDem, 'prises par Leïla', '#FF1E8E', 'demandes'],
-    ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ht) + ' HT', '#3E63F0', 'devis'],
+    ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ttc != null ? k.en_cours.ttc : k.en_cours.ht) + (k.en_cours.ttc != null ? ' TTC' : ' HT'), '#3E63F0', 'devis'],
     ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j' + (d.relance_min_ttc ? ', dès ' + d.relance_min_ttc + ' € TTC' : ''), '#FF8A3D', 'devis:relancer'],
-    ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ht) + ' HT', '#5BBE72', 'signes'],
+    ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ttc != null ? k.signes_mois.ttc : k.signes_mois.ht) + (k.signes_mois.ttc != null ? ' TTC' : ' HT'), '#5BBE72', 'signes'],
     ['Reste à facturer', k.reste_a_facturer.n, eur2(k.reste_a_facturer.ttc) + ' TTC', '#1E1E4B', 'facturer'],
-    ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ht), '#68677D', 'clients'],
+    ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ttc != null ? k.panier_moyen_ttc : k.panier_moyen_ht) + (k.panier_moyen_ttc != null ? ' TTC' : ' HT'), '#68677D', 'clients'],
   ];
   $('co-kpis').innerHTML = tuiles.map(([l, n, sub, c, go]) => '<a class="kpi" href="#" data-go="'+go+'" style="--accent:'+c+'"><div class="l">'+esc(l)+'</div><div class="n">'+esc(n)+'</div><div class="sub">'+esc(sub)+'</div></a>').join('');
   if ($('nav-n-com')) { $('nav-n-com').textContent = nDem || ''; $('nav-n-com').title = nDem ? nDem + ' demande(s) de devis à traiter' : ''; }
@@ -886,11 +886,11 @@ function coAfficher(){
   // Devis en cours
   const f = $('co-f').value, tri = $('co-tri').value;
   const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f))
-    .sort((x, y) => tri === 'montant' ? (y.montant_ht || 0) - (x.montant_ht || 0) : tri === 'recent' ? (x.age || 0) - (y.age || 0) : (y.age || 0) - (x.age || 0));
+    .sort((x, y) => tri === 'montant' ? (y.montant_ttc || y.montant_ht || 0) - (x.montant_ttc || x.montant_ht || 0) : tri === 'recent' ? (x.age || 0) - (y.age || 0) : (y.age || 0) - (x.age || 0));
   const masques = d.anciens_masques ? '<div class="note" style="margin-top:10px">'+d.anciens_masques+' devis sans réponse depuis plus de '+d.en_cours_jours+' jours ne sont plus affichés.</div>' : '';
   $('co-cours').innerHTML = (!cours.length ? coVide('Rien à afficher.') : '<div class="co-grid">' + cours.slice(0, pl('cours')).map(x =>
     '<div class="co-c'+(x.a_relancer ? ' chaud' : '')+'" data-num="'+esc(x.numero)+'"><div class="t"><b>'+esc(x.numero)+'</b>'+pastille(...(ETATS_DEVIS[x.etat] || [x.etat, '#f3f4f6;color:#374151']))+'</div>'
-    + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
+    + '<div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ttc != null ? x.montant_ttc : x.montant_ht)+' <span class="mt" style="font-family:Poppins">'+(x.montant_ttc != null ? 'TTC' : 'HT')+'</span></div>'
     + '<div class="mt">'+(x.age == null ? '' : 'il y a ' + x.age + ' j')+(x.relances ? ' · relancé '+x.relances+' fois (le '+new Date(x.derniere_relance).toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'})+')' : '')+(x.a_relancer ? ' · <b style="color:#9a3412">à relancer</b>' : '')+'</div>'
     + '<div class="ac">'+(x.etat === 'sent' ? '<button class="btn'+(x.a_relancer ? ' pink' : '')+'" data-co="relancer">✉️ Relancer</button>' : '')+'<a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a><button class="btn" data-co="annuler" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler</button></div></div>').join('') + '</div>' + coPlus('cours', cours.length)) + masques;
   // Reste à facturer
@@ -915,7 +915,7 @@ function coAfficher(){
     + '<div class="ac"><button class="btn pink" data-imp-envoyer>Envoyer la relance</button><button class="btn" data-imp-fermer>Annuler</button></div></div></div>').join('') + '</div>' + coPlus('imp', imp.length);
   // Signés
   $('co-signes').innerHTML = !d.signes.length ? coVide('Aucun devis signé récemment.') : '<div class="co-grid">' + d.signes.slice(0, pl('signes')).map(x =>
-    '<div class="co-c"><div class="t"><b>'+esc(x.numero)+'</b>'+(x.atelier ? badge(x.atelier) : '<span class="mt">pas encore dans l’atelier</span>')+'</div><div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ht)+' <span class="mt" style="font-family:Poppins">HT</span></div>'
+    '<div class="co-c"><div class="t"><b>'+esc(x.numero)+'</b>'+(x.atelier ? badge(x.atelier) : '<span class="mt">pas encore dans l’atelier</span>')+'</div><div class="cl">'+esc(x.client ? x.client.nom : '—')+'</div><div class="m">'+eur2(x.montant_ttc != null ? x.montant_ttc : x.montant_ht)+' <span class="mt" style="font-family:Poppins">'+(x.montant_ttc != null ? 'TTC' : 'HT')+'</span></div>'
     + '<div class="mt">signé le '+(x.date ? new Date(String(x.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '—')+'</div><div class="ac"><a class="btn" href="'+esc(x.lien)+'" target="_blank" rel="noopener">Odoo ↗</a></div></div>').join('') + '</div>' + coPlus('signes', d.signes.length);
   coOnglet(coTab, null, true);
 }
@@ -1049,7 +1049,7 @@ async function coFiche(id){
     let h = '<h2 style="margin:0">'+esc(c.nom)+'</h2><div class="note">'+esc([c.email, c.telephone, [c.zip, c.ville].filter(Boolean).join(' ')].filter(Boolean).join(' · '))+' · <a href="'+esc(c.lien)+'" target="_blank" rel="noopener">fiche Odoo ↗</a></div>'
       + '<div class="kpis" style="grid-template-columns:repeat(3,minmax(0,1fr));margin:12px 0"><div class="kpi"><div class="l">CA facturé HT</div><div class="n">'+eur2(f.ca_ht)+'</div></div><div class="kpi"><div class="l">Reste dû</div><div class="n">'+eur2(f.du_ttc)+'</div><div class="sub">TTC</div></div><div class="kpi"><div class="l">Devis / commandes</div><div class="n">'+f.devis.length+'</div><div class="sub">'+f.devis.filter(d => d.etat === 'sale').length+' signés</div></div></div>';
     if (f.note) h += '<div class="card" style="margin-bottom:10px"><h3>Note Leïla</h3><div class="pre">'+esc(f.note)+'</div></div>';
-    h += '<div class="card" style="margin-bottom:10px"><h3>Devis et commandes</h3>' + (f.devis.length ? '<table class="stk"><tbody>' + f.devis.map(d => { const at = (f.atelier || []).find(a => a.devis.toUpperCase() === d.numero.toUpperCase()); return '<tr><td><a href="'+esc(d.lien)+'" target="_blank" rel="noopener"><b>'+esc(d.numero)+'</b></a></td><td class="note">'+(d.date ? new Date(String(d.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+eur2(d.montant_ht)+'</td><td>'+pastille(...(ETATS_DEVIS[d.etat] || [d.etat, '#f3f4f6;color:#374151']))+'</td><td>'+(at ? badge(at.statut) : '')+'</td></tr>'; }).join('') + '</tbody></table>' : '<div class="note">Aucun.</div>') + '</div>';
+    h += '<div class="card" style="margin-bottom:10px"><h3>Devis et commandes</h3>' + (f.devis.length ? '<table class="stk"><tbody>' + f.devis.map(d => { const at = (f.atelier || []).find(a => a.devis.toUpperCase() === d.numero.toUpperCase()); return '<tr><td><a href="'+esc(d.lien)+'" target="_blank" rel="noopener"><b>'+esc(d.numero)+'</b></a></td><td class="note">'+(d.date ? new Date(String(d.date).replace(' ', 'T') + 'Z').toLocaleDateString('fr-FR') : '')+'</td><td>'+eur2(d.montant_ttc != null ? d.montant_ttc : d.montant_ht)+(d.montant_ttc != null ? ' TTC' : ' HT')+'</td><td>'+pastille(...(ETATS_DEVIS[d.etat] || [d.etat, '#f3f4f6;color:#374151']))+'</td><td>'+(at ? badge(at.statut) : '')+'</td></tr>'; }).join('') + '</tbody></table>' : '<div class="note">Aucun.</div>') + '</div>';
     h += '<div class="card" style="margin-bottom:10px"><h3>Factures</h3>' + (f.factures.length ? '<table class="stk"><tbody>' + f.factures.map(x => '<tr><td><a href="'+esc(x.lien)+'" target="_blank" rel="noopener">'+esc(x.numero)+'</a>'+(x.avoir ? ' <span class="note">avoir</span>' : '')+'</td><td class="note">'+esc(x.date || '')+'</td><td>'+eur2(x.ttc)+'</td><td>'+(x.paiement === 'paid' || x.paiement === 'in_payment' ? pastille('payée', '#dcfce7;color:#065f46') : pastille('reste ' + eur2(x.reste), '#fee2e2;color:#991b1b'))+'</td></tr>').join('') + '</tbody></table>' : '<div class="note">Aucune.</div>') + '</div>';
     if ((f.planches || []).length) h += '<div class="card" style="margin-bottom:10px"><h3>Planches DTF</h3><table class="stk"><tbody>' + f.planches.map(x => '<tr><td>'+esc(x.date || '')+'</td><td>'+esc(String(x.metres || ''))+(/^A[34]$/.test(String(x.metres)) ? '' : ' m')+'</td><td>'+esc(x.statut || (x.hebdo ? 'hebdo' : ''))+'</td><td class="note">'+esc(x.paiement || '')+'</td></tr>').join('') + '</tbody></table></div>';
     h += '<div class="card"><h3>WhatsApp (Leïla et équipe)</h3>' + ((f.conversation || []).length ? '<div class="co-conv">' + f.conversation.map(x => '<div class="'+(x.role === 'user' ? 'u' : 'a')+'" title="'+esc(new Date(x.le).toLocaleString('fr-FR'))+'">'+esc(x.texte)+'</div>').join('') + '</div>' : '<div class="note">'+(c.telephone ? 'Aucun échange enregistré avec ce numéro.' : 'Pas de numéro sur la fiche Odoo.')+'</div>') + '</div>';
@@ -1282,7 +1282,7 @@ function plListe(){
   $('plkpis').innerHTML = k('À préparer / imprimer', st.aPrep.length, String(Math.round(st.mPrep*100)/100).replace('.',',')+' m à sortir', '#c2410c', 'A PREPARER')
     + k('À vérifier', st.aVerif.length, st.aVerif.length ? 'doublon ou client introuvable' : 'rien à vérifier 👌', st.aVerif.length ? '#b91c1c' : '#15803d', 'A VERIFIER')
     + k('À récupérer / expédier', st.aRecup.length, 'planches prêtes', '#4338ca', 'A RECUPERER')
-    + k('Non payées', st.nonPay.length, eur(montant) + ' HT', '#e91e8c', 'NONPAYEES');
+    + k('Non payées', st.nonPay.length, eur(montant) + ' TTC', '#e91e8c', 'NONPAYEES');
 
   const counts = {}; planches.forEach(p => { const s = plKey(p.statut); counts[s] = (counts[s]||0)+1; });
   const chips = [['ACTIFS','En cours',st.act.length],['TOUS','Toutes',planches.length],['NONPAYEES','Non payées',st.nonPay.length],['HEBDO','Hebdo',st.hebdo.length]]
@@ -1299,7 +1299,7 @@ function plListe(){
 
   $('rows').innerHTML = rows.length ? rows.map(p => '<tr class="row" data-k="'+esc(p.cle)+'">'
       + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
-      + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht):'')+'</div>'+(plUrgente(p)?'<div class="urg">🔥 URGENT / PRIORITAIRE</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht)+' TTC':'')+'</div>'+(plUrgente(p)?'<div class="urg">🔥 URGENT / PRIORITAIRE</div>':'')+'</td>'
       + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS))+'</td>'
       + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
       + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
@@ -1352,7 +1352,7 @@ async function saveInline(sel){
   }
   if (kind === 'pl' && f === 'paiement' && norm(v) === 'ESPECE') {
     const p = planches.find(x => x.cle === cle);
-    if (!(await encaisserEspeces('planche', p && (p.n_devis || p.cle), p ? p.client : '', p ? ttc(p.montant_ht) : ''))) { sel.value = old; return; }
+    if (!(await encaisserEspeces('planche', p && (p.n_devis || p.cle), p ? p.client : '', p && p.montant_ht != null ? String(p.montant_ht).replace('.', ',') : ''))) { sel.value = old; return; }
   }
   sel.disabled = true;
   try {
@@ -2158,7 +2158,7 @@ function brancherActions(p){
       const d = j.devis || j.facture;
       const lien = d.lien ? ' · <a href="'+esc(d.lien)+'" target="_blank" rel="noopener">ouvrir dans Odoo ↗</a>' : '';
       const quoi = j.devis ? (d.envoye === false ? 'Devis ' + esc(d.numero) + ' préparé (non envoyé) : ajuste-le puis envoie-le depuis Odoo' : 'Devis ' + esc(d.numero) + ' envoyé au client') : 'Facture ' + esc(d.numero) + ' envoyée au client';
-      await apresAction(j.planche, '✅ ' + quoi + ' · ' + eur(d.montant_ht) + ' HT' + lien);
+      await apresAction(j.planche, '✅ ' + quoi + ' · ' + (d.montant_ttc != null ? eur(d.montant_ttc) + ' TTC' : eur(d.montant_ht) + ' HT') + lien);
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { busy(false); }
   };
   $('a-suppr').onclick = async () => { busy(true); if (await supprimerPl(p)) fermer(); else busy(false); };
@@ -2264,7 +2264,7 @@ async function ouvrirPlanche(cle){
   $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
     + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
-    + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant HT', eur(p.montant_ht))
+    + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant TTC', eur(p.montant_ht))
     + kv('Paiement', '<span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span>') + kv('Fréquence', esc(p.frequence))
     + kv('N° de suivi', esc(p.numero_suivi))
     + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')

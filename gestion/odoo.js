@@ -811,7 +811,7 @@ async function ficheClientOdoo(partnerId) {
   return {
     client: { id: p.id, nom: p.name, email: p.email || null, telephone: p.phone || null, ville: p.city || null, zip: p.zip || null, depuis: p.create_date, lien: lienOdoo('res.partner', p.id) },
     ca_ht: Math.round(ca * 100) / 100, du_ttc: Math.round(du * 100) / 100,
-    devis: devis.map(d => ({ numero: d.name, etat: d.state, montant_ht: d.amount_untaxed, date: d.date_order, facturation: d.invoice_status, lien: lienOdoo('sale.order', d.id) })),
+    devis: devis.map(d => ({ numero: d.name, etat: d.state, montant_ht: d.amount_untaxed, montant_ttc: d.amount_total, date: d.date_order, facturation: d.invoice_status, lien: lienOdoo('sale.order', d.id) })),
     factures: factures.map(f => ({ numero: f.name, avoir: f.move_type === 'out_refund', date: f.invoice_date, echeance: f.invoice_date_due, ht: f.amount_untaxed, ttc: f.amount_total, reste: f.amount_residual, paiement: f.payment_state, lien: lienOdoo('account.move', f.id) })),
   };
 }

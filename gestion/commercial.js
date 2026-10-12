@@ -67,14 +67,16 @@ async function tableauDeBord({ force = false } = {}) {
   const il90 = Date.now() - 90 * 86400e3;
   const crees90 = enrichi.filter(d => Date.parse(String(d.cree_le).replace(' ', 'T') + 'Z') >= il90 && d.etat !== 'draft');
   const somme = l => Math.round(l.reduce((s, d) => s + (d.montant_ht || 0), 0) * 100) / 100;
+  const sommeTtc = l => Math.round(l.reduce((s, d) => s + (d.montant_ttc != null ? d.montant_ttc : (d.montant_ht || 0) * 1.085), 0) * 100) / 100;
   const data = {
     le: new Date().toISOString(), relance_jours: RELANCE_JOURS, relance_min_ttc: RELANCE_MIN_TTC, en_cours_jours: EN_COURS_JOURS, anciens_masques: anciens,
     kpi: {
-      en_cours: { n: enCours.length, ht: somme(enCours) },
+      en_cours: { n: enCours.length, ht: somme(enCours), ttc: sommeTtc(enCours) },
       a_relancer: enCours.filter(d => d.a_relancer).length,
-      signes_mois: { n: signesMois.length, ht: somme(signesMois) },
+      signes_mois: { n: signesMois.length, ht: somme(signesMois), ttc: sommeTtc(signesMois) },
       transformation_90j: crees90.length ? Math.round(crees90.filter(d => d.etat === 'sale').length / crees90.length * 100) : null,
       panier_moyen_ht: signes.length ? Math.round(somme(signes) / signes.length) : null,
+      panier_moyen_ttc: signes.length ? Math.round(sommeTtc(signes) / signes.length) : null,
       reste_a_facturer: { n: resteAFacturer.length, ttc: Math.round(resteAFacturer.reduce((s, d) => s + (d.reste_ttc || 0), 0) * 100) / 100 },
     },
     en_cours: enCours,
