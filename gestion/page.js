@@ -635,6 +635,7 @@ ${view === 'accueil' ? `
       <span id="pr-info" class="sync"></span>
     </div>
     <div class="note" style="margin:0 0 12px">Produits vendus par IGS Custom Bar (articles Odoo), prix de vente <b>TTC</b>. ${aP('commercial') ? 'Clique sur un prix pour le modifier : il est changé directement dans Odoo.' : 'Les prix sont modifiables par les comptes admin et commercial.'}</div>
+    <div id="pr-tabs"></div>
     <div id="pr-liste"><div class="card"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
   </section>
   <script src="/gestion/produits.js" defer></script>` : view === 'stock' ? `

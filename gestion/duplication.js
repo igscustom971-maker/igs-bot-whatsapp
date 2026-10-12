@@ -115,10 +115,22 @@ async function ecrireTailles(fileId, lignes) {
 }
 
 // Tailles.xlsx neuf à partir du modèle client (commande d'origine sans tableau des tailles)
-async function taillesDepuisModele(dossierId, nomDossier = 'Tailles') {
+async function modeleTailles() {
   const r = await fetch(process.env.FORM_TEMPLATE_URL || 'https://igscustom.fr/Template_Commande_IGS.xlsx');
   if (!r.ok) throw new Error(`modèle Tailles.xlsx indisponible (${r.status})`);
-  const buf = Buffer.from(await r.arrayBuffer());
+  return Buffer.from(await r.arrayBuffer());
+}
+// Tailles.xlsx rempli directement dans le fichier (sans Excel Online, qui refuse parfois le modèle) puis déposé
+async function taillesRemplies(dossierId, lignes, nomDossier = 'Tailles') {
+  const buf = await require('./tailles-xlsx').ecrireLignes(await modeleTailles(), lignes);
+  let sd;
+  try { sd = await g.createFolder(dossierId, nomDossier); }
+  catch (err) { sd = (await g.children(dossierId)).find(i => i.folder && i.name.toLowerCase() === nomDossier.toLowerCase()); if (!sd) throw err; }
+  const it = await g.uploadFile(sd.id, 'Tailles.xlsx', buf, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', undefined, 'replace');
+  return it.id;
+}
+async function taillesDepuisModele(dossierId, nomDossier = 'Tailles') {
+  const buf = await modeleTailles();
   let sd;
   try { sd = await g.createFolder(dossierId, nomDossier); }
   catch (err) { sd = (await g.children(dossierId)).find(i => i.folder && i.name.toLowerCase() === nomDossier.toLowerCase()); if (!sd) throw err; }
@@ -183,16 +195,23 @@ async function dupliquer(cleSource, data, user) {
         if (!deja) throw err;
         copieId = deja.id; // copie faite lors de l'essai précédent : ses lignes sont réécrites
       }
-      await ecrireTailles(copieId, lignes);
-      etapes.push(`Tailles.xlsx créé (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`);
+      try {
+        await ecrireTailles(copieId, lignes);
+        etapes.push(`Tailles.xlsx créé (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`);
+      } catch (err) {
+        // Classeur d'origine illisible par Excel Online : Tailles.xlsx neuf, rempli depuis le modèle (remplace la copie)
+        console.error(`Duplication ${numero} : Tailles.xlsx d'origine illisible (${err.message.slice(0, 120)}), modèle utilisé`);
+        try { await taillesRemplies(dossier.id, lignes, dt.name); etapes.push(`Tailles.xlsx recréé depuis le modèle (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces ; l'original était illisible)`); }
+        catch (e2) { etapes.push(`⚠️ Tailles.xlsx non créé (${e2.message.slice(0, 120)}) : à remplir à la main`); }
+      }
     } else {
-      try { await ecrireTailles(await taillesDepuisModele(dossier.id), lignes); etapes.push(`Tailles.xlsx créé depuis le modèle (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`); }
-      catch (err) { etapes.push(`⚠️ Pas de Tailles.xlsx dans la commande d'origine et modèle indisponible (${err.message}) : tailles non créées`); }
+      try { await taillesRemplies(dossier.id, lignes); etapes.push(`Tailles.xlsx créé depuis le modèle (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`); }
+      catch (err) { etapes.push(`⚠️ Pas de Tailles.xlsx dans la commande d'origine et modèle indisponible (${err.message.slice(0, 120)}) : tailles non créées`); }
     }
   } else {
     etapes.push('⚠️ Dossier d\'origine introuvable : visuels non recopiés');
-    try { await ecrireTailles(await taillesDepuisModele(dossier.id), lignes); etapes.push('Tailles.xlsx créé depuis le modèle'); }
-    catch (err) { etapes.push(`⚠️ Tailles.xlsx non créé (${err.message})`); }
+    try { await taillesRemplies(dossier.id, lignes); etapes.push('Tailles.xlsx créé depuis le modèle'); }
+    catch (err) { etapes.push(`⚠️ Tailles.xlsx non créé (${err.message.slice(0, 120)})`); }
   }
   if (mode === 'refaire' && data.lignesModifiees) etapes.push('Articles modifiés : le BAT est à refaire (commande en PAYÉE)');
 
