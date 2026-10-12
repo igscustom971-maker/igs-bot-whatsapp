@@ -39,6 +39,12 @@ async function setReglage(cle, valeur) {
 }
 
 // ---------- Ton du message : tutoiement si le client est connu et tutoie (ou note « tutoiement ») ----------
+// Nom WhatsApp qui est une entreprise (« ZePUB ANTILLES », « MATRIX 3D Martinique ») : pas un prénom
+const estNomEntreprise = nom => {
+  const t = String(nom || '').trim();
+  return /\b(sas|sarl|eurl|sasu|asso|association|club|mairie|ecole|école|ets|sci|team|factory|bar|restaurant|ste|société|store|shop|custom|antilles|martinique|guadeloupe|caraibes|caraïbes|pub|events?|cosm[ée]tiques?|services?|prod|studio|boutique|3d)\b/i.test(t)
+;
+};
 async function profilClient(tel, nomCommande) {
   const out = { tu: false, prenom: '', connu: false };
   if (supabase && tel) {
@@ -52,7 +58,10 @@ async function profilClient(tel, nomCommande) {
     const n = String(note?.note || '');
     out.tu = /tutoi/i.test(n) && !/vouvoi/i.test(n) ? true
       : out.connu && /\b(tu|t'|ton|ta|tes|toi|stp|salut|coucou|wesh|cc|slt)\b/i.test(textes) && !/\b(vous|votre|vos)\b/i.test(textes.slice(0, 400));
-    if (cl?.name) out.prenom = String(cl.name).trim().split(/\s+/)[0];
+    // Prénom donné dans la note client (« Prénom : Manuel ») : prioritaire sur le nom WhatsApp (souvent un nom d'entreprise)
+    const pn = n.match(/pr[ée]nom\s*:\s*([A-Za-zÀ-ÿ'-]{2,30})/i);
+    if (pn) out.prenom = pn[1].charAt(0).toUpperCase() + pn[1].slice(1);
+    else if (cl?.name && !estNomEntreprise(cl.name)) out.prenom = String(cl.name).trim().split(/\s+/)[0];
   }
   if (!out.prenom && nomCommande && !/\b(sas|sarl|eurl|sasu|asso|association|club|mairie|ecole|école|ets|sci|team|factory|bar|restaurant|ste|société)\b/i.test(nomCommande)) {
     const mots = String(nomCommande).trim().split(/\s+/);

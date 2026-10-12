@@ -730,6 +730,15 @@ function startSync() {
 // Corrections ponctuelles de données (une seule fois, mémorisées dans gestion_reglages)
 async function correctionsUniques() {
   if (!supabase || !cache.rows.length) return;
+  // 12/10/2026 : ZePUB ANTILLES = Manuel (prénom utilisé dans les messages)
+  if (!(await getReglage('correction_zepub_prenom'))) {
+    try {
+      const base = require('../supabase'), tel = '590690598773';
+      const note = String((await base.getClientNote(tel)) || '');
+      if (!/pr[ée]nom\s*:/i.test(note)) await base.upsertClientNote(tel, [note.trim(), 'Prénom : Manuel (ZePUB ANTILLES)'].filter(Boolean).join('\n'));
+      await setReglage('correction_zepub_prenom', new Date().toISOString());
+    } catch (err) { console.error('Correction prénom ZePUB :', err.message); }
+  }
   // 12/10/2026 15:19 : 2e planche de Micky Mug Custom (page 2) demandée alors que Leïla était désactivée
   if (!(await getReglage('correction_micky_1210'))) {
     await setReglage('correction_micky_1210', new Date().toISOString());
