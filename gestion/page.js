@@ -863,7 +863,7 @@ function coAfficher(){
   const tuiles = [
     ['Demandes à traiter', nDem, 'prises par Leïla', '#FF1E8E', 'demandes'],
     ['Devis en cours', k.en_cours.n, eur2(k.en_cours.ht) + ' HT', '#3E63F0', 'devis'],
-    ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j', '#FF8A3D', 'devis:relancer'],
+    ['À relancer', k.a_relancer, 'sans réponse depuis ' + d.relance_jours + ' j' + (d.relance_min_ht ? ', dès ' + d.relance_min_ht + ' € HT' : ''), '#FF8A3D', 'devis:relancer'],
     ['Signés ce mois', k.signes_mois.n, eur2(k.signes_mois.ht) + ' HT', '#5BBE72', 'signes'],
     ['Reste à facturer', k.reste_a_facturer.n, eur2(k.reste_a_facturer.ttc) + ' TTC', '#1E1E4B', 'facturer'],
     ['Transformation', k.transformation_90j == null ? '—' : k.transformation_90j + ' %', '90 jours · panier ' + eur2(k.panier_moyen_ht), '#68677D', 'clients'],

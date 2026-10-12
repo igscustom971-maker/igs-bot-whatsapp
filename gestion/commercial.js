@@ -13,6 +13,7 @@ const { supabase } = require('./db');
 
 const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
 const RELANCE_JOURS = Number(process.env.COMMERCIAL_RELANCE_JOURS || 5); // devis sans réponse depuis N jours = à relancer
+const RELANCE_MIN_HT = Number(process.env.COMMERCIAL_RELANCE_MIN_HT || 100); // en dessous (HT), un devis n'est pas signalé « à relancer »
 const EN_COURS_JOURS = Number(process.env.COMMERCIAL_EN_COURS_JOURS || 45); // au-delà, un devis sans réponse n'est plus « en cours »
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Odoo : « 2026-10-09 14:00:00 » (UTC sans fuseau) ; Supabase : « …+00:00 » ou « …Z »
@@ -53,7 +54,7 @@ async function tableauDeBord({ force = false } = {}) {
     const depuisRelance = r.derniere ? jours(r.derniere) : null;
     return {
       ...d, age, relances: r.n, derniere_relance: r.derniere, atelier: c ? c.statut : null,
-      a_relancer: ['draft', 'sent'].includes(d.etat) && d.etat === 'sent' && age >= RELANCE_JOURS && (depuisRelance === null || depuisRelance >= RELANCE_JOURS),
+      a_relancer: d.etat === 'sent' && (d.montant_ht || 0) >= RELANCE_MIN_HT && age >= RELANCE_JOURS && (depuisRelance === null || depuisRelance >= RELANCE_JOURS),
     };
   });
   const tousEnCours = enrichi.filter(d => ['draft', 'sent'].includes(d.etat));
@@ -67,7 +68,7 @@ async function tableauDeBord({ force = false } = {}) {
   const crees90 = enrichi.filter(d => Date.parse(String(d.cree_le).replace(' ', 'T') + 'Z') >= il90 && d.etat !== 'draft');
   const somme = l => Math.round(l.reduce((s, d) => s + (d.montant_ht || 0), 0) * 100) / 100;
   const data = {
-    le: new Date().toISOString(), relance_jours: RELANCE_JOURS, en_cours_jours: EN_COURS_JOURS, anciens_masques: anciens,
+    le: new Date().toISOString(), relance_jours: RELANCE_JOURS, relance_min_ht: RELANCE_MIN_HT, en_cours_jours: EN_COURS_JOURS, anciens_masques: anciens,
     kpi: {
       en_cours: { n: enCours.length, ht: somme(enCours) },
       a_relancer: enCours.filter(d => d.a_relancer).length,
