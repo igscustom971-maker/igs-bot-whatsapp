@@ -275,7 +275,7 @@ async function dessinerMockups(i, guides = null){
       }
       const zd = Pd.tote ? null : (Pd.zones[guides.zone] || Pd.zones.poitrine);
       // Logo centré sur son axe ET à la bonne hauteur : les lignes passent au vert ensemble
-      if (zd && zd.y != null) { const yl = (zd.y + (zd.ddy || 0)) * hit.r.pxH, okH = Math.abs(hit.r.y - yl) < 2; ligne(0, yl, m.img.width, yl, okH && surAxe ? '#16a34a' : okH ? 'rgba(234,88,12,.9)' : 'rgba(220,38,38,.85)', false); }
+      if (zd && zd.y != null) { const yl = (hit.r.y0 || 0) + (zd.y + (zd.ddy || 0)) * hit.r.pxH, okH = Math.abs(hit.r.y - yl) < 2; ligne(0, yl, m.img.width, yl, okH && surAxe ? '#16a34a' : okH ? 'rgba(234,88,12,.9)' : 'rgba(220,38,38,.85)', false); }
       x.setLineDash([]); x.strokeStyle = 'rgba(220,38,38,.9)'; x.strokeRect(X(hit.r.x), Y(hit.r.y), hit.r.w * s * R, hit.r.h * s * R);
       x.restore();
     }

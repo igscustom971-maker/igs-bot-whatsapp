@@ -382,6 +382,9 @@
   let TAILLES_PRODUIT = { 'T-Shirt Enfant': T_ENFANT, 'Tote Bag': ['TU'], 'Casquette': ['TU'] };
   let SANS_COUPE = ['Tote Bag', 'Casquette', 'T-Shirt Enfant'];
   const taillesPour = p => TAILLES_PRODUIT[p] || T_ADULTE;
+  // Couleurs disponibles par produit (ex. sweats) ; sinon toutes les couleurs
+  let COULEURS_PRODUIT = {};
+  const couleursPour = p => (COULEURS_PRODUIT[p] && COULEURS_PRODUIT[p].length ? COULEURS_PRODUIT[p] : COULEURS);
   const LISTES_URL = 'https://igs-bot-whatsapp.onrender.com/formulaire/listes';
 
   const $ = id => document.getElementById(id);
@@ -531,7 +534,7 @@
     d = d || {};
     return '<td class="num"></td>'
       + '<td class="c-prod" data-l="Produit"><select class="g-produit">' + opts(PRODUITS, d.type || 'T-Shirt') + '</select></td>'
-      + '<td data-l="Couleur"><select class="g-couleur">' + opts(COULEURS, d.couleur || '', '— Couleur —') + '</select></td>'
+      + '<td data-l="Couleur"><select class="g-couleur">' + opts(couleursPour(d.type || 'T-Shirt'), d.couleur || '', '— Couleur —') + '</select></td>'
       + '<td data-l="Taille"><select class="g-taille">' + opts(taillesPour(d.type || 'T-Shirt'), d.taille || '', '—') + '</select></td>'
       + '<td data-l="Qté"><input class="g-qte" type="number" min="0" inputmode="numeric" placeholder="0" value="' + (d.qte || '') + '"></td>'
       + '<td data-l="Coupe"><select class="g-coupe">' + opts(COUPES, d.coupe || COUPES[0]) + '</select></td>'
@@ -591,6 +594,8 @@
   function majTaillesLigne(tr){
     const p = tr.querySelector('.g-produit').value, st = tr.querySelector('.g-taille'), v = st.value;
     st.innerHTML = opts(taillesPour(p), taillesPour(p).includes(v) ? v : '', '—');
+    const sc = tr.querySelector('.g-couleur'), vc = sc.value;
+    sc.innerHTML = opts(couleursPour(p), couleursPour(p).includes(vc) ? vc : '', '— Couleur —');
     tr.querySelector('.g-coupe').disabled = SANS_COUPE.includes(p);
   }
   $('grid-body').addEventListener('click', e => {
@@ -844,6 +849,7 @@
     PRODUITS = l.produits.map(p => p.nom);
     TAILLES_PRODUIT = Object.fromEntries(l.produits.map(p => [p.nom, p.tailles]));
     SANS_COUPE = l.produits.filter(p => !p.coupe).map(p => p.nom);
+    COULEURS_PRODUIT = Object.fromEntries(l.produits.filter(p => Array.isArray(p.couleurs) && p.couleurs.length).map(p => [p.nom, p.couleurs]));
     if (Array.isArray(l.couleurs) && l.couleurs.length) COULEURS = l.couleurs;
     if (Array.isArray(l.coupes) && l.coupes.length) COUPES = l.coupes;
     // Reconstruit les lignes en gardant ce qui a déjà été saisi

@@ -50,7 +50,19 @@ const REFS = {
   'DébardeurUnisexe': 'JUSTIN', 'DébardeurFemme': 'JUSTIN WOMEN', 'PoloUnisexe': 'SPRING', 'PoloFemme': 'PEOPLE',
   'Tote BagUnisexe': 'IBIZA', 'Tote BagFemme': 'IBIZA', 'CasquetteUnisexe': 'LONG BEACH', 'CasquetteFemme': 'LONG BEACH',
   'AutreUnisexe': 'AUTRE', 'AutreFemme': 'AUTRE',
+  // Sweats SOL'S (unisexes)
+  'Sweat à capucheUnisexe': 'CONNOR', 'Sweat à capucheFemme': 'CONNOR',
+  'Sweat col rondUnisexe': 'SPIDER', 'Sweat col rondFemme': 'SPIDER',
+  'Sweat zippé à capucheUnisexe': 'STONE', 'Sweat zippé à capucheFemme': 'STONE',
 };
+// Codes couleur propres à un modèle (ils diffèrent des t-shirts, ex. noir 312 au lieu de 309) ; « ??? » = à confirmer
+const CODES_MODELE = {
+  SPIDER: { Noir: '312', Blanc: '102', Bordeaux: '167', Rouge: '145', Orange: '400', 'Vert Bouteille': '264', 'Gris Pur': '300', 'Gris Chine': '360', 'Gris chiné': '360', 'Gris Fonce': '348' },
+  STONE: { Noir: '312', Blanc: '102', Rouge: '145', 'Vert Prairie': '272', 'French Marine': '319', Royal: '241' },
+  CONNOR: { Noir: '312', Blanc: '102', Rouge: '145' },
+};
+// Prix d'achat différents en blanc et en couleur : [blanc, couleur] (CONNOR : comme STONE en attendant son tarif)
+const TARIFS_BLANC_COULEUR = { SPIDER: [10.90, 11.90], STONE: [19.99, 20.99], CONNOR: [19.99, 20.99] };
 const CODES = {
   Blanc: '102', Noir: '309', Fuchsia: '140', 'Jaune Citron': '302', 'Bleu atoll': '225', Orange: '400', 'Vert Prairie': '272',
   'French Marine': '319', Rouge: '145', Bordeaux: '146', 'Rose Bonbon': '127', 'Rose Orchidee': '136', Royal: '241', 'Vert Pomme': '280',
@@ -131,8 +143,10 @@ async function remplir(nDevis, nomClient, lignes, { ajout = false } = {}) {
       const iTaille = TAILLES.indexOf(maj(taille));
       if (iTaille < 0) continue;
       const refBase = ENFANTS.includes(maj(taille)) && produit === 'T-Shirt' ? 'REGENT KIDS' : (REFS[produit + coupe] || produit.toUpperCase());
-      const refComplete = `${refBase} ${couleur.toUpperCase()} ${CODES[couleur] || '???'}`;
-      const prix = (GRANDES.includes(maj(taille)) ? TARIFS_3XL[refBase] : TARIFS[refBase]) || 0;
+      const code = CODES_MODELE[refBase] ? (CODES_MODELE[refBase][couleur] || '???') : (CODES[couleur] || '???');
+      const refComplete = `${refBase} ${couleur.toUpperCase()} ${code}`;
+      const prix = TARIFS_BLANC_COULEUR[refBase] ? TARIFS_BLANC_COULEUR[refBase][couleur === 'Blanc' ? 0 : 1]
+        : ((GRANDES.includes(maj(taille)) ? TARIFS_3XL[refBase] : TARIFS[refBase]) || 0);
 
       // Stock d'abord
       const ls = ligneStock(refBase, couleur, taille);

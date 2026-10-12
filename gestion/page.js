@@ -487,8 +487,8 @@ ${view === 'accueil' ? `
     </div>
     <div class="cols" style="grid-template-columns:1.5fr 1fr">
       <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Produits du formulaire <button class="btn" id="ad-prod-add">＋ Produit</button></h3>
-        <div class="note" style="margin-bottom:8px">Tailles séparées par des virgules (ex. XS, S, M, L, XL, 2XL, 3XL · enfants 2A, 4A… · TU pour taille unique). « Coupe » : le client choisit Unisexe / Femme.</div>
-        <div style="overflow-x:auto"><table class="stk" id="ad-prod"><thead><tr><th></th><th>Produit</th><th>Tailles</th><th>Coupe</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="note" style="margin-bottom:8px">Tailles séparées par des virgules (ex. XS, S, M, L, XL, 2XL, 3XL · enfants 2A, 4A… · TU pour taille unique). « Coupe » : le client choisit Unisexe / Femme. « Couleurs dispo » : uniquement ces couleurs pour ce produit (vide = toutes).</div>
+        <div style="overflow-x:auto"><table class="stk" id="ad-prod"><thead><tr><th></th><th>Produit</th><th>Tailles</th><th>Coupe</th><th>Couleurs dispo</th><th></th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="stack">
         <div class="card"><h3>Couleurs <span class="sub" style="text-transform:none;letter-spacing:0">(une par ligne, dans l'ordre d'affichage)</span></h3><textarea id="ad-couleurs" style="width:100%;min-height:320px;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px"></textarea></div>
@@ -1681,6 +1681,7 @@ function adProdRow(p){
     + '<td><input class="ad-p-nom" value="'+esc(p.nom||'')+'" style="width:100%;min-width:160px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></td>'
     + '<td><input class="ad-p-tailles" value="'+esc((p.tailles||[]).join(', '))+'" style="width:100%;min-width:200px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></td>'
     + '<td style="text-align:center"><input type="checkbox" class="ad-p-coupe"'+(p.coupe?' checked':'')+'></td>'
+    + '<td><input class="ad-p-couleurs" value="'+esc((p.couleurs||[]).join(', '))+'" placeholder="Toutes" title="Couleurs disponibles pour ce produit, séparées par des virgules (vide = toutes)" style="width:100%;min-width:180px;font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px"></td>'
     + '<td><button class="btn ad-p-del" style="padding:2px 8px;color:var(--bad)">✕</button></td></tr>';
 }
 function adColRow(c){
@@ -1890,7 +1891,7 @@ function adEvents(){
   $('ad-save-listes').onclick = async () => {
     if ($('ad-save-listes').disabled) return;
     $('ad-save-listes').disabled = true; setTimeout(() => { const b = $('ad-save-listes'); if (b) b.disabled = false; }, 2500);
-    const produits = [...tb.rows].map(tr => ({ nom: tr.querySelector('.ad-p-nom').value, tailles: tr.querySelector('.ad-p-tailles').value, coupe: tr.querySelector('.ad-p-coupe').checked }));
+    const produits = [...tb.rows].map(tr => ({ nom: tr.querySelector('.ad-p-nom').value, tailles: tr.querySelector('.ad-p-tailles').value, coupe: tr.querySelector('.ad-p-coupe').checked, couleurs: tr.querySelector('.ad-p-couleurs').value }));
     try { await post('/gestion/api/admin/listes', { produits, couleurs: $('ad-couleurs').value, coupes: $('ad-coupes').value }); msg('✅ Listes enregistrées : le formulaire client et le dashboard les utilisent maintenant', 'ok'); adCharger(); }
     catch(err){ msg('❌ ' + esc(err.message), 'err'); }
   };

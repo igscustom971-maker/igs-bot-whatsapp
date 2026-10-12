@@ -16,6 +16,9 @@ const DEFAUT = {
     { nom: 'T-Shirt Longue Manche', tailles: T_ADULTE, coupe: true },
     { nom: 'Polo', tailles: T_ADULTE, coupe: true },
     { nom: 'Débardeur', tailles: T_ADULTE, coupe: true },
+    { nom: 'Sweat à capuche', tailles: ['XS', 'S', 'M', 'L', 'XL', '2XL'], coupe: false, couleurs: ['Noir profond', 'Gris foncé', 'Blanc', 'Rouge', 'Marine', 'Kaki'] },
+    { nom: 'Sweat col rond', tailles: ['S', 'M', 'L', 'XL', '2XL', '3XL'], coupe: false, couleurs: ['Gris clair', 'Gris chiné', 'Gris foncé', 'Noir profond', 'Blanc', 'Bordeaux', 'Rouge', 'Orange', 'Vert bouteille'] },
+    { nom: 'Sweat zippé à capuche', tailles: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'], coupe: false, couleurs: ['Noir profond', 'Blanc', 'Rouge', 'Vert prairie', 'French marine', 'Royal'] },
     { nom: 'Tote Bag', tailles: ['TU'], coupe: false },
     { nom: 'Casquette', tailles: ['TU'], coupe: false },
     { nom: 'T-Shirt Enfant', tailles: T_ENFANT, coupe: false },
@@ -43,6 +46,20 @@ async function getListes() {
   if (supabase) {
     const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'listes').maybeSingle();
     if (data && data.valeur) { try { v = { ...DEFAUT, ...JSON.parse(data.valeur) }; } catch {} }
+    // Nouveaux produits (sweats SOL'S, oct. 2026) ajoutés une fois aux listes déjà enregistrées depuis l'Admin
+    if (data && data.valeur) {
+      const { data: f } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'listes_sweats_ajoutes').maybeSingle();
+      if (!f) {
+        const noms = new Set(v.produits.map(p => p.nom.toLowerCase()));
+        const ajout = DEFAUT.produits.filter(p => /^sweat/i.test(p.nom) && !noms.has(p.nom.toLowerCase()));
+        if (ajout.length) {
+          const i = v.produits.findIndex(p => /tote/i.test(p.nom));
+          v = { ...v, produits: i >= 0 ? [...v.produits.slice(0, i), ...ajout, ...v.produits.slice(i)] : [...v.produits, ...ajout] };
+          await supabase.from('gestion_reglages').upsert({ cle: 'listes', valeur: JSON.stringify(v), updated_at: new Date().toISOString() });
+        }
+        await supabase.from('gestion_reglages').upsert({ cle: 'listes_sweats_ajoutes', valeur: new Date().toISOString(), updated_at: new Date().toISOString() });
+      }
+    }
   }
   cacheListes = { v, at: Date.now() };
   return v;
@@ -55,7 +72,10 @@ async function setListes(data) {
       nom: txt(p.nom).slice(0, 60),
       tailles: (Array.isArray(p.tailles) ? p.tailles : String(p.tailles || '').split(/[,;\s]+/)).map(t => txt(t).toUpperCase()).filter(Boolean).slice(0, 20),
       coupe: !!p.coupe,
+      // Couleurs disponibles pour ce produit (vide = toutes les couleurs de la liste)
+      couleurs: [...new Set((Array.isArray(p.couleurs) ? p.couleurs : String(p.couleurs || '').split(/[,;\n]+/)).map(c => txt(c).slice(0, 40)).filter(Boolean))],
     }))
+    .map(p => (p.couleurs.length ? p : { nom: p.nom, tailles: p.tailles, coupe: p.coupe }))
     .filter(p => p.nom && p.tailles.length);
   const couleurs = [...new Set((Array.isArray(data.couleurs) ? data.couleurs : String(data.couleurs || '').split('\n')).map(c => txt(c).slice(0, 40)).filter(Boolean))];
   const coupes = [...new Set((Array.isArray(data.coupes) ? data.coupes : String(data.coupes || '').split(/[,\n]+/)).map(c => txt(c).slice(0, 30)).filter(Boolean))];
