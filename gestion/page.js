@@ -692,10 +692,10 @@ ${view === 'accueil' ? `
 </aside>
 
 <script>
-const STATUTS = ['EN DEVIS','PAYÉE','VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','EXPÉDIÉE','LIVRÉE'];
-const ORDRE_TRI = ['A EXPEDIER','EN FLOCAGE','EN PRODUCTION','EN COMMANDE','VALIDÉE','PAYÉE','TERMINÉE','EXPÉDIÉE','EN DEVIS','LIVRÉE'];
+const STATUTS = ['EN ATTENTE','EN DEVIS','PAYÉE','VALIDÉE','EN COMMANDE','EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','EXPÉDIÉE','LIVRÉE'];
+const ORDRE_TRI = ['A EXPEDIER','EN FLOCAGE','EN PRODUCTION','EN COMMANDE','VALIDÉE','PAYÉE','TERMINÉE','EXPÉDIÉE','EN DEVIS','EN ATTENTE','LIVRÉE'];
 const COULEURS = {
-  'EN DEVIS':['#f3f4f6','#4b5563'], 'PAYÉE':['#dbeafe','#1d4ed8'], 'VALIDÉE':['#e0e7ff','#4338ca'],
+  'EN ATTENTE':['#f3f4f6','#6b7280'], 'EN DEVIS':['#f3f4f6','#4b5563'], 'PAYÉE':['#dbeafe','#1d4ed8'], 'VALIDÉE':['#e0e7ff','#4338ca'],
   'EN COMMANDE':['#fef3c7','#92400e'], 'EN PRODUCTION':['#ffedd5','#c2410c'], 'EN FLOCAGE':['#fce7f3','#be185d'],
   'TERMINÉE':['#dcfce7','#15803d'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'EXPÉDIÉE':['#e0f2fe','#0369a1'], 'LIVRÉE':['#d1fae5','#065f46'],
 };
@@ -2600,7 +2600,7 @@ function jrAfficher(c, j){
 function stepsHtml(c){
   const ETAPES = ['Payée','BAT','Validée','En commande','Production','Flocage','Terminée'];
   const k = statutKey(c.statut);
-  let i = { 'EN DEVIS': -1, 'PAYÉE': 0, 'VALIDÉE': 2, 'EN COMMANDE': 3, 'EN PRODUCTION': 4, 'EN FLOCAGE': 5, 'TERMINÉE': 6, 'A EXPEDIER': 6, 'EXPÉDIÉE': 7, 'LIVRÉE': 7 }[k];
+  let i = { 'EN ATTENTE': -1, 'EN DEVIS': -1, 'PAYÉE': 0, 'VALIDÉE': 2, 'EN COMMANDE': 3, 'EN PRODUCTION': 4, 'EN FLOCAGE': 5, 'TERMINÉE': 6, 'A EXPEDIER': 6, 'EXPÉDIÉE': 7, 'LIVRÉE': 7 }[k];
   if (i === undefined) i = -1;
   if (k === 'PAYÉE' && c.bat_info && c.bat_info.formulaire) i = 1;
   if (k === 'EN COMMANDE' && !(c.bat_reponse && c.bat_reponse.verdict === 'valide')) i = 1;

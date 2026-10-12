@@ -90,7 +90,7 @@ async function preparer(cle) {
   return {
     devis: c.n_devis, client: c.client, statut: c.statut,
     odoo: so || { erreur: `devis ${c.n_devis} introuvable dans Odoo` },
-    sefi: ['', 'ENDEVIS'].includes(st) ? 'apres_paiement' : 'prochain_envoi', prochain_envoi: prochainEnvoi(),
+    sefi: ['', 'ENDEVIS', 'ENATTENTE'].includes(st) ? 'apres_paiement' : 'prochain_envoi', prochain_envoi: prochainEnvoi(),
   };
 }
 
@@ -135,7 +135,7 @@ async function faire(cle, data, user) {
   } catch (err) { etapes.push(`❌ Tailles.xlsx non complété : ${err.message}`); tailles = null; }
 
   // 3. Bon de commande SEFI : seulement une commande payée (EN DEVIS : le BDC sera rempli au paiement avec le Tailles.xlsx complet)
-  if (['', 'ENDEVIS'].includes(st)) etapes.push('ℹ️ Commande pas encore payée : les articles seront commandés chez SEFI au paiement, avec le reste');
+  if (['', 'ENDEVIS', 'ENATTENTE'].includes(st)) etapes.push('ℹ️ Commande pas encore payée : les articles seront commandés chez SEFI au paiement, avec le reste');
   else if (!(await require('./depot').actif().catch(() => false))) etapes.push('⚠️ Tâche « Formulaire reçu → BDC SEFI » désactivée : ajoute les articles au bon de commande SEFI à la main');
   else if (st === 'PAYEE' && !tailles) etapes.push('ℹ️ Le BDC SEFI sera rempli à la réception du formulaire');
   else {

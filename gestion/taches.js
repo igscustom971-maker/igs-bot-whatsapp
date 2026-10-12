@@ -93,7 +93,29 @@ async function expirerPlanchesEnAttente() {
       faits.push(`${p.client}${p.n_devis ? ` (${p.n_devis} annulé)` : ''} : supprimée`);
     } catch (err) { faits.push(`${p.client} : erreur ${err.message.slice(0, 80)}`); }
   }
-  return faits.length ? faits.join(' ; ') : 'aucune planche en attente expirée';
+  // Commandes textile EN ATTENTE : même règle (date de passage en attente notée au premier passage de la tâche)
+  try {
+    const commandes = require('./commandes');
+    const { rows: cmds } = await commandes.listCommandes({ force: true });
+    const vus = lireJSON(await reglage('commandes_en_attente_depuis', '{}'), {});
+    const enAttente = cmds.filter(c => statutKey(c.statut) === 'ENATTENTE');
+    const suivi = {};
+    for (const c of enAttente) suivi[c.cle] = vus[c.cle] || Date.now();
+    for (const c of enAttente.filter(c => suivi[c.cle] < limite)) {
+      try {
+        if (c.n_devis) {
+          const etat = await require('./odoo').etatDevis(c.n_devis).catch(() => null);
+          if (etat === 'sale') { await commandes.modifier(c.cle, { statut: 'PAYÉE' }, 'Odoo (commande payée)'); delete suivi[c.cle]; faits.push(`${c.n_devis} ${c.client} : payée → PAYÉE`); continue; }
+          if (etat === 'draft' || etat === 'sent') await require('./odoo').annulerDevisOdoo({ numero: c.n_devis }, `commande en attente depuis plus de ${ATTENTE_MAX_H} h sans validation`, 'IGS Dashboard (automatique)').catch(err => console.error(`Commande ${c.cle} : devis non annulé :`, err.message));
+        }
+        await commandes.supprimer(c.cle, 'IGS Dashboard (automatique)', { dossier: false, devis: false });
+        delete suivi[c.cle];
+        faits.push(`${c.n_devis || c.cle} ${c.client}${c.n_devis ? ' (devis annulé)' : ''} : commande supprimée`);
+      } catch (err) { faits.push(`${c.client} : erreur ${err.message.slice(0, 80)}`); }
+    }
+    await setReglage('commandes_en_attente_depuis', JSON.stringify(suivi));
+  } catch (err) { faits.push(`commandes : ${err.message.slice(0, 80)}`); }
+  return faits.length ? faits.join(' ; ') : 'rien d\'expiré (planches et commandes en attente)';
 }
 
 // « Devis planche auto » : planches A PREPARER avec métrage, sans devis, hors clients hebdo -> devis Odoo envoyé
@@ -134,11 +156,11 @@ async function commandesPayees() {
     const ex = rows.find(r => String(r.n_devis || '').toUpperCase() === o.name.toUpperCase());
     if (ex) {
       // Ligne créée « EN DEVIS » par le formulaire avant le paiement : elle passe en PAYÉE dès la confirmation Odoo
-      if (statutKey(ex.statut) === 'ENDEVIS') {
+      if (['ENDEVIS', 'ENATTENTE'].includes(statutKey(ex.statut))) {
         try {
           const note = /^⚠ Formulaire reçu mais devis/.test(ex.remarque || '') ? { remarque: '' } : {};
           await commandes.modifier(ex.cle, { statut: 'PAYÉE', ...note, ...(ex.infos || !o.infos ? {} : { infos: o.infos }) }, 'Odoo (commande payée)');
-          ajoutees.push(`${o.name} ${o.client} (EN DEVIS → PAYÉE)`);
+          ajoutees.push(`${o.name} ${o.client} (${ex.statut} → PAYÉE)`);
         } catch (err) { console.error(`Gestion commande payée ${o.name} :`, err.message); continue; }
         // (le BDC SEFI est rempli par commandes.modifier au passage EN DEVIS -> PAYÉE)
       }
@@ -210,7 +232,7 @@ const TACHES = [
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },
   { id: 'devis_whatsapp', nom: 'Devis envoyé → message WhatsApp de Leïla au client (si fenêtre de 24 h ouverte)', flux: '(nouveau, Leïla)', rythme: 'toutes les 10 min', fn: () => require('./commercial').devisEnvoyesWhatsapp(),
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
-  { id: 'planches_en_attente', nom: `Planches EN ATTENTE (devis non validé) supprimées après ${ATTENTE_MAX_H} h, devis annulé ; payées entre-temps → À PRÉPARER`, flux: '(nouveau)', rythme: 'toutes les heures', fn: expirerPlanchesEnAttente, defaut: 'on',
+  { id: 'planches_en_attente', nom: `Planches et commandes EN ATTENTE (devis non validé) supprimées après ${ATTENTE_MAX_H} h, devis annulé ; payées entre-temps → À PRÉPARER / PAYÉE`, flux: '(nouveau)', rythme: 'toutes les heures', fn: expirerPlanchesEnAttente, defaut: 'on',
     quand: (h, d) => !d || Date.now() - d > 55 * 60e3 },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },

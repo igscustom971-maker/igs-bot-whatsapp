@@ -860,7 +860,7 @@ function startSync() {
 const colLetter = n => { let s = ''; n++; while (n) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
 const colIndex = l => l.split('').reduce((t, c) => t * 26 + c.charCodeAt(0) - 64, 0) - 1;
 
-const STATUTS = ['EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'EXPÉDIÉE', 'LIVRÉE'];
+const STATUTS = ['EN ATTENTE', 'EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'EXPÉDIÉE', 'LIVRÉE'];
 
 async function modifier(cle, champs, user) {
   const fields = {};
@@ -935,7 +935,7 @@ async function modifier(cle, champs, user) {
   }
   // EN DEVIS (ou sans statut) -> PAYÉE / VALIDÉE, à la main ou au paiement Odoo : le BDC SEFI est rempli à ce moment-là
   // avec le Tailles.xlsx déjà déposé (une commande n'est jamais commandée chez SEFI avant d'être payée)
-  if (fields.statut && row.n_devis && ['PAYEE', 'VALIDEE'].includes(key(fields.statut).toUpperCase()) && ['', 'ENDEVIS'].includes(key(row.statut || '').toUpperCase())) {
+  if (fields.statut && row.n_devis && ['PAYEE', 'VALIDEE'].includes(key(fields.statut).toUpperCase()) && ['', 'ENDEVIS', 'ENATTENTE'].includes(key(row.statut || '').toUpperCase())) {
     (async () => {
       const depot = require('./depot');
       if (!(await depot.actif().catch(() => false))) return;

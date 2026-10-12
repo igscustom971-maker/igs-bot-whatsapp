@@ -28,7 +28,7 @@ function statutClair(c) {
   if (bi.bat) return 'BAT prêt, il va être envoyé au client très prochainement';
   if (bi.formulaire) return 'formulaire bien reçu, le BAT (bon à tirer) est en préparation';
   if (st === 'PAYEE') return 'commande payée, en attente du formulaire de personnalisation du client (tailles et visuels)';
-  if (st === 'ENDEVIS') return 'devis envoyé, en attente de validation et de paiement';
+  if (st === 'ENDEVIS' || st === 'ENATTENTE') return 'devis envoyé, en attente de validation et de paiement';
   return 'commande enregistrée';
 }
 
