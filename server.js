@@ -105,6 +105,18 @@ function mettreEnAttente(from, text, at = Date.now()) {
 const derniereReception = {}; // { [from]: heure serveur de réception du dernier message client }
 const lastInboundAt = {};   // { [from]: timestamp du dernier message client }
 const lastIsmaelReplyAt = {}; // { [from]: timestamp de la dernière réponse manuelle d'Ismaël détectée }
+// Conversation reprise par l'équipe : Leïla s'efface. Gardé en base (survit aux redémarrages), 24 h max.
+const REPRISE_EQUIPE_MS = 4 * 3600e3;   // tant que l'équipe a écrit il y a moins de 4 h, la conversation est « à elle »
+const RELAIS_LEILA_MS = 10 * 60e3;      // Leïla ne reprend la main qu'après 10 min sans réponse de l'équipe
+let sauvegardeReprises = null;
+function sauverReprises() {
+  clearTimeout(sauvegardeReprises);
+  sauvegardeReprises = setTimeout(() => {
+    const now = Date.now(), v = {};
+    for (const [k, t] of Object.entries(lastIsmaelReplyAt)) if (now - t < 24 * 3600e3) v[k] = t;
+    db.setSetting('leila_reponses_equipe', JSON.stringify(v)).catch(e => console.error('Leïla reprises (sauvegarde) :', e.message));
+  }, 3000);
+}
 
 // Jours où le bot répond automatiquement (jours "off" d'Ismaël)
 // Mercredi n'est PAS dans la liste : activation uniquement via lien manuel ce jour-là
@@ -271,6 +283,7 @@ async function chargerEtatLeila() {
 async function chargerEtatLeila1() {
   {
     const [etat, plan, attente] = await Promise.all([db.getSettingStrict('leila_etat'), db.getSettingStrict('leila_planning'), db.getSettingStrict('leila_attente')]);
+    try { const r = JSON.parse((await db.getSetting('leila_reponses_equipe')) || '{}') || {}; for (const [k, t] of Object.entries(r)) if (Number(t) > (lastIsmaelReplyAt[k] || 0)) lastIsmaelReplyAt[k] = Number(t); } catch {}
     if (etat) { const e = JSON.parse(etat); manualOverride = e.manualOverride ?? null; closureOverrideUntil = e.closureOverrideUntil || null; ignoreBusinessHours = !!e.ignoreBusinessHours; }
     if (plan) planning = { ...PLANNING_DEFAUT, ...JSON.parse(plan) };
     if (attente) { const a = JSON.parse(attente) || {}; for (const [k, v] of Object.entries(a)) if (Array.isArray(v) && v.length) backlogMessages[k] = [...v, ...(backlogMessages[k] || [])]; }
@@ -732,6 +745,7 @@ async function traiterEcho(echo) {
   if (['reaction', 'unsupported', 'system'].includes(echo.type)) return;
   const clientNumber = echo.to;
   lastIsmaelReplyAt[clientNumber] = Date.now();
+  sauverReprises();
   urgentAlertedAt.delete(clientNumber); // une réponse manuelle règle le sujet, réarme immédiatement
   loggedForRecapAt.delete(clientNumber); // idem pour le récap groupé
   // Le CONTENU de la réponse manuelle est enregistré dans l'historique (Leïla et les récaps ont toute la conversation)
@@ -1011,6 +1025,25 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
   if (await dejaRepondu(from, thisMessageAt)) {
     console.log(`Pas de réponse de Leïla pour ${from} : l'équipe a déjà répondu`);
     return;
+  }
+
+  // Conversation reprise par l'équipe (réponse manuelle il y a moins de 4 h) :
+  //  - simple « ok merci / d'accord » du client : la conversation est close, Leïla ne relance rien ;
+  //  - sinon Leïla attend : au moins 10 min après le dernier message de l'équipe ET 10 min sans réponse de
+  //    l'équipe au message du client ; si l'équipe répond (ou si le client réécrit) entre-temps, elle se tait.
+  const repriseEquipe = lastIsmaelReplyAt[from] || 0;
+  if (repriseEquipe && Date.now() - repriseEquipe < REPRISE_EQUIPE_MS) {
+    if (isPureAcknowledgment(realText)) {
+      console.log(`Pas de réponse de Leïla pour ${from} : conversation gérée par l'équipe, simple accusé du client`);
+      return;
+    }
+    const attente = Math.max(repriseEquipe, thisMessageAt) + RELAIS_LEILA_MS - Date.now();
+    if (attente > 0) {
+      console.log(`Conversation reprise par l'équipe pour ${from} : Leïla attend ${Math.round(attente / 60e3)} min avant de prendre le relais`);
+      await sleep(attente);
+      if (await dejaRepondu(from, thisMessageAt) || (lastIsmaelReplyAt[from] || 0) > repriseEquipe) { console.log(`Pas de réponse de Leïla pour ${from} : l'équipe a répondu pendant l'attente`); return; }
+      if ((lastInboundAt[from] || 0) > thisMessageAt) { console.log(`Réponse de Leïla reportée pour ${from} : le client a réécrit entre-temps`); return; }
+    }
   }
 
   // Historique persistant (Supabase) : le message du client y est déjà, enregistré à la réception
