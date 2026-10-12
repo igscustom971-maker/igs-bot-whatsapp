@@ -313,6 +313,13 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
 }
 
 // État d'un devis (draft, sent, sale, cancel) par son numéro ; null si introuvable
+// États de plusieurs devis par id : Map id -> { numero, etat }
+async function etatsDevisIds(ids) {
+  const l = [...new Set((ids || []).map(Number).filter(Boolean))];
+  if (!l.length) return new Map();
+  const r = await kw('sale.order', 'read', [l], { fields: ['id', 'name', 'state'] });
+  return new Map(r.map(o => [o.id, { numero: o.name, etat: o.state }]));
+}
 async function etatDevis(numero) {
   const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['state'], limit: 1 });
   return r[0]?.state || null;
@@ -830,7 +837,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { facturesPayeesNonEnvoyees, annulerDevisOdoo, envoyerFactureReglee,
+module.exports = { facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

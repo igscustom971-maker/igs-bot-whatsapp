@@ -882,7 +882,7 @@ function coAfficher(){
     + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
     + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
     + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'
-    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>' : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+(x.devis_id ? '<button class="btn" data-co="annuler-dem" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler le devis</button>' : '<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button>')+'</div></div>').join('') + '</div>' + coPlus('dem', dem.length);
+    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>'+(x.lien_odoo ? '<a class="btn" href="'+esc(x.lien_odoo)+'" target="_blank" rel="noopener" title="Ouvrir le brouillon dans Odoo pour l’ajuster">✏️ Ajuster dans Odoo ↗</a>' : '') : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+(x.devis_id ? '<button class="btn" data-co="annuler-dem" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler le devis</button>' : '<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button>')+'</div></div>').join('') + '</div>' + coPlus('dem', dem.length);
   // Devis en cours
   const f = $('co-f').value, tri = $('co-tri').value;
   const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f))
@@ -1146,7 +1146,7 @@ function coEvents(){
     b.disabled = true; coEnCours++;
     try {
       const j = await post(url, body);
-      msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? '✅ Devis ' + esc(j.numero) + ' envoyé' : a.indexOf('annuler') === 0 ? '✅ ' + (j.numero ? 'Devis ' + esc(j.numero) + (j.deja ? ' déjà annulé' : ' annulé dans Odoo') : 'Demande annulée') : '✅ Fait', 'ok');
+      msg(a === 'relancer' ? '✅ Relance envoyée à ' + esc(j.email) : a === 'solde' ? (j.statut === 'envoyee' ? '✅ Facture ' + esc(j.numero) + ' (' + eur2(j.montant_ttc) + ' TTC) envoyée' : 'ℹ️ Pas de facture : ' + esc(j.libelle || j.statut)) : a === 'envoyer' ? (j.deja ? 'ℹ️ ' + esc(j.numero) + ' était déjà envoyé depuis Odoo : pas de 2e envoi, demande classée' : '✅ Devis ' + esc(j.numero) + ' envoyé') : a.indexOf('annuler') === 0 ? '✅ ' + (j.numero ? 'Devis ' + esc(j.numero) + (j.deja ? ' déjà annulé' : ' annulé dans Odoo') : 'Demande annulée') : '✅ Fait', 'ok');
       coEnCours--; await coCharger(true);
     } catch(err){ coEnCours--; msg('❌ ' + esc(err.message), 'err'); b.disabled = false; }
   });

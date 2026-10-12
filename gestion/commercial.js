@@ -92,7 +92,30 @@ async function demandes() {
   if (!supabase) return [];
   const { data, error } = await supabase.from('gestion_demandes').select('*').in('statut', ['nouvelle', 'brouillon', 'erreur']).order('cree_le', { ascending: false }).limit(100);
   if (error) return [];
-  return data || [];
+  const rows = data || [];
+  // Devis envoyé (ou annulé) directement dans Odoo : la demande est classée, elle ne reste pas « à traiter »
+  try {
+    const etats = await odoo.etatsDevisIds(rows.filter(d => d.devis_id).map(d => d.devis_id));
+    const out = [];
+    for (const d of rows) {
+      const e = d.devis_id ? etats.get(Number(d.devis_id)) : null;
+      if (d.devis_id && e && ['sent', 'sale', 'cancel'].includes(e.etat)) {
+        await marquerDepuisOdoo(d, e);
+        continue;
+      }
+      out.push({ ...d, lien_odoo: d.devis_id ? odoo.lienOdoo('sale.order', d.devis_id) : null });
+    }
+    return out;
+  } catch (err) {
+    console.error('Commercial : état des brouillons dans Odoo :', err.message);
+    return rows.map(d => ({ ...d, lien_odoo: d.devis_id ? odoo.lienOdoo('sale.order', d.devis_id) : null }));
+  }
+}
+async function marquerDepuisOdoo(d, e) {
+  const statut = e.etat === 'cancel' ? 'annulee' : 'envoye';
+  await supabase.from('gestion_demandes').update({ statut, traite_par: statut === 'envoye' ? 'Odoo (envoyé depuis Odoo)' : 'Odoo (annulé dans Odoo)', traite_le: new Date().toISOString() }).eq('id', d.id);
+  await journal('IGS Dashboard (automatique)', statut === 'envoye' ? 'demande_envoyee_odoo' : 'demande_annulee_odoo', e.numero, { demande: d.id, client: d.nom, etat_odoo: e.etat });
+  console.log(`Commercial : demande ${d.id} (${e.numero}) classée « ${statut} » d'après Odoo`);
 }
 
 // Nouvelle demande (Leïla) : enregistrée, puis brouillon Odoo pré-fait (client retrouvé/créé, produit, quantité)
@@ -152,6 +175,12 @@ async function preparerBrouillon(id, par, nom) {
 async function envoyerDemande(id, user) {
   const { data: d } = await supabase.from('gestion_demandes').select('*').eq('id', id).maybeSingle();
   if (!d || !d.devis_id) throw new Error('Pas de brouillon Odoo pour cette demande');
+  if (d.statut === 'envoye') return { ok: true, numero: d.devis_numero, deja: true };
+  // Déjà envoyé (ou annulé) depuis Odoo : jamais envoyé une 2e fois
+  const e = (await odoo.etatsDevisIds([d.devis_id])).get(Number(d.devis_id));
+  if (!e) throw new Error('Brouillon introuvable dans Odoo (supprimé ?)');
+  if (e.etat === 'cancel') { await marquerDepuisOdoo(d, e); cache.le = 0; throw new Error(`${e.numero} est annulé dans Odoo : demande classée`); }
+  if (['sent', 'sale'].includes(e.etat)) { await marquerDepuisOdoo(d, e); cache.le = 0; return { ok: true, numero: e.numero, deja: true }; }
   const so = await odoo.envoyerDevisOdoo(d.devis_id);
   await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: user, traite_le: new Date().toISOString() }).eq('id', id);
   // Leïla prévient le client sur WhatsApp (si la tâche est active et la fenêtre de 24 h ouverte)
