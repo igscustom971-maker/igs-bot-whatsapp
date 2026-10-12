@@ -447,7 +447,7 @@ const CATALOGUE_DEFAUT = `CATALOGUE ET TARIFS (à donner en prix unitaire unique
 - Public (moins de 10) : à confirmer, utilise la phrase de blocage si demandé
 
 **Polo** : avant seul 17,50€ / avant-arrière 22,25€ (prix unique, pas de palier)
-**Sweat à capuche** : avant seul 30€ / avant-arrière 35€ (prix unique, pas de palier)
+**Sweat (tous modèles : à capuche, col rond sans capuche, zippé à capuche)** : avant seul 30€ / avant-arrière 35€, même prix quel que soit le modèle (prix unique, pas de palier)
 **Casquette personnalisée** : 11,25€
 **Timbale / éco cup / gobelet personnalisé** (termes équivalents utilisés aux Antilles) : impression DTF UV directe, 2,30€/pièce. Pour une demande "stickers/autocollants sur mes propres timbales" (planche DTF à coller soi-même), le prix dépend des dimensions, utilise la phrase de blocage pour laisser l'équipe chiffrer précisément
 **Textile apporté par le client** : avant-arrière 8€/pièce, avant seul petit (ex: côté cœur) 4€/pièce, avant seul en grand 8€/pièce (même tarif que avant-arrière). Même règle de paiement avant production que le textile classique, MAIS flexibilité : si le client veut payer en espèces, ne pas insister, lui dire de passer et régler sur place directement
