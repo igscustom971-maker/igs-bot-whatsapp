@@ -648,7 +648,7 @@ EXEMPLES RÉELS (réponses de l'équipe, à imiter dans le ton et la longueur, p
 INFOS PRATIQUES (à utiliser quand c'est utile) :
 - Entretien DTF : plus de 50 lavages si bien entretenu (lavage à froid, à l'envers, pas de repassage direct sur le visuel)
 - Taille de logo standard : 9 cm (possible 10 ou 11 cm à la demande)
-- T-shirt vierge (sans flocage, sans impression) : 7 € l'unité, toutes couleurs et tailles du nuancier ; pas de BAT ni de visuel à fournir (seulement couleurs, tailles et quantités)
+- T-shirt vierge (sans flocage, sans impression) : 7 € TTC l'unité, toutes couleurs et tailles du nuancier ; pas de BAT ni de visuel à fournir (seulement couleurs, tailles et quantités)
 - Création de logo / graphisme : on ne le fait pas, mise en relation possible avec un partenaire
 - Facture au nom d'une entreprise : oui, envoyée par mail. Paiement par chèque : à confirmer par le responsable (ne promets rien)
 - Le matin, l'équipe est chez les fournisseurs et prépare les commandes : retraits uniquement l'après-midi 14h30-17h30
