@@ -22,6 +22,10 @@
     // Tablier (Wordans, 65 x 90 cm) : une seule face comme le tote bag, logo 27 cm sur la bavette ; y depuis le haut de la bavette
     tablier:   { nom: 'Tablier', avant: 'tablier', dos: 'tablier', A: 90, B: 65, tote: true,
                  zones: { centre: { x: 0, yCentre: 35 } } },
+    // Eco cup (gobelet réutilisable 33 cl, hors SEFI) : une seule face comme le tote bag, logo 5 cm par défaut ;
+    // y depuis le haut du gobelet (bord)
+    ecocup:    { nom: 'Eco cup 33 cl', avant: 'ecocup', dos: 'ecocup', A: 12, B: 5.5, tote: true, echelle: 0.8, logo: 5, zoneMax: [7, 9],
+                 zones: { centre: { x: 0, yCentre: 5 } } },
     // Sweats SOL'S : SPIDER (col rond), CONNOR (capuche, oversize), STONE (zippé à capuche) ; y depuis l'épaule
     sweat:     { nom: 'Sweat col rond', avant: 'sweat-avant', dos: 'sweat-dos', A: 68, B: 54,
                  zones: { coeur: { x: 12.5, y: 15 }, poitrine: { x: 0, y: 14 }, dos: { x: 0, y: 12 }, bas: { x: 0, yBas: 10 }, manche: { fx: 0.11, fy: 0.42, rot: -6 } } },
@@ -33,7 +37,7 @@
   // Gabarits avec capuche : part de la hauteur de l'image au-dessus des épaules (le vêtement « commence » là),
   // et hauteur de la ligne où mesurer le corps (manches détachées du corps)
   const HAUTS = { tablier: 0.105, 'zip-avant': 0.27, 'zip-dos': 0.27, 'hoodie-avant': 0.27, 'hoodie-dos': 0.14 };
-  const LIGNES_CORPS = { tablier: 0.6, 'zip-avant': 0.72, 'zip-dos': 0.72, 'hoodie-avant': 0.8, 'hoodie-dos': 0.8 };
+  const LIGNES_CORPS = { ecocup: 0.6, tablier: 0.6, 'zip-avant': 0.72, 'zip-dos': 0.72, 'hoodie-avant': 0.8, 'hoodie-dos': 0.8 };
   // Mesures fournisseur par taille (A longueur / B largeur à plat, cm) : sert aux alertes "visuel trop grand"
   const TAILLES = {
     tshirt: {
@@ -48,6 +52,7 @@
       femme: { XS: [62, 39], S: [64, 41], M: [66, 43], L: [68, 45], XL: [69, 47], XXL: [70, 49] } },
     tote: { homme: { TU: [42, 38] } },
     tablier: { homme: { TU: [90, 65] } },
+    ecocup: { homme: { TU: [12, 5.5] } },
     sweat: { homme: { S: [67, 51], M: [68, 54], L: [69, 57], XL: [70, 60], XXL: [71, 63], '3XL': [72, 66] } },
     hoodie: { homme: { XS: [68, 60], S: [69, 63], M: [70, 66], L: [71, 69], XL: [72, 72], XXL: [73, 75] } },
     zip: { homme: { XS: [69, 48], S: [70, 51], M: [71, 54], L: [72, 57], XL: [73, 60], XXL: [74, 63], '3XL': [75, 66] } },
@@ -80,13 +85,14 @@
     'vert bouteille':'#0f4a2c','vert':'#2c9a46','kaki fonce':'#4d4a2d','kaki':'#6b6a3d','terre':'#8b5a3c','chocolat':'#4a2e23',
     'violet fonce':'#4a2a6b','violet':'#5b2d8a','marine':'#1b2440','french marine':'#23305d','royal':'#1f4ea3','bleu royal':'#1f4ea3',
     'aqua':'#19b4c8','bleu atoll':'#0e7fb4','ciel':'#8fcaec','bleu ciel':'#8fcaec','bleu':'#1f4ea3','sable':'#d9c49d','beige':'#d9c49d',
-    'gris chine':'#a4a6aa','anthracite':'#3d3f45',
+    'gris chine':'#a4a6aa','anthracite':'#3d3f45','transparent':'#f3f5f6','givre':'#f3f5f6',
   };
   const NUANCIER_DEFAUT = ['Noir profond','Gris foncé','Gris clair','Blanc','Rose bonbon','Fuchsia','Bordeaux','Rouge','Hibiscus','Orange','Jaune Citron','Jaune Gold','Vert pomme','Vert prairie','Vert bouteille','Kaki foncé','Terre','Chocolat','Violet foncé','Marine','French marine','Royal','Aqua','Bleu atoll','Ciel','Sable'];
 
   function produitDe(type) {
     const t = norm(type);
     if (/tablier/.test(t)) return 'tablier';
+    if (/eco.?cup|gobelet/.test(t)) return 'ecocup';
     if (/tote|sac/.test(t)) return 'tote';
     if (/sweat|hoodie|capuche|zip/.test(t)) return /zip/.test(t) ? 'zip' : /capuche|hoodie/.test(t) ? 'hoodie' : 'sweat';
     if (/polo/.test(t)) return 'polo';
@@ -189,7 +195,7 @@
         majTextes(page);
         if (!page.zone) page.zone = C.zone_flocage || '';
         // Commande uniquement en tote bags : une face, 27 cm
-        if (articles.every(a => PRODUITS[a.produit] && PRODUITS[a.produit].tote) && placements.length) Object.assign(page, { face: 'Face (27cm)', dos: '', autres: '', zone: 'Face (27cm)' });
+        if (articles.every(a => PRODUITS[a.produit] && PRODUITS[a.produit].tote) && placements.length) { const lg = PRODUITS[articles[0].produit].logo || 27; Object.assign(page, { face: `Face (${lg}cm)`, dos: '', autres: '', zone: `Face (${lg}cm)` }); }
         return page;
       });
     }
@@ -231,7 +237,9 @@
       if (!page.totePl) {
         const base = page.placements.find(pl => pl.zone === 'dos') || page.placements[0];
         if (!base) return null;
-        page.totePl = { zone: 'centre', libelle: 'Face (27cm)', largeur: 27, image: base.image, dx: 0, dy: 0, rot: null, sansBlanc: base.sansBlanc, tote: true };
+        const a0 = (page.articles || []).find(a => a.actif && PRODUITS[a.produit] && PRODUITS[a.produit].tote);
+        const lg = (a0 && PRODUITS[a0.produit].logo) || 27;
+        page.totePl = { zone: 'centre', libelle: `Face (${lg}cm)`, largeur: lg, image: base.image, dx: 0, dy: 0, rot: null, sansBlanc: base.sansBlanc, tote: true };
       }
       return page.totePl;
     }
@@ -272,7 +280,8 @@
           const ratio = ratios && ratios.get(pl.image); if (!ratio) continue;
           const w = pl.largeur, h = Math.round(pl.largeur * ratio * 2) / 2;
           let maxW, maxH;
-          if (P.tote) { maxW = B - 4; maxH = A - 4; }
+          if (P.zoneMax) { [maxW, maxH] = P.zoneMax; }
+          else if (P.tote) { maxW = B - 4; maxH = A - 4; }
           else if (pl.zone === 'coeur') { maxW = 12; maxH = 14; }
           else if (pl.zone === 'manche') { maxW = 10; maxH = 12; }
           else if (pl.zone === 'bas') { maxW = B - 10; maxH = 15; }

@@ -21,6 +21,8 @@ const DEFAUT = {
     { nom: 'Sweat zippé à capuche', tailles: ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'], coupe: false, couleurs: ['Noir profond', 'Blanc', 'Rouge', 'Vert prairie', 'French marine', 'Royal'] },
     { nom: 'Tote Bag', tailles: ['TU'], coupe: false },
     { nom: 'Tablier', tailles: ['TU'], coupe: false, couleurs: ['Blanc', 'Noir profond'] },
+    // Eco cup : commandes d'objets remplies directement sur la fiche commande (pas dans le formulaire client, hors SEFI)
+    { nom: 'Eco cup 33 cl', tailles: ['TU'], coupe: false, couleurs: ['Transparent givré'], formulaire: false },
     { nom: 'Casquette', tailles: ['TU'], coupe: false },
     { nom: 'T-Shirt Enfant', tailles: T_ENFANT, coupe: false },
     { nom: 'T-shirt fourni', tailles: T_ADULTE, coupe: true },
@@ -49,7 +51,7 @@ async function getListes() {
     if (data && data.valeur) { try { v = { ...DEFAUT, ...JSON.parse(data.valeur) }; } catch {} }
     // Nouveaux produits ajoutés une seule fois aux listes déjà enregistrées depuis l'Admin (un retrait ensuite est respecté)
     if (data && data.valeur) {
-      for (const [flag, re, avant] of [['listes_sweats_ajoutes', /^sweat/i, /tote/i], ['listes_tablier_ajoute', /^tablier$/i, /casquette/i]]) {
+      for (const [flag, re, avant] of [['listes_sweats_ajoutes', /^sweat/i, /tote/i], ['listes_tablier_ajoute', /^tablier$/i, /casquette/i], ['listes_ecocup_ajoute', /^eco ?cup/i, /casquette/i]]) {
         const { data: f } = await supabase.from('gestion_reglages').select('valeur').eq('cle', flag).maybeSingle();
         if (f) continue;
         const noms = new Set(v.produits.map(p => p.nom.toLowerCase()));

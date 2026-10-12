@@ -135,7 +135,8 @@ async function remplir(nDevis, nomClient, lignes, { ajout = false } = {}) {
       if (!produit || !couleur || qte <= 0) continue;
       const pl = produit.toLowerCase();
       // Pas commandé chez SEFI : textile fourni, « autre », tablier (fournisseur Wordans, ~9 € l'unité)
-      if (pl === 't-shirt fourni' || pl.startsWith('autre :') || pl.startsWith('autre:') || /^tablier/.test(pl)) continue;
+      // (Eco cup / gobelets : objets commandés hors SEFI)
+      if (pl === 't-shirt fourni' || pl.startsWith('autre :') || pl.startsWith('autre:') || /^tablier/.test(pl) || /^eco ?cup|gobelet/.test(pl)) continue;
       if (NORM_COULEUR[couleur]) couleur = NORM_COULEUR[couleur];
       let taille = txt(l.taille);
       if (!taille && (produit === 'Casquette' || produit === 'Tote Bag')) taille = 'TU';

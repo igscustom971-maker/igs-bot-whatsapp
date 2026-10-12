@@ -76,7 +76,8 @@ function mount(app) {
   // Listes du formulaire (produits, couleurs, tailles) modifiables depuis la page Admin
   app.get('/formulaire/listes', async (req, res) => {
     cors(req, res);
-    try { res.set('Cache-Control', 'public, max-age=300').json(await require('./admin').getListes()); }
+    // Produits hors formulaire client (ex. Eco cup : commande d'objets remplie sur la fiche commande)
+    try { const l = await require('./admin').getListes(); res.set('Cache-Control', 'public, max-age=300').json({ ...l, produits: (l.produits || []).filter(p => p.formulaire !== false && !/^eco ?cup/i.test(p.nom)) }); }
     catch (err) { res.status(500).json({ error: 'Listes indisponibles' }); }
   });
 

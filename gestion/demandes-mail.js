@@ -36,7 +36,7 @@ const vide = v => !v || /^[A-ZÉÈ][\wéèêàç' ’,]+\s*:/.test(v) ? '' : v;
 
 // ---------- Spam : score simple, avant toute analyse ----------
 const GENERIQUE = /(plus d['’]?\s*informations?|merci de me contacter|me contacter par (e-?)?mail|contactez[- ]moi|more information|contact me|get back to me|i am interested|your (website|site)|seo|backlinks?|referencement|référencement|marketing digital|crypto|bitcoin|investment|loan|pr[êe]t rapide|casino|viagra|telegram)/i;
-const PRODUIT = /(t-?shirt|tee-?shirt|polo|sweat|hoodie|casquette|tote|sac|tablier|maillot|veste|planche|dtf|flocage|floquer|logo|brod|impression|imprimer|personnalis|marquage|textile|uniforme|tenue|\b\d+\s*(pi[eè]ces?|pcs|articles?|unit[ée]s?)\b)/i;
+const PRODUIT = /(t-?shirt|tee-?shirt|polo|sweat|hoodie|casquette|tote|sac|tablier|eco ?cup|gobelet|maillot|veste|planche|dtf|flocage|floquer|logo|brod|impression|imprimer|personnalis|marquage|textile|uniforme|tenue|\b\d+\s*(pi[eè]ces?|pcs|articles?|unit[ée]s?)\b)/i;
 function scoreSpam({ message, telephone, entreprise, page, formulaire }) {
   const m = String(message || '');
   let s = 0;
