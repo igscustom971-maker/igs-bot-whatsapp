@@ -72,10 +72,34 @@ async function paiementPlanches() {
   }
   return `${aVoir.length} devis vérifié(s), ${n} passé(s) en PAYÉE`;
 }
+// « Planches en attente » : planche EN ATTENTE (devis envoyé, pas encore validé) depuis plus de 72 h et toujours pas payée
+// -> ligne supprimée et devis Odoo annulé (pas supprimé) ; si elle est payée entre-temps, elle passe À PRÉPARER toute seule
+const ATTENTE_MAX_H = Number(process.env.PLANCHES_ATTENTE_MAX_H || 72);
+async function expirerPlanchesEnAttente() {
+  const { rows } = await planches.listPlanches({ force: true });
+  const limite = Date.now() - ATTENTE_MAX_H * 3600e3;
+  const depuis = p => Date.parse(p.statut_le || '') || Date.parse(String(p.date_commande || '').slice(0, 10) + 'T12:00:00Z') || Date.now();
+  const vieilles = rows.filter(p => statutKey(p.statut) === 'ENATTENTE' && !p.hebdo && statutKey(p.paiement) !== 'PAYEE' && depuis(p) < limite);
+  const faits = [];
+  for (const p of vieilles) {
+    try {
+      // Dernière vérification dans Odoo : devis confirmé entre-temps -> payée, à préparer
+      if (p.n_devis) {
+        const etat = await require('./odoo').etatDevis(p.n_devis).catch(() => null);
+        if (etat === 'sale') { await planches.marquerPayee(p.cle); faits.push(`${p.client} : payée, À PRÉPARER`); continue; }
+        if (etat === 'draft' || etat === 'sent') await require('./odoo').annulerDevisOdoo({ numero: p.n_devis }, `planche en attente depuis plus de ${ATTENTE_MAX_H} h sans validation`, 'IGS Dashboard (automatique)').catch(err => console.error(`Planche ${p.cle} : devis non annulé :`, err.message));
+      }
+      await planches.supprimer(p.cle, 'IGS Dashboard (automatique)', { fichiers: [], devis: false });
+      faits.push(`${p.client}${p.n_devis ? ` (${p.n_devis} annulé)` : ''} : supprimée`);
+    } catch (err) { faits.push(`${p.client} : erreur ${err.message.slice(0, 80)}`); }
+  }
+  return faits.length ? faits.join(' ; ') : 'aucune planche en attente expirée';
+}
+
 // « Devis planche auto » : planches A PREPARER avec métrage, sans devis, hors clients hebdo -> devis Odoo envoyé
 async function devisPlanches() {
   const { rows } = await planches.listPlanches({ force: true });
-  const aFaire = rows.filter(p => statutKey(p.statut) === 'APREPARER' && !p.n_devis && !p.hebdo && p.client && (p.format || p.metres > 0));
+  const aFaire = rows.filter(p => ['APREPARER', 'ENATTENTE'].includes(statutKey(p.statut)) && !p.n_devis && !p.hebdo && p.client && (p.format || p.metres > 0));
   const res = [];
   for (const p of aFaire) {
     try {
@@ -186,6 +210,8 @@ const TACHES = [
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },
   { id: 'devis_whatsapp', nom: 'Devis envoyé → message WhatsApp de Leïla au client (si fenêtre de 24 h ouverte)', flux: '(nouveau, Leïla)', rythme: 'toutes les 10 min', fn: () => require('./commercial').devisEnvoyesWhatsapp(),
     quand: (h, d) => !d || Date.now() - d > 9.5 * 60e3 },
+  { id: 'planches_en_attente', nom: `Planches EN ATTENTE (devis non validé) supprimées après ${ATTENTE_MAX_H} h, devis annulé ; payées entre-temps → À PRÉPARER`, flux: '(nouveau)', rythme: 'toutes les heures', fn: expirerPlanchesEnAttente, defaut: 'on',
+    quand: (h, d) => !d || Date.now() - d > 55 * 60e3 },
   { id: 'devis_planches', nom: 'Devis planche auto', flux: 'IGS - Devis planche auto', rythme: 'toutes les 30 min', fn: devisPlanches,
     quand: (h, d) => !d || Date.now() - d > 29 * 60e3 },
   { id: 'planches_mail', nom: 'Planches reçues par mail (dossier « Planches DTF »)', flux: 'IGS - Planche DTF MAIL', rythme: 'toutes les 2 min', fn: () => require('./planches-mail').relever(),
@@ -225,7 +251,7 @@ async function tour() {
   try {
     const h = heureGP();
     for (const t of TACHES) {
-      if ((await reglage(`tache_${t.id}`, 'off')) !== 'on') continue;
+      if ((await reglage(`tache_${t.id}`, t.defaut || 'off')) !== 'on') continue;
       // Dernier passage automatique : le plus récent entre la mémoire et l'enregistrement (une écriture ratée ne relance pas)
       const dernier = lireJSON(await reglage(`tache_${t.id}_dernier`, 'null'), null);
       const auto = Date.parse(await reglage(`tache_${t.id}_auto`, '')) || (dernier && dernier.par === 'automatique' ? Date.parse(dernier.le) : 0);
@@ -243,7 +269,7 @@ async function etat() {
   const out = [];
   for (const t of TACHES) {
     out.push({ id: t.id, nom: t.nom, flux: t.flux, rythme: t.rythme, evenement: !!t.evenement,
-      active: (await reglage(`tache_${t.id}`, 'off')) === 'on',
+      active: (await reglage(`tache_${t.id}`, t.defaut || 'off')) === 'on',
       dernier: etatMemoire.get(t.id)?.le ? etatMemoire.get(t.id) : lireJSON(await reglage(`tache_${t.id}_dernier`, 'null'), null) });
   }
   let sefi = null;

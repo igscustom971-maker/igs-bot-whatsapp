@@ -701,10 +701,10 @@ const COULEURS = {
 };
 const FINIS = ['LIVRÉE'];               // commande finie = livrée (récupérée ou reçue par le client)
 const PRETES = ['TERMINÉE','A EXPEDIER']; // prête, pas encore récupérée / expédiée
-const PL_STATUTS = ['A PREPARER','A VERIFIER','A IMPRIMER','A RECUPERER','A EXPEDIER','EXPÉDIÉE','LIVRÉE'];
+const PL_STATUTS = ['A PREPARER','A VERIFIER','A IMPRIMER','A RECUPERER','A EXPEDIER','EN ATTENTE','EXPÉDIÉE','LIVRÉE'];
 const PL_COULEURS = {
   'A PREPARER':['#ffedd5','#c2410c'], 'A VERIFIER':['#fee2e2','#b91c1c'], 'A IMPRIMER':['#fce7f3','#be185d'],
-  'A RECUPERER':['#e0e7ff','#4338ca'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'EXPÉDIÉE':['#e0f2fe','#0369a1'], 'LIVRÉE':['#d1fae5','#065f46'],
+  'A RECUPERER':['#e0e7ff','#4338ca'], 'A EXPEDIER':['#ccfbf1','#0f766e'], 'EN ATTENTE':['#f3f4f6','#4b5563'], 'EXPÉDIÉE':['#e0f2fe','#0369a1'], 'LIVRÉE':['#d1fae5','#065f46'],
 };
 let planches = [];
 const VIEW = '${view}';

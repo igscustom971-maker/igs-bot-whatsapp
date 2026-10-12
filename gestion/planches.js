@@ -579,6 +579,8 @@ async function modifier(cle, champs, user) {
     fields.paiement = v;
   }
   if ('remarques' in champs) fields.remarques = String(champs.remarques || '').trim().slice(0, 500);
+  // Planche EN ATTENTE (devis pas encore validé) qui passe payée : à préparer
+  if (fields.paiement && /^PAY/.test(key(fields.paiement).toUpperCase()) && !('statut' in fields) && key(p.statut) === 'enattente') fields.statut = 'A PREPARER';
   if (!Object.keys(fields).length) throw new Error('Rien à modifier');
   // Renommage : le lien avec le client Odoo suit le nouveau nom
   if (fields.client) {
@@ -769,7 +771,11 @@ async function ecrireDrapeau(cle, champ, valeur) {
 }
 
 // Paiement confirmé dans Odoo (devis confirmé) : colonne Paiement = PAYÉE
-async function marquerPayee(cle) { await writeCells(cle, { paiement: 'PAYÉE' }); }
+async function marquerPayee(cle) {
+  const p = cache.rows.find(r => r.cle === cle);
+  // Devis validé : une planche EN ATTENTE passe À PRÉPARER
+  await writeCells(cle, p && key(p.statut) === 'enattente' ? { paiement: 'PAYÉE', statut: 'A PREPARER' } : { paiement: 'PAYÉE' });
+}
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
