@@ -21,6 +21,26 @@ const dateFr = iso => (iso ? new Date(iso).toLocaleString('fr-FR', { timeZone: '
 
 // Mémoire courte de l'échange (3 h) et action en attente de confirmation (30 min)
 let historique = [], dernierEchange = 0, enAttente = null;
+// La conversation avec Ismaël (et l'action en attente de son « oui ») survit aux redémarrages du serveur (mises à jour Render)
+let etatCharge = false;
+async function chargerEtat() {
+  if (etatCharge || !supabase) { etatCharge = true; return; }
+  etatCharge = true;
+  try {
+    const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'assistant_ismael_etat').maybeSingle();
+    const e = data && data.valeur ? JSON.parse(data.valeur) : null;
+    if (e && Date.now() - Number(e.dernierEchange || 0) < 3 * 3600e3) {
+      historique = Array.isArray(e.historique) ? e.historique.concat(historique).slice(-16) : historique;
+      dernierEchange = Math.max(Number(e.dernierEchange) || 0, dernierEchange);
+      if (!enAttente && e.enAttente) enAttente = e.enAttente;
+    }
+  } catch (err) { console.error('Assistante Ismaël : état non relu :', err.message); }
+}
+function sauverEtat() {
+  if (!supabase) return;
+  const valeur = JSON.stringify({ historique: historique.slice(-16), dernierEchange, enAttente });
+  supabase.from('gestion_reglages').upsert({ cle: 'assistant_ismael_etat', valeur, updated_at: new Date().toISOString() }).then(() => {}, err => console.error('Assistante Ismaël : état non sauvé :', err.message));
+}
 const OUI = /^\s*(oui|ouais|ok|okay|go|vas[- ]?y|confirme|je confirme|valide|c'?est bon|d'?accord|dac|yes|👍|✅)\b[\s!.]*$/i;
 const NON = /^\s*(non|annule|annuler|stop|laisse tomber|pas maintenant|no|❌)\b/i;
 
@@ -154,7 +174,7 @@ async function preparerMessage({ cle, telephone, message, sujet }) {
 }
 
 const STATUTS_OK = ['EN DEVIS', 'PAYÉE', 'VALIDÉE', 'EN COMMANDE', 'EN PRODUCTION', 'EN FLOCAGE', 'TERMINÉE', 'A EXPEDIER', 'EXPÉDIÉE', 'LIVRÉE'];
-async function preparerModifCommande({ cle, statut, remarque, remarque_mode, affectation, date_livraison, zone_flocage, numero_suivi }) {
+async function preparerModifCommande({ cle, statut, remarque, remarque_mode, affectation, date_livraison, zone_flocage, numero_suivi, prioritaire }) {
   const c = await trouverCommande(cle);
   if (!c) return { erreur: 'commande introuvable parmi les commandes en cours' };
   const champs = {}, lignes = [];
@@ -176,16 +196,18 @@ async function preparerModifCommande({ cle, statut, remarque, remarque_mode, aff
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date_livraison)) return { erreur: 'date de livraison au format AAAA-MM-JJ' };
     date = date_livraison; lignes.push(`Date de livraison : ${date.split('-').reverse().join('/')}`);
   }
-  if (!lignes.length) return { erreur: 'rien à modifier' };
+  const prio = typeof prioritaire === 'boolean' && prioritaire !== !!c.prioritaire ? prioritaire : null;
+  if (prio !== null) lignes.push(prio ? '🔥 Prioritaire' : 'Plus prioritaire');
+  if (!lignes.length) return typeof prioritaire === 'boolean' ? { deja: true, info: prioritaire ? 'déjà prioritaire' : 'pas prioritaire' } : { erreur: 'rien à modifier' };
   const resume = `✏️ *${c.n_devis} – ${c.client}* :\n${lignes.map(l => `• ${l}`).join('\n')}`;
-  enAttente = { type: 'modif_commande', le: Date.now(), resume, cle: c.cle, champs, date };
+  enAttente = { type: 'modif_commande', le: Date.now(), resume, cle: c.cle, champs, date, prioritaire: prio };
   return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé exact et la question de confirmation sont ajoutés automatiquement à ta réponse : ne les répète pas, dis seulement en une courte phrase ce que tu as préparé. Rien n\'est fait avant sa confirmation.' };
 }
 
 // ---------- Planches DTF ----------
 const aujourdHuiGP = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guadeloupe' });
 function resumePlanche(p) {
-  return { cle: p.cle, devis: p.n_devis || null, client: p.client, date_commande: p.date_commande || null, metres: p.metres || null, format: p.format || null, hebdo: !!p.hebdo, statut: p.statut || null, paiement: p.paiement || null, remarques: p.remarques || null, suivi: p.numero_suivi || null };
+  return { cle: p.cle, devis: p.n_devis || null, client: p.client, date_commande: p.date_commande || null, metres: p.metres || null, format: p.format || null, hebdo: !!p.hebdo, prioritaire: !!p.prioritaire, statut: p.statut || null, paiement: p.paiement || null, remarques: p.remarques || null, suivi: p.numero_suivi || null };
 }
 async function chercherPlanches({ recherche, aujourdhui }) {
   const { rows } = await require('./planches').listPlanches();
@@ -211,7 +233,7 @@ async function chercherPlanches({ recherche, aujourdhui }) {
   }
   return { planches, nombre: ls.length, total_metres: total, formats_a3_a4: formats, date_du_jour: jour, note: 'les planches LIVRÉE sont retirées de la liste chaque nuit. Client HEBDO : une seule ligne par semaine, facturée le lundi ; sa date_commande est celle de la création de la ligne (début de semaine), pas celle de chaque demande, et le métrage est le CUMUL de la semaine. Chaque ajout (Leïla WhatsApp, mail, dashboard) est daté dans historique (compteur_hebdo_ajoute = mètres ajoutés à la ligne) et, depuis le 12/10, noté dans les remarques. Utilise historique pour dire d\'où vient une planche.' };
 }
-async function preparerModifPlanche({ cle, statut, paiement, remarques, metres }) {
+async function preparerModifPlanche({ cle, statut, paiement, remarques, remarques_mode, metres, prioritaire }) {
   const { rows } = await require('./planches').listPlanches();
   const p = rows.find(r => r.cle === cle || txt(r.n_devis).toUpperCase() === txt(cle).toUpperCase());
   if (!p) return { erreur: 'planche introuvable' };
@@ -219,11 +241,14 @@ async function preparerModifPlanche({ cle, statut, paiement, remarques, metres }
   const PL = ['A PREPARER', 'A VERIFIER', 'A IMPRIMER', 'A RECUPERER', 'A EXPEDIER', 'EXPÉDIÉE', 'LIVRÉE'];
   if (statut) { const st = PL.find(x => cleStatut(x) === cleStatut(statut)); if (!st) return { erreur: `statut planche inconnu ; possibles : ${PL.join(', ')}` }; champs.statut = st; lignes.push(`Statut : ${p.statut || '—'} → *${st}*`); }
   if (paiement) { champs.paiement = txt(paiement).toUpperCase(); lignes.push(`Paiement : ${champs.paiement}`); }
-  if (remarques !== undefined && remarques !== null) { champs.remarques = txt(remarques); lignes.push(`Remarques : « ${champs.remarques} »`); }
+  if (remarques !== undefined && remarques !== null) { champs.remarques = (remarques_mode === 'remplacer' ? txt(remarques) : [txt(p.remarques), txt(remarques)].filter(Boolean).join(' | ')).slice(-500); lignes.push(`Remarques : « ${champs.remarques} »`); }
   if (metres) { champs.metres = String(metres); lignes.push(`Métrage : ${metres}`); }
+  const prio = typeof prioritaire === 'boolean' && prioritaire !== !!p.prioritaire ? prioritaire : null;
+  if (prio !== null) lignes.push(prio ? '🔥 Prioritaire' : 'Plus prioritaire');
+  else if (typeof prioritaire === 'boolean' && !Object.keys(champs).length) return { deja: true, info: prioritaire ? 'déjà prioritaire' : 'pas prioritaire' };
   if (!lignes.length) return { erreur: 'rien à modifier' };
   const resume = `✏️ Planche *${p.client}*${p.n_devis ? ` (${p.n_devis})` : ''} :\n${lignes.map(l => `• ${l}`).join('\n')}`;
-  enAttente = { type: 'modif_planche', le: Date.now(), resume, cle: p.cle, champs };
+  enAttente = { type: 'modif_planche', le: Date.now(), resume, cle: p.cle, champs, prioritaire: prio };
   return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé exact et la question de confirmation sont ajoutés automatiquement à ta réponse : ne les répète pas, dis seulement en une courte phrase ce que tu as préparé. Rien n\'est fait avant sa confirmation.' };
 }
 
@@ -350,9 +375,9 @@ const OUTILS = [
   { name: 'etat_bdc_sefi', description: 'Bon de commande SEFI : envois d\'aujourd\'hui (heure et contenu par devis), dernier envoi, ce qui est dans le BDC en attente du prochain créneau, blocage éventuel.', input_schema: { type: 'object', properties: {} } },
   { name: 'preparer_ajout_articles', description: 'PRÉPARE l\'ajout d\'articles à une commande en cours (devis Odoo, tableau des tailles, BDC SEFI). N\'exécute rien : Ismaël doit confirmer par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, lignes: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', description: 'produit tel que dans le formulaire : T-Shirt, T-Shirt Col V, T-Shirt Polyester, T-Shirt Longue Manche, Polo, Débardeur, Tote Bag, Casquette, T-Shirt Enfant' }, couleur: { type: 'string' }, taille: { type: 'string', description: 'XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, 2A…12A, TU' }, coupe: { type: 'string', description: 'Unisexe (défaut) ou Femme' }, quantite: { type: 'number' }, visuel: { type: 'string' } }, required: ['type', 'couleur', 'taille', 'quantite'] } } }, required: ['cle', 'lignes'] } },
   { name: 'preparer_message_client', description: 'PRÉPARE un message à un client (WhatsApp si le client a écrit dans les dernières 24 h, sinon mail). Rédige toi-même le message final, au nom de l\'équipe IGS Custom Bar, avec le bon ton (vouvoiement par défaut ; tutoiement seulement si detail_commande l\'indique), court et chaleureux, sans jamais d\'info interne. N\'envoie rien : Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'commande du client (cle, n° de devis ou nom)' }, telephone: { type: 'string', description: 'si pas de commande : numéro du client' }, message: { type: 'string', description: 'texte exact à envoyer' }, sujet: { type: 'string', description: 'objet si mail' } }, required: ['message'] } },
-  { name: 'preparer_modification_commande', description: 'PRÉPARE une modification d\'une commande en cours : statut (EN DEVIS, PAYÉE, VALIDÉE, EN COMMANDE, EN PRODUCTION, EN FLOCAGE, TERMINÉE, A EXPEDIER, EXPÉDIÉE, LIVRÉE), remarque (ajoutée à la suite, ou remplacée), affectation, date de livraison, zone de flocage, n° de suivi. N\'exécute rien : Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, statut: { type: 'string' }, remarque: { type: 'string' }, remarque_mode: { type: 'string', enum: ['ajouter', 'remplacer'] }, affectation: { type: 'string' }, date_livraison: { type: 'string', description: 'AAAA-MM-JJ' }, zone_flocage: { type: 'string' }, numero_suivi: { type: 'string' } }, required: ['cle'] } },
+  { name: 'preparer_modification_commande', description: 'PRÉPARE une modification d\'une commande en cours : statut (EN DEVIS, PAYÉE, VALIDÉE, EN COMMANDE, EN PRODUCTION, EN FLOCAGE, TERMINÉE, A EXPEDIER, EXPÉDIÉE, LIVRÉE), remarque (ajoutée à la suite, ou remplacée), affectation, date de livraison, zone de flocage, n° de suivi. N\'exécute rien : Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, statut: { type: 'string' }, remarque: { type: 'string' }, remarque_mode: { type: 'string', enum: ['ajouter', 'remplacer'] }, affectation: { type: 'string' }, date_livraison: { type: 'string', description: 'AAAA-MM-JJ' }, zone_flocage: { type: 'string' }, numero_suivi: { type: 'string' }, prioritaire: { type: 'boolean', description: 'true = case 🔥 Prioritaire cochée (la commande passe en haut de la liste), false = décochée' } }, required: ['cle'] } },
   { name: 'chercher_planches', description: 'Planches DTF (impression seule) : par client ou n° de devis, et/ou celles commandées aujourd\'hui ; donne métrage (total en mètres), format A3/A4, statut, paiement.', input_schema: { type: 'object', properties: { recherche: { type: 'string' }, aujourdhui: { type: 'boolean' } } } },
-  { name: 'preparer_modification_planche', description: 'PRÉPARE une modification de planche DTF : statut (A PREPARER, A VERIFIER, A IMPRIMER, A RECUPERER, A EXPEDIER, EXPÉDIÉE, LIVRÉE), paiement (PAYÉE / NON PAYÉE), remarques, métrage. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, statut: { type: 'string' }, paiement: { type: 'string' }, remarques: { type: 'string' }, metres: { type: 'string' } }, required: ['cle'] } },
+  { name: 'preparer_modification_planche', description: 'PRÉPARE une modification de planche DTF : statut (A PREPARER, A VERIFIER, A IMPRIMER, A RECUPERER, A EXPEDIER, EXPÉDIÉE, LIVRÉE), paiement (PAYÉE / NON PAYÉE), remarques, métrage. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, statut: { type: 'string' }, paiement: { type: 'string' }, remarques: { type: 'string', description: 'texte AJOUTÉ à la suite des remarques existantes (remarques_mode remplacer pour tout remplacer)' }, remarques_mode: { type: 'string', enum: ['ajouter', 'remplacer'] }, prioritaire: { type: 'boolean', description: 'true = case 🔥 Prioritaire cochée (en haut de la liste), false = décochée' }, metres: { type: 'string' } }, required: ['cle'] } },
   { name: 'lien_paiement', description: 'Lien(s) de paiement d\'un devis Odoo (commande textile ou planche) : factures restant à payer, ou le devis à signer et payer en ligne.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'lien_formulaire', description: 'Lien du formulaire de commande prérempli (devis, client, mail, téléphone) d\'une commande en cours.', input_schema: { type: 'object', properties: { cle: { type: 'string' } }, required: ['cle'] } },
   { name: 'etat_stock', description: 'Stock de t-shirts vierges (par référence, couleur, taille) et consommables (alertes sous le seuil). Filtre optionnel (ex. « noir », « polo »).', input_schema: { type: 'object', properties: { recherche: { type: 'string' } } } },
@@ -404,7 +429,8 @@ async function executer(a) {
     const commandes = require('./commandes');
     if (Object.keys(a.champs).length) await commandes.modifier(a.cle, a.champs, PAR);
     if (a.date) await commandes.setLivraison(a.cle, a.date, PAR);
-    await journal({ ...a.champs, date_livraison: a.date || undefined });
+    if (typeof a.prioritaire === 'boolean') await commandes.setPrioritaire(a.cle, a.prioritaire, PAR);
+    await journal({ ...a.champs, date_livraison: a.date || undefined, prioritaire: a.prioritaire ?? undefined });
     return `✅ Commande mise à jour${a.champs.statut ? ` (statut *${a.champs.statut}*)` : ''}.`;
   }
   if (a.type === 'reponse_sefi') {
@@ -412,8 +438,9 @@ async function executer(a) {
     return [r.repondu ? '✅ Réponse envoyée à SEFI.' : '✅ Mail de SEFI classé.', r.remarques.length ? `📝 Remarque ajoutée sur ${r.remarques.join(', ')}.` : ''].filter(Boolean).join('\n');
   }
   if (a.type === 'modif_planche') {
-    await require('./planches').modifier(a.cle, a.champs, PAR);
-    await journal(a.champs);
+    if (Object.keys(a.champs).length) await require('./planches').modifier(a.cle, a.champs, PAR);
+    if (typeof a.prioritaire === 'boolean') await require('./planches').setPrioritaire(a.cle, a.prioritaire, PAR);
+    await journal({ ...a.champs, prioritaire: a.prioritaire ?? undefined });
     return `✅ Planche mise à jour${a.champs.statut ? ` (statut *${a.champs.statut}*)` : ''}.`;
   }
   if (a.type === 'annuler_devis') {
@@ -435,7 +462,8 @@ async function executer(a) {
 let file = Promise.resolve();
 // Point d'entrée : renvoie le texte à répondre à Ismaël
 function traiter(texte) {
-  const p = file.then(() => traiterUn(texte), () => traiterUn(texte));
+  const un = async () => { await chargerEtat(); try { return await traiterUn(texte); } finally { sauverEtat(); } };
+  const p = file.then(un, un);
   file = p.catch(() => {});
   return p;
 }
@@ -511,6 +539,7 @@ function noter(texteEnvoye) {
   // l'historique doit alterner user / assistant : on rattache le message à un tour « système » neutre
   historique.push({ role: 'user', content: '(notification automatique)' }, { role: 'assistant', content: texteEnvoye });
   historique = historique.slice(-16);
+  if (etatCharge) sauverEtat(); else chargerEtat().then(sauverEtat);
 }
 
 module.exports = { traiter, noter, fournisseurs, _test: { OUTILS, IMPL, executer, etat: () => ({ enAttente, historique }), reset: () => { historique = []; enAttente = null; } } };
