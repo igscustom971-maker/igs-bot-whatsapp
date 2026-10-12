@@ -1363,7 +1363,7 @@ function remettre(){
   $('psub').textContent = (cmds.length + pls.length) + ' élément(s) prêts';
   const ligne = (kind, cle, client, sous, statutHtml, boutons) => '<div class="cand"><div><b>'+esc(client)+'</b> '+statutHtml+'<div class="sub">'+sous+'</div></div><div style="display:flex;gap:6px">'+boutons+'</div></div>';
   $('pbody').innerHTML = '<div class="card"><h3>Commandes · '+cmds.length+'</h3>'
-    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + especesHtml(c) + (c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':''), badge(c.statut),
+    + (cmds.length ? cmds.map(c => ligne('cmd', c.cle, c.client, esc([c.n_devis, c.infos].filter(Boolean).join(' · ')) + (c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'') + especesHtml(c) + (c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':''), badge(c.statut),
         (statutKey(c.statut) === 'A EXPEDIER' ? '<button class="btn" data-liv="cmd-exp" data-k="'+esc(c.cle)+'">🚚 Expédiée</button>' : '')
         + '<button class="btn pink" data-liv="cmd" data-k="'+esc(c.cle)+'">🏁 Livré</button>')).join('') : '<div class="note">Aucune commande prête.</div>')
     + '</div><div class="card"><h3>Planches DTF · '+pls.length+'</h3>'
@@ -2372,13 +2372,13 @@ function liste(){
   if (q) rows = rows.filter(c => norm([c.n_devis,c.client,c.zone_flocage,c.affectation,c.infos,c.remarque,c.email].join(' ')).includes(q));
   // Priorité : à expédier, en flocage, production, commande, validée, payée, terminée, devis ; puis livraison la plus urgente
   const rang = c => { const i = ORDRE_TRI.indexOf(statutKey(c.statut)); return i < 0 ? ORDRE_TRI.length : i; };
-  rows.sort((a,b) => rang(a) - rang(b) || String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')) || String(a.date_commande||'').localeCompare(String(b.date_commande||'')));
+  rows.sort((a,b) => (b.prioritaire?1:0) - (a.prioritaire?1:0) || rang(a) - rang(b) || String(a.date_livraison||'9999').localeCompare(String(b.date_livraison||'9999')) || String(a.date_commande||'').localeCompare(String(b.date_commande||'')));
 
   $('rows').innerHTML = rows.length ? rows.map(c => {
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'')+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -2444,7 +2444,7 @@ async function ouvrir(cle){
   const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
   $('pbody').onclick = null;
   dernierDossier = null;
-  $('ptitle').innerHTML = esc(c.client) + ' ' + badge(c.statut);
+  $('ptitle').innerHTML = esc(c.client) + ' ' + badge(c.statut) + (c.prioritaire ? ' <span class="urg">🔥 PRIORITAIRE</span>' : '');
   $('psub').textContent = (c.n_devis || 'Sans devis') + (c.affectation ? ' · ' + c.affectation : '');
   const contact = [
     c.email ? '<a href="mailto:'+esc(c.email)+'">'+esc(c.email)+'</a>' : '',
@@ -2889,7 +2889,8 @@ function cmdActionsHtml(c){
     + '<div class="field"><label>Téléphone du client</label><input id="c-tel" type="tel" value="'+esc(c.telephone ? fphone(c.telephone) : '')+'" placeholder="0690 12 34 56"></div>'
     + '<div class="field"><label>N° de suivi La Poste</label><input id="c-suivi" value="'+esc(c.numero_suivi||'')+'" placeholder="ex. 8J0231167048"></div>'
     + '<div class="field" style="grid-column:1/-1"><label>Remarque</label><input id="c-rem" value="'+esc(c.remarque||'')+'" placeholder="ex. client passe jeudi après-midi"></div>'
-    + '</div><div class="espbox"><b>💵 Paiement en espèces à la remise</b>'
+    + '</div><label class="espbox" style="cursor:pointer;background:#fef2f2;border-color:#fecaca"><input type="checkbox" id="c-prio"'+(c.prioritaire?' checked':'')+' style="width:18px;height:18px"><b>🔥 Prioritaire</b><span class="sub">la commande passe en haut de la liste avec la mention</span></label>'
+    + '<div class="espbox"><b>💵 Paiement en espèces à la remise</b>'
     + (c.a_payer_especes
         ? '<span class="esp">Noté'+(c.montant_especes!=null?' · '+montantFr(c.montant_especes):'')+(c.especes_note_par?' par '+esc(c.especes_note_par):'')+'</span><button class="btn" id="esp-off">Retirer</button>'
         : '<input type="text" id="esp-montant" placeholder="Montant (facultatif)" inputmode="decimal"><button class="btn" id="esp-on">Le client paiera en espèces</button>')
@@ -2916,6 +2917,14 @@ function brancherCmd(c){
   const espMaj = async (actif, montant) => {
     try { await setEspecesCmd(c, actif, montant); afficher(); await ouvrir(c.cle); msg(actif ? '✅ Noté : paiement en espèces à la remise' : '✅ Mention espèces retirée', 'ok'); }
     catch(e){ msg('❌ ' + esc(e.message), 'err'); }
+  };
+  if ($('c-prio')) $('c-prio').onchange = async e => {
+    const actif = e.target.checked; e.target.disabled = true;
+    try {
+      await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/prioritaire', { actif });
+      majLocale(c, { prioritaire: actif }); afficher(); await ouvrir(c.cle);
+      msg(actif ? '✅ Commande prioritaire : elle passe en haut de la liste' : '✅ Mention prioritaire retirée', 'ok');
+    } catch(err){ e.target.checked = !actif; e.target.disabled = false; msg('❌ ' + esc(err.message), 'err'); }
   };
   if ($('esp-on')) $('esp-on').onclick = () => espMaj(true, $('esp-montant').value);
   if ($('esp-off')) $('esp-off').onclick = () => espMaj(false);

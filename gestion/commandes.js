@@ -246,7 +246,8 @@ function applyOverride(r, o) {
 async function listCommandes({ force = false } = {}) {
   if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
   const ov = await loadOverrides();
-  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), controle: controles.get(r.cle) || null, bat_info: batInfo.get(r.cle) || null })) };
+  const prio = await chargerPrioritaires();
+  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), prioritaire: prio.has(r.cle), controle: controles.get(r.cle) || null, bat_info: batInfo.get(r.cle) || null })) };
 }
 
 // ---------- Contrôle devis / tableau des tailles ----------
@@ -283,6 +284,36 @@ async function controlerQuantites() {
 }
 
 // ---------- Paiement à encaisser en espèces à la remise (Supabase uniquement) ----------
+// ---------- Commandes prioritaires (case « 🔥 Prioritaire » de la fiche) ----------
+// Liste des clés dans gestion_reglages (« commandes_prioritaires ») : pas de colonne à ajouter dans la base.
+let prioritaires = { set: new Set(), le: 0 };
+async function chargerPrioritaires(force = false) {
+  if (!supabase) return prioritaires.set;
+  if (!force && Date.now() - prioritaires.le < 30e3) return prioritaires.set;
+  try {
+    const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'commandes_prioritaires').maybeSingle();
+    const l = data && data.valeur ? JSON.parse(data.valeur) : [];
+    prioritaires = { set: new Set(Array.isArray(l) ? l : []), le: Date.now() };
+  } catch (err) { console.error('Commandes prioritaires :', err.message); }
+  return prioritaires.set;
+}
+async function setPrioritaire(cle, actif, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  const set = await chargerPrioritaires(true);
+  if (actif) set.add(cle); else set.delete(cle);
+  // On ne garde que les commandes encore présentes
+  const presentes = new Set(cache.rows.map(r => r.cle));
+  const liste = [...set].filter(k => presentes.has(k));
+  if (supabase) {
+    const { error } = await supabase.from('gestion_reglages').upsert({ cle: 'commandes_prioritaires', valeur: JSON.stringify(liste), updated_at: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: actif ? 'commande_prioritaire' : 'commande_non_prioritaire', cle: row.n_devis || cle, details: { client: row.client } }).then(() => {}, () => {});
+  }
+  prioritaires = { set: new Set(liste), le: Date.now() };
+  return { prioritaire: !!actif };
+}
+
 async function setEspeces(cle, { actif, montant }, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
@@ -1049,4 +1080,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
