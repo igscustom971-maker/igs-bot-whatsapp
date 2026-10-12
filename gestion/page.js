@@ -436,6 +436,7 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${batSeul ? 'on' : ''}" href="/gestion/bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg><span class="lb" data-m="BAT">BAT</span><span class="nn o" id="nav-n-bat"></span></a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span class="lb" data-m="Planches">Planches DTF</span></a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg><span class="lb" data-m="Stock">Stock</span></a>
+    <a class="${view === 'produits' ? 'on' : ''}" href="/gestion/produits"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><span class="lb" data-m="Produits">Produits</span></a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
     ${COM ? `<a class="${view === 'commercial' ? 'on' : ''}" href="/gestion/commercial"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/></svg><span class="lb" data-m="Commercial">Commercial</span><span class="nn o" id="nav-n-com"></span></a>` : ''}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
@@ -626,7 +627,17 @@ ${view === 'accueil' ? `
       </div>
       ${user.role === 'admin' ? '<div class="stack"><div class="card"><h3>Espèces encaissées par mois</h3><div id="cs-mois"></div></div><div class="card"><h3>Par année</h3><div id="cs-annee"></div></div></div>' : ''}
     </div>
-  </section>` : view === 'stock' ? `
+  </section>` : view === 'produits' ? `
+  <section id="v-produits">
+    <div class="tools">
+      <input id="pr-q" class="search" type="search" placeholder="Chercher un produit (nom, référence, catégorie)…">
+      <button id="pr-refresh" class="btn primary">↻ Actualiser</button>
+      <span id="pr-info" class="sync"></span>
+    </div>
+    <div class="note" style="margin:0 0 12px">Produits vendus par IGS Custom Bar (articles Odoo), prix de vente <b>TTC</b>. ${aP('commercial') ? 'Clique sur un prix pour le modifier : il est changé directement dans Odoo.' : 'Les prix sont modifiables par les comptes admin et commercial.'}</div>
+    <div id="pr-liste"><div class="card"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
+  </section>
+  <script src="/gestion/produits.js" defer></script>` : view === 'stock' ? `
   <section id="v-stock">
     <div class="tools">
       <input id="q" class="search" type="search" placeholder="Filtrer les articles (type, couleur, taille, référence)…">

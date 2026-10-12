@@ -260,6 +260,18 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/heures/recap-auto', auth.requireUser, auth.requireAdmin, actH(async req => { await heures.setReglage('heures_recap_auto', req.body?.active ? 'on' : 'off'); return { ok: true }; }));
   app.post('/gestion/api/heures/importer', auth.requireUser, auth.requireAdmin, actH(req => heures.importerExcel(quiH(req))));
 
+  // ---------- Produits (catalogue Odoo, prix TTC) : lecture pour tous, prix modifiables par admin et commercial ----------
+  app.get('/gestion/produits', auth.requireUser, (req, res) => {
+    res.set('Cache-Control', 'no-store').send(page.render(req.user, 'produits'));
+  });
+  app.get('/gestion/api/produits', auth.requireUser, async (req, res) => {
+    try { res.json({ ...(await require('./produits').liste({ force: !!req.query.force })), peut_modifier: auth.aProfil(req.user, 'commercial') }); }
+    catch (err) { console.error('Gestion produits :', err.message); res.status(502).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/produits/:id(\\d+)/prix', auth.requireUser, auth.requireProfil('commercial'), async (req, res) => {
+    try { res.json(await require('./produits').changerPrix(Number(req.params.id), req.body?.prix_ttc, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.get('/gestion/stock', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
   });

@@ -711,6 +711,45 @@ async function facturerSolde(numero, { exigerAcompte = true } = {}) {
   return { statut: 'envoyee', numero: inv.name, montant_ht: inv.amount_untaxed, montant_ttc: inv.amount_total, client: so.partner_id?.[1], lien: lienOdoo('account.move', id) };
 }
 
+// ---------- Catalogue des produits IGS (onglet Produits du dashboard) ----------
+// Articles vendables IGS (ou partagés), prix de vente Odoo ; TTC calculé avec les taxes de l'article
+async function catalogueProduits() {
+  const ps = await kw('product.template', 'search_read', [[...(await igsOuPartage()), ['sale_ok', '=', true], ['active', '=', true]]],
+    { fields: ['id', 'name', 'default_code', 'list_price', 'categ_id', 'taxes_id', 'description_sale', 'type'], order: 'name', limit: 2000 });
+  const taxIds = [...new Set(ps.flatMap(p => p.taxes_id || []))];
+  let taxes = new Map();
+  if (taxIds.length) {
+    let t;
+    try { t = await kw('account.tax', 'read', [taxIds], { fields: ['id', 'name', 'amount', 'amount_type', 'price_include'] }); }
+    catch { t = await kw('account.tax', 'read', [taxIds], { fields: ['id', 'name', 'amount', 'amount_type'] }); }
+    taxes = new Map(t.map(x => [x.id, x]));
+  }
+  return ps.map(p => {
+    const tx = (p.taxes_id || []).map(id => taxes.get(id)).filter(Boolean);
+    const taux = tx.filter(x => x.amount_type === 'percent').reduce((s, x) => s + (Number(x.amount) || 0), 0) / 100;
+    const inclus = tx.some(x => x.price_include);
+    const ht = inclus ? p.list_price / (1 + taux) : p.list_price;
+    return {
+      id: p.id, nom: p.name, ref: p.default_code || null, categorie: p.categ_id ? p.categ_id[1] : null,
+      prix_ht: Math.round(ht * 100) / 100, prix_ttc: Math.round(ht * (1 + taux) * 100) / 100, taux_tva: Math.round(taux * 1000) / 10, prix_inclut_taxe: inclus,
+      description: p.description_sale || null, lien: lienOdoo('product.template', p.id),
+    };
+  });
+}
+// Nouveau prix de vente TTC -> prix Odoo (HT, ou TTC si la taxe de l'article est « prix TTC »)
+async function prixProduit(id, prixTtc) {
+  const n = Number(String(prixTtc).replace(',', '.'));
+  if (!(n >= 0) || n > 100000) throw new Error('Prix invalide');
+  const [p] = await kw('product.template', 'read', [[Number(id)]], { fields: ['id', 'name', 'list_price', 'taxes_id', 'company_id'] });
+  if (!p) throw new Error('Produit introuvable dans Odoo');
+  if (p.company_id && p.company_id[0] !== companyId) throw new Error('Produit d\'une autre société');
+  const cat = (await catalogueProduits()).find(x => x.id === p.id);
+  const taux = cat ? cat.taux_tva / 100 : 0.085;
+  const valeur = cat && cat.prix_inclut_taxe ? n : Math.round(n / (1 + taux) * 10000) / 10000;
+  await kw('product.template', 'write', [[p.id], { list_price: valeur }]);
+  return { id: p.id, nom: p.name, avant_ttc: cat ? cat.prix_ttc : null, prix_ttc: Math.round(n * 100) / 100, prix_ht: Math.round((cat && cat.prix_inclut_taxe ? n / (1 + taux) : valeur) * 100) / 100 };
+}
+
 // Produit Odoo le plus proche d'une demande (« t-shirt », « polo »… ; variante avant/arrière selon la zone)
 const MOTS_PRODUITS = [[/t.?shirt|tee.?shirt|\btee\b/i, 't-shirt'], [/polo/i, 'polo'], [/sweat|hoodie|capuche/i, 'sweat'], [/d[ée]bardeur/i, 'débardeur'], [/casquette/i, 'casquette'], [/tote/i, 'tote'], [/gobelet|timbale|eco.?cup/i, 'gobelet'], [/mug|tasse/i, 'mug'], [/maillot/i, 'maillot']];
 async function produitPourDemande(produit, zone) {
@@ -837,7 +876,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
