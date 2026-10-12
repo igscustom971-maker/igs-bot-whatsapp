@@ -333,7 +333,15 @@ module.exports = function mountGestion(app) {
     res.json({ email: req.user.email, name: req.user.name, role: req.user.role });
   });
 
+  // Bouton « Actualiser » : va d'abord chercher dans Odoo les commandes confirmées/payées pas encore dans le tableau
+  // (même travail que la tâche « Commandes payées dans Odoo », 1 fois toutes les 30 s au plus, 20 s d'attente max)
+  let dernierImportOdoo = 0;
   app.get('/gestion/api/commandes', auth.requireUser, async (req, res) => {
+    if (req.query.actualiser === '1' && Date.now() - dernierImportOdoo > 30e3) {
+      dernierImportOdoo = Date.now();
+      const imp = require('./taches').lancerMaintenant('commandes_payees', `${req.user.name || req.user.email} (Actualiser)`).catch(err => console.error('Actualiser : import Odoo', err.message));
+      await Promise.race([imp, new Promise(r => setTimeout(r, 20e3))]);
+    }
     const data = await commandes.listCommandes({ force: req.query.actualiser === '1' });
     res.json({ commandes: data.rows, syncedAt: data.syncedAt, erreur: data.error });
   });
