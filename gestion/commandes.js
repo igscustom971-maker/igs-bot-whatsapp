@@ -1039,6 +1039,18 @@ async function majBordereaux(ndevis, liste) {
   await supabase.from('gestion_commandes').update({ bordereaux: v }).eq('cle', row.cle);
 }
 
+// Dossier SharePoint créé à la demande (commandes d'objets sans formulaire client : eco cup…), pour le BAT et les visuels
+async function creerDossier(cle, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  if (!row.n_devis) throw new Error('Pas de N° de devis : impossible de nommer le dossier');
+  const deja = await findCommandeFolder(row.n_devis);
+  if (deja && !deja.archive) return { ok: true, nom: deja.name, deja: true };
+  const f = await dossierCommande(`${row.n_devis} - ${row.client || ''}`.replace(/[\\"*:<>?/|#%]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120), row.n_devis);
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'dossier_cree', cle, details: { nom: f.name } }).then(() => {}, () => {});
+  return { ok: true, nom: f.name };
+}
+
 async function ajouterBordereau(cle, file, user) {
   const row = cache.rows.find(r => r.cle === cle);
   if (!row) throw new Error('Commande introuvable');
@@ -1080,4 +1092,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

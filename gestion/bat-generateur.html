@@ -188,7 +188,15 @@ async function init(){
     const rd = await fetch('/gestion/api/commandes/' + encodeURIComponent(C.n_devis) + '/dossier');
     D = await rd.json();
     if (D.erreur) throw new Error(D.erreur);
-    if (!D.trouve) throw new Error('Dossier de la commande introuvable dans SharePoint');
+    if (!D.trouve) {
+      // Commande d'objets sans formulaire (eco cup…) : dossier créé maintenant pour y enregistrer le BAT et le logo
+      const rcd = await fetch('/gestion/api/commandes/' + encodeURIComponent(C.cle) + '/dossier', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const jcd = await rcd.json().catch(() => ({}));
+      if (!rcd.ok) throw new Error('Dossier de la commande introuvable dans SharePoint, et création impossible : ' + (jcd.error || rcd.status));
+      D = await (await fetch('/gestion/api/commandes/' + encodeURIComponent(C.n_devis) + '/dossier')).json();
+      if (D.erreur) throw new Error(D.erreur);
+      if (!D.trouve) throw new Error('Dossier de la commande introuvable dans SharePoint');
+    }
     construirePages();
     afficherTout();
     if (!(D.visuels || []).length) msg('Aucun visuel dans le dossier : importe le logo avec « ＋ Logo depuis l\'ordinateur ».', 'info');

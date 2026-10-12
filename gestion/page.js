@@ -2501,7 +2501,16 @@ async function ouvrir(cle){
     const d = await r.json();
     if (cle !== panelCle) return;
     if (d.erreur) throw new Error(d.erreur);
-    if (!d.trouve) { $('dossier').innerHTML = '<div class="card note">Aucun dossier « '+esc(c.n_devis)+' - … » trouvé dans Clients/Commandes.</div>'; return; }
+    if (!d.trouve) {
+      $('dossier').innerHTML = '<div class="card"><div class="note">Aucun dossier « '+esc(c.n_devis)+' - … » trouvé dans Clients/Commandes (le formulaire du client le crée ; pour une commande d’objets sans formulaire, crée-le ici).</div>'
+        + '<div class="btnrow" style="margin-top:8px"><button class="btn" id="dos-creer">📁 Créer le dossier</button><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener" title="Crée le dossier si besoin, puis importe le logo dans le générateur">🎨 Générer le BAT</a></div><div class="msg" id="dos-msg"></div></div>';
+      $('dos-creer').onclick = async () => {
+        $('dos-creer').disabled = true;
+        try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/dossier', {}); if (panelCle === cle) await ouvrir(cle); }
+        catch(err){ $('dos-msg').className = 'msg on err'; $('dos-msg').textContent = '❌ ' + err.message; $('dos-creer').disabled = false; }
+      };
+      return;
+    }
     let h = '';
     if (norm(c.statut || '') !== norm('LIVRÉE') || (d.bordereaux && d.bordereaux.length)) h += bordereauCard(c, d.bordereaux || [], 'commande');
     if (d.controle) h += d.controle.ecart

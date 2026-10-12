@@ -480,6 +480,10 @@ module.exports = function mountGestion(app) {
   });
 
   // "À payer en espèces" : { actif: true|false, montant?: "45,50" }
+  app.post('/gestion/api/commandes/:cle/dossier', auth.requireUser, async (req, res) => {
+    try { res.json(await commandes.creerDossier(req.params.cle, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/commandes/:cle/prioritaire', auth.requireUser, async (req, res) => {
     try { res.json(await commandes.setPrioritaire(req.params.cle, !!req.body?.actif, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }

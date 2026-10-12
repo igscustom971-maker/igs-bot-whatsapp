@@ -145,7 +145,17 @@
     // Une page par visuel ; couleurs, produits et tailles tirés du tableau des tailles du client
     function construirePages(C, D, o = {}) {
       const visuels = (D && D.visuels) || [];
-      const groupes = (D && D.tailles && D.tailles.groupes) || [];
+      let groupes = (D && D.tailles && D.tailles.groupes) || [];
+      // Pas de tableau des tailles (commande d'objets sans formulaire : eco cup, tote, tablier…) : articles lus dans le contenu
+      // du devis (« 25 x Gobelet Eco Cup personnalisé »)
+      if (!groupes.length && C && C.infos) {
+        const lignes = [];
+        for (const m of String(C.infos).matchAll(/(\d+(?:[.,]\d+)?)\s*x\s*(?:\[[^\]]*\]\s*)?([^\n/|]+)/gi)) {
+          const pr = produitDe(m[2]);
+          if (pr && PRODUITS_BASE[pr] && PRODUITS_BASE[pr].tote) lignes.push({ type: PRODUITS_BASE[pr].nom, couleur: pr === 'ecocup' ? 'Transparent givré' : 'Blanc', taille: 'TU', quantite: Math.round(Number(m[1].replace(',', '.'))) });
+        }
+        if (lignes.length) groupes = [{ visuel: 'Visuel', dossierVisuel: null, lignes, total: lignes.reduce((t, l) => t + l.quantite, 0) }];
+      }
       const zonesCmd = parserZones(C.zone_flocage);
       const imagesDe = v => (v ? v.images : visuels.flatMap(x => x.images));
       let sources = groupes.length ? groupes.map(g => ({ g, v: visuels.find(v => v.nom === g.dossierVisuel) || (groupes.length === 1 && visuels.length === 1 ? visuels[0] : null) }))
