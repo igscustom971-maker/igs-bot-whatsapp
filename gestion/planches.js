@@ -723,8 +723,27 @@ async function etatFacturationAuto() {
 
 function startSync() {
   if (!cfg.SITE_ID || !cfg.CLIENT_ID || !cfg.CLIENT_SECRET) return;
-  setTimeout(syncNow, 8000);
+  setTimeout(() => syncNow().then(correctionsUniques).catch(e => console.error('Gestion planches :', e.message)), 8000);
   setInterval(() => { syncNow().then(() => facturationAutoSiDue()).catch(e => console.error('Gestion planches :', e.message)); }, cfg.SYNC_INTERVAL_MS);
+}
+
+// Corrections ponctuelles de données (une seule fois, mémorisées dans gestion_reglages)
+async function correctionsUniques() {
+  if (!supabase || !cache.rows.length) return;
+  // 12/10/2026 : demande WhatsApp de Jennifer (Presta Plus) ajoutée à la ligne hebdo sans statut ni remarque
+  const flag = 'correction_presta_plus_1210';
+  if (await getReglage(flag)) return;
+  const l = cache.rows.find(r => r.hebdo && key(r.client) === 'prestaplus');
+  if (!l) return;
+  const champs = {};
+  if (!['apreparer', 'averifier', 'aimprimer'].includes(key(l.statut))) champs.statut = 'A PREPARER';
+  if (!/pages 1 [àa] 3/i.test(l.remarques || '')) champs.remarques = [String(l.remarques || '').trim(), '12/10 +3.5 m : Demande WhatsApp (Jennifer, via Leïla) : pages 1 à 3 du Canva, quantités dans le nom du fichier, pour aujourd’hui'].filter(Boolean).join(' | ').slice(-500);
+  try {
+    if (Object.keys(champs).length) await modifier(l.cle, champs, 'IGS Dashboard (correction)');
+    await setPrioritaire(l.cle, true, 'IGS Dashboard (correction)');
+    await setReglage(flag, new Date().toISOString());
+    console.log(`Gestion planches : ligne hebdo ${l.client} corrigée (${Object.keys(champs).join(', ') || 'rien à changer'}, prioritaire)`);
+  } catch (err) { console.error('Gestion planches : correction Presta Plus impossible :', err.message); }
 }
 
 const drive = () => ({ drive: planchesDrive });
