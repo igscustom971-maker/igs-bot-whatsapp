@@ -897,6 +897,16 @@ async function traiterMessageEntrant(message, profil) {
   await db.appendMessage(from, 'user', normalizeIncoming(text).displayText);
   memoriserProfil(from, profil);
 
+  // Veilleur planches : si Leïla ne va pas répondre elle-même (désactivée, fermée, après-midi, hors horaires,
+  // conversation reprise par l'équipe), une demande de planche d'un client régulier crée quand même sa ligne
+  try {
+    const nowV = getGuadeloupeTime(new Date());
+    const leilaGere = !isClosedForBreak(new Date()) && isBotDayActive(nowV.weekday)
+      && (ignoreBusinessHours || (!isHumanHandoffWindow(nowV.weekday, nowV.hour) && isWithinBusinessHours(nowV)))
+      && !((lastIsmaelReplyAt[from] || 0) && Date.now() - lastIsmaelReplyAt[from] < REPRISE_EQUIPE_MS);
+    if (!leilaGere) require('./gestion/leila').programmerVeillePlanche(from);
+  } catch (err) { console.error('Veilleur planches :', err.message); }
+
   // Anti-abus : au-delà de 30 messages texte en 10 min depuis un même numéro (photos et vocaux non comptés), les messages
   // sont gardés dans l'historique et mis en attente pour l'équipe, mais Leïla ne répond plus automatiquement
   if (!normalizeIncoming(text).hasMedia && !normalizeIncoming(text).hasAudio && tropDeMessages(from, 30)) {

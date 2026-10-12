@@ -730,6 +730,11 @@ function startSync() {
 // Corrections ponctuelles de données (une seule fois, mémorisées dans gestion_reglages)
 async function correctionsUniques() {
   if (!supabase || !cache.rows.length) return;
+  // 12/10/2026 15:19 : 2e planche de Micky Mug Custom (page 2) demandée alors que Leïla était désactivée
+  if (!(await getReglage('correction_micky_1210'))) {
+    await setReglage('correction_micky_1210', new Date().toISOString());
+    require('./leila').veillePlanche('590690001243').catch(err => console.error('Correction Micky :', err.message));
+  }
   // 12/10/2026 : demande WhatsApp de Jennifer (Presta Plus) ajoutée à la ligne hebdo sans statut ni remarque
   const flag = 'correction_presta_plus_1210';
   if (await getReglage(flag)) return;
