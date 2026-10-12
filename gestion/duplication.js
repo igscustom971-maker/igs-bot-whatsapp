@@ -135,24 +135,41 @@ async function dupliquer(cleSource, data, user) {
   const dossierSrc = await commandes.getDossier(src.n_devis).catch(() => ({ trouve: false }));
   const parent = await g.itemByPath(cfg.COMMANDES_PATH);
   const nomDossier = `${numero} - ${src.client}`.replace(/[\\/:*?"<>|#%]/g, ' ').trim();
-  const dossier = await g.createFolder(parent.id, nomDossier);
-  etapes.push(`Dossier « ${nomDossier} » créé`);
+  // Tentative précédente interrompue (redémarrage du serveur…) : le dossier déjà créé est repris au lieu de bloquer
+  const dossierOuExistant = async (parentId, nom) => {
+    try { return { f: await g.createFolder(parentId, nom), existait: false }; }
+    catch (err) {
+      if (!/\b409\b|nameAlreadyExists/i.test(err.message)) throw err;
+      const ex = (await g.children(parentId)).find(i => i.folder && i.name.toLowerCase() === nom.toLowerCase());
+      if (!ex) throw err;
+      return { f: ex, existait: true };
+    }
+  };
+  const { f: dossier, existait } = await dossierOuExistant(parent.id, nomDossier);
+  etapes.push(`Dossier « ${nomDossier} » ${existait ? 'repris (déjà créé lors d\'un essai précédent)' : 'créé'}`);
 
   if (dossierSrc.trouve) {
     const items = await g.children(dossierSrc.dossier.id);
     for (const it of items) {
       const estTailles = it.folder && key(it.name).startsWith('taille');
       const estBat = it.file && /\.pdf$/i.test(it.name) && /bonatirer/.test(key(it.name));
-      if (it.folder && !estTailles) { await g.copyItem(it.id, dossier.id, it.name); etapes.push(`Visuel « ${it.name} » recopié`); }
-      else if (estBat && mode === 'refaire') { await g.copyItem(it.id, dossier.id, it.name); etapes.push('BAT recopié'); }
-      else if (it.file && /\.(png|jpe?g|webp|svg)$/i.test(it.name)) { await g.copyItem(it.id, dossier.id, it.name); }
+      const copier = async () => { try { await g.copyItem(it.id, dossier.id, it.name); return true; } catch (err) { if (existait) return false; throw err; } };
+      if (it.folder && !estTailles) { if (await copier()) etapes.push(`Visuel « ${it.name} » recopié`); }
+      else if (estBat && mode === 'refaire') { if (await copier()) etapes.push('BAT recopié'); }
+      else if (it.file && /\.(png|jpe?g|webp|svg)$/i.test(it.name)) { await copier(); }
     }
     // Tailles.xlsx : copie du fichier d'origine puis réécriture des lignes
     const dt = items.find(it => it.folder && key(it.name).startsWith('taille'));
     const fichier = dt ? (await g.children(dt.id)).find(f => f.file && /\.xlsx$/i.test(f.name)) : null;
     if (fichier) {
-      const sousDossier = await g.createFolder(dossier.id, dt.name);
-      const copieId = await g.copyItem(fichier.id, sousDossier.id, fichier.name, { attendre: true });
+      const { f: sousDossier } = await dossierOuExistant(dossier.id, dt.name);
+      let copieId;
+      try { copieId = await g.copyItem(fichier.id, sousDossier.id, fichier.name, { attendre: true }); }
+      catch (err) {
+        const deja = existait ? (await g.children(sousDossier.id)).find(f => f.file && f.name.toLowerCase() === fichier.name.toLowerCase()) : null;
+        if (!deja) throw err;
+        copieId = deja.id; // copie faite lors de l'essai précédent : ses lignes sont réécrites
+      }
       await ecrireTailles(copieId, lignes);
       etapes.push(`Tailles.xlsx créé (${lignes.reduce((t, l) => t + l.quantite, 0)} pièces)`);
     } else etapes.push('⚠️ Pas de Tailles.xlsx dans la commande d\'origine : tailles non créées');

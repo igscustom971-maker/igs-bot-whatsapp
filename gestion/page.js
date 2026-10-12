@@ -2090,6 +2090,7 @@ function msg(t, cls){ const m = $('a-msg'); m.className = 'msg ' + cls; m.innerH
 async function post(url, body){
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
   const j = await r.json().catch(() => ({}));
+  if ([502, 503, 504].includes(r.status) && !j.error) throw new Error('Le serveur redémarrait (mise à jour en cours) ou n\'a pas répondu à temps. Attends une minute, vérifie dans le tableau si l\'action a quand même été faite, puis réessaie si besoin.');
   if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
   return j;
 }
