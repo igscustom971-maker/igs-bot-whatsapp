@@ -144,7 +144,9 @@ async function remplir(nDevis, nomClient, lignes, { ajout = false } = {}) {
       if (NORM_TAILLE[taille]) taille = NORM_TAILLE[taille];
       const iTaille = TAILLES.indexOf(maj(taille));
       if (iTaille < 0) continue;
-      const refBase = ENFANTS.includes(maj(taille)) && produit === 'T-Shirt' ? 'REGENT KIDS' : (REFS[produit + coupe] || produit.toUpperCase());
+      // T-shirt vierge (vendu sans flocage) : même article SEFI qu'un T-shirt
+      const prodSefi = /^t-?shirt vierge/i.test(produit) ? 'T-Shirt' : produit;
+      const refBase = ENFANTS.includes(maj(taille)) && prodSefi === 'T-Shirt' ? 'REGENT KIDS' : (REFS[prodSefi + coupe] || prodSefi.toUpperCase());
       const code = CODES_MODELE[refBase] ? (CODES_MODELE[refBase][couleur] || '???') : (CODES[couleur] || '???');
       const refComplete = `${refBase} ${couleur.toUpperCase()} ${code}`;
       const prix = TARIFS_BLANC_COULEUR[refBase] ? TARIFS_BLANC_COULEUR[refBase][couleur === 'Blanc' ? 0 : 1]

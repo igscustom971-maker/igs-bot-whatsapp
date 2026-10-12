@@ -743,7 +743,10 @@ const payClass = v => { const n = norm(v); return n.includes('NON') ? 'no' : n.i
 const nonPayee = p => norm(p.paiement).includes('NON');
 const statutKey = s => STATUTS.find(x => norm(x) === norm(s)) || (s || 'SANS STATUT');
 // BAT : PAYÉE, ou EN DEVIS / sans statut / statut inconnu dès que le formulaire est reçu (commandes sans contenu, saisies à la main)
+// Commande de t-shirts vierges uniquement (sans flocage) : pas de BAT
+const SANS_BAT = c => { const ls = String(c.infos || '').split(/[\\r\\n]+|\\s\\/\\s/).map(x => x.trim()).filter(x => /\\d+(?:[.,]\\d+)?\\s*x\\s/i.test(x)); return ls.length > 0 && ls.every(x => /vierge|sans flocage|sans marquage|sans impression/i.test(x)); };
 const AVANT_BAT = c => {
+  if (SANS_BAT(c)) return false;
   const k = statutKey(c.statut);
   if (['EN PRODUCTION','EN FLOCAGE','TERMINÉE','A EXPEDIER','EXPÉDIÉE','LIVRÉE'].includes(k)) return false;
   const e = batEtape(c);
