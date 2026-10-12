@@ -110,7 +110,9 @@ async function relever() {
     const sujet = String(m.subject || '');
     const corps = texte(m.body?.content);
     // Le formulaire du site arrive d'une adresse @igscustom.fr : c'est le seul mail « interne » analysé
-    const formulaire = estFormulaireSite(corps);
+    // Formulaire = mail envoyé PAR le site (adresse @igscustom.fr), jamais une réponse : la réponse d'un client cite le
+    // formulaire d'origine dans l'historique du mail, elle ne doit pas recréer une demande à chaque échange
+    const formulaire = estFormulaireSite(corps) && /@igscustom\.fr$/i.test(exp) && !/^(re|tr|fw|fwd|réf|aw)\s*:/i.test(sujet.trim());
     if (!exp || (!formulaire && (IGNORER_EXP.test(exp) || IGNORER_SUJET.test(sujet.trim())))) { ignores++; continue; }
     let f = null;
     if (formulaire) {
@@ -129,6 +131,19 @@ async function relever() {
       const nom = String((f && f.nom) || a.nom || (f ? '' : m.from?.emailAddress?.name) || '').trim();
       // Champ « Entreprise » du formulaire (prioritaire), sinon la structure repérée dans le mail
       const entreprise = String((f && f.entreprise) || a.entreprise || '').trim();
+      // Même client (même e-mail) déjà en demande ces 30 derniers jours : c'est la suite de l'échange, pas un nouveau devis
+      if (email) {
+        const { data: ex } = await supabase.from('gestion_demandes').select('id, statut, devis_numero, details').eq('email', email).not('statut', 'in', '(abandonnee,annulee)').gte('cree_le', new Date(Date.now() - 30 * 86400e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
+        if (ex && ex[0]) {
+          const suite = String(a.details || '').trim();
+          if (suite && ['nouvelle', 'brouillon', 'erreur'].includes(ex[0].statut) && !String(ex[0].details || '').includes(suite.slice(0, 60))) {
+            await supabase.from('gestion_demandes').update({ details: `${ex[0].details || ''} · Suite (mail du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')}) : ${suite}`.slice(0, 600) }).eq('id', ex[0].id);
+          }
+          await supabase.from('gestion_actions').insert({ utilisateur: 'Leïla (mail)', action: 'demande_suite_mail', cle: ex[0].devis_numero || `demande-${ex[0].id}`, details: { email, sujet: sujet.slice(0, 120) } }).then(() => {}, () => {});
+          console.log(`Demandes mail : « ${sujet.slice(0, 60)} » = suite de la demande ${ex[0].id} (${ex[0].devis_numero || 'sans devis'}), pas de nouveau devis`);
+          ignores++; continue;
+        }
+      }
       const d = await commercial.nouvelleDemande({
         source: 'mail', email, nom, entreprise, telephone: normTel(a.telephone || (f && f.telephone)),
         produit: String(a.produit || '').trim(), quantite: Number(a.quantite) || null, zone: String(a.zone || '').trim(),
