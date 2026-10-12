@@ -473,6 +473,8 @@ async function ajouter(data, user) {
       if (format || ligne.format) throw new Error('Client hebdo : le compteur se fait en mètres (pas en A3/A4)');
       const total = Math.round(((ligne.metres || 0) + metres) * 100) / 100;
       const maj = { metres: total };
+      // Nouvelle demande sur la ligne hebdo : repasse « À préparer » si la ligne n'est pas déjà en cours (vide, prête, livrée…)
+      if (data.statut && !['apreparer', 'averifier', 'aimprimer'].includes(key(ligne.statut))) maj.statut = data.statut;
       // Infos de la demande (pages du Canva…) ajoutées à la suite des remarques de la ligne hebdo
       const info = String(data.remarques || '').trim();
       if (info) {

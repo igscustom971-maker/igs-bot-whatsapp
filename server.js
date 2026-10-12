@@ -147,6 +147,9 @@ const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !"
 // Marqueur invisible que Claude ajoute en fin de réponse pour signaler une urgence réelle
 // (jamais montré au client, détecté puis retiré avant l'envoi WhatsApp)
 const URGENT_MARKER = '###URGENT###';
+// Messages d'Ismaël à son assistante envoyés coup sur coup : regroupés (une seule réponse)
+const tamponIsmael = {};
+const TAMPON_ISMAEL_MS = Number(process.env.TAMPON_ISMAEL_MS || 5000);
 const URGENT_RE = /#{2,}\s*URGENT\s*#{2,}/i;
 // Dernier nettoyage avant tout envoi au client : aucun marqueur interne ne doit jamais partir
 function nettoyerPourClient(texte) {
@@ -813,11 +816,19 @@ async function traiterMessageEntrant(message, profil) {
       catch (err) { console.error('Demande de devis d\'Ismaël :', err.message); reponse = `⚠️ Demande non enregistrée : ${err.message}. Saisis-la dans Commercial > Demandes.`; }
       await sendWhatsAppMessage(from, reponse);
     } else {
-      // Tout le reste : Leïla assistante d'Ismaël (questions sur les commandes, planches, stock, SEFI ; actions après « oui »)
-      let reponse;
-      try { reponse = await require('./gestion/assistant-ismael').traiter(text); }
-      catch (err) { console.error('Assistante Ismaël :', err.message); reponse = `⚠️ Je n'arrive pas à traiter ta demande pour le moment (${err.message.slice(0, 100)}). Réessaie dans une minute ou passe par le dashboard.`; }
-      await sendWhatsAppMessage(from, reponse);
+      // Tout le reste : Leïla assistante d'Ismaël (questions sur les commandes, planches, stock, SEFI ; actions après « oui »).
+      // Messages envoyés à la suite (« Est-ce qu'il y a une planche pour X » puis « ? ») : regroupés, UNE seule réponse.
+      const b = tamponIsmael[from] || (tamponIsmael[from] = { textes: [], t: null });
+      b.textes.push(text);
+      clearTimeout(b.t);
+      b.t = setTimeout(async () => {
+        const tout = b.textes.join('\n');
+        delete tamponIsmael[from];
+        let reponse;
+        try { reponse = await require('./gestion/assistant-ismael').traiter(tout); }
+        catch (err) { console.error('Assistante Ismaël :', err.message); reponse = `⚠️ Je n'arrive pas à traiter ta demande pour le moment (${err.message.slice(0, 100)}). Réessaie dans une minute ou passe par le dashboard.`; }
+        await sendWhatsAppMessage(from, reponse);
+      }, TAMPON_ISMAEL_MS);
     }
     return;
   }

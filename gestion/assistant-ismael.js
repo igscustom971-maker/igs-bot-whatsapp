@@ -194,7 +194,22 @@ async function chercherPlanches({ recherche, aujourdhui }) {
   let ls = rows.filter(p => (!k || cleRech(`${p.client} ${p.n_devis}`).includes(k)) && (!aujourdhui || String(p.date_commande || '').slice(0, 10) === jour));
   const total = Math.round(ls.reduce((t, p) => t + (Number(p.metres) || 0), 0) * 100) / 100;
   const formats = ls.filter(p => p.format).map(p => p.format);
-  return { planches: ls.slice(0, 15).map(resumePlanche), nombre: ls.length, total_metres: total, formats_a3_a4: formats, date_du_jour: jour, note: 'les planches LIVRÉE sont retirées de la liste chaque nuit' };
+  const planches = ls.slice(0, 15).map(resumePlanche);
+  // Historique (journal du dashboard) des planches trouvées : d'où vient chaque ajout (WhatsApp, mail, dashboard), quand, combien
+  if (supabase && planches.length && planches.length <= 6) {
+    try {
+      const { data } = await supabase.from('gestion_actions').select('cree_le, utilisateur, action, cle, details').in('cle', planches.map(p => p.cle)).order('cree_le', { ascending: false }).limit(40);
+      for (const p of planches) {
+        p.historique = (data || []).filter(a => a.cle === p.cle).slice(0, 8).map(a => ({
+          le: new Date(a.cree_le).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }),
+          par: a.utilisateur, action: a.action,
+          ...(a.details && (a.details.ajout != null || a.details.total != null) ? { ajout_m: a.details.ajout, total_m: a.details.total } : {}),
+          ...(a.details && a.details.statut ? { statut: a.details.statut } : {}),
+        }));
+      }
+    } catch {}
+  }
+  return { planches, nombre: ls.length, total_metres: total, formats_a3_a4: formats, date_du_jour: jour, note: 'les planches LIVRÉE sont retirées de la liste chaque nuit. Client HEBDO : une seule ligne par semaine, facturée le lundi ; sa date_commande est celle de la création de la ligne (début de semaine), pas celle de chaque demande, et le métrage est le CUMUL de la semaine. Chaque ajout (Leïla WhatsApp, mail, dashboard) est daté dans historique (compteur_hebdo_ajoute = mètres ajoutés à la ligne) et, depuis le 12/10, noté dans les remarques. Utilise historique pour dire d\'où vient une planche.' };
 }
 async function preparerModifPlanche({ cle, statut, paiement, remarques, metres }) {
   const { rows } = await require('./planches').listPlanches();
