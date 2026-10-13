@@ -147,7 +147,7 @@ async function nouvelleDemande(d, par = 'Leïla (WhatsApp)') {
     details: (d.details || '').slice(0, 600) || null, statut: 'nouvelle',
   };
   // Même client, même produit dans les 6 h : on complète la demande existante plutôt que d'en créer une 2e
-  const cleDoublon = row.telephone ? ['telephone', row.telephone] : row.email ? ['email', row.email] : null;
+  const cleDoublon = row.telephone ? ['telephone', row.telephone] : row.email ? ['email', row.email] : row.nom ? ['nom', row.nom] : null;
   if (cleDoublon) {
     const { data: ex } = await supabase.from('gestion_demandes').select('*').eq(cleDoublon[0], cleDoublon[1]).in('statut', ['nouvelle', 'brouillon']).gte('cree_le', new Date(Date.now() - 6 * 3600e3).toISOString()).order('cree_le', { ascending: false }).limit(1);
     if (ex && ex[0] && (!row.produit || !ex[0].produit || ex[0].produit.toLowerCase() === row.produit.toLowerCase())) {

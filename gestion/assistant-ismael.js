@@ -356,6 +356,30 @@ async function devisConversation({ client }) {
   } catch (err) { return { erreur: err.message }; }
 }
 
+// Confirmer un devis Odoo (la commande apparaît dans le dashboard, en PAYÉE) : préparé, exécuté après le « oui »
+async function preparerConfirmation({ numero_devis }) {
+  const n = txt(numero_devis).toUpperCase();
+  const so = await require('./odoo').devisParNumero(n).catch(() => null);
+  if (!so) return { erreur: `devis ${n} introuvable dans Odoo` };
+  if (so.state === 'cancel') return { erreur: `${n} est annulé` };
+  const resume = `✅ Confirmer le devis *${so.name}* (${so.partner_id ? so.partner_id[1] : '?'}, ${Number(so.amount_total || 0).toFixed(2).replace('.', ',')} € TTC) dans Odoo${so.state === 'sale' ? ' (déjà confirmé : ajout au dashboard seulement)' : ''}.\nLa commande arrive dans le dashboard en PAYÉE ; Odoo envoie au client son mail habituel.`;
+  enAttente = { type: 'confirmer_devis', le: Date.now(), resume, numero: so.name, cle: so.name };
+  return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
+}
+// Remplir le tableau de la commande (Tailles.xlsx) à la place du formulaire client
+async function preparerTableau({ cle, lignes, zone_flocage }) {
+  const c = await trouverCommande(cle);
+  if (!c) return { erreur: 'commande introuvable parmi les commandes en cours (si le devis vient d\'être confirmé, attends quelques secondes et réessaie)' };
+  const ls = (Array.isArray(lignes) ? lignes : []).filter(l => l && l.type && Number(l.quantite) > 0);
+  if (!ls.length) return { erreur: 'aucun article : il faut produit, couleur, taille, quantité' };
+  const manque = ls.filter(l => !l.couleur || !l.taille);
+  if (manque.length) return { erreur: 'il manque la couleur ou la taille sur une ligne : demande-les à Ismaël' };
+  const total = ls.reduce((t, l) => t + Number(l.quantite), 0);
+  const resume = `📋 Tableau de *${c.n_devis} – ${c.client}* :\n${ls.map(l => `• ${l.quantite} × ${l.type} ${l.couleur} ${l.taille}${l.coupe && !/unisexe/i.test(l.coupe) ? ' ' + l.coupe : ''}${l.visuel ? ' (visuel ' + l.visuel + ')' : ''}`).join('\n')}\nTotal ${total} pièce(s)${zone_flocage ? ` · zone : ${zone_flocage}` : ''}${['PAYÉE', 'VALIDÉE'].includes(c.statut) ? '\nLe BDC SEFI sera rempli.' : ''}`;
+  enAttente = { type: 'tableau', le: Date.now(), resume, cle: c.cle, lignes: ls, zone_flocage: txt(zone_flocage) };
+  return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
+}
+
 // Annuler un devis (erreur, incompréhension) : préparé, exécuté après le « oui » d'Ismaël
 async function preparerAnnulationDevis({ numero_devis, motif }) {
   const n = txt(numero_devis).toUpperCase();
@@ -384,11 +408,13 @@ const OUTILS = [
   { name: 'mails_sefi', description: 'Mails reçus du fournisseur SEFI (rupture, remplacement de couleur, délai…) en attente de réponse, avec résumé, texte et devis concernés.', input_schema: { type: 'object', properties: {} } },
   { name: 'preparer_reponse_sefi', description: 'PRÉPARE la réponse à un mail de SEFI (dans le fil du mail, depuis contact@) et les remarques à ajouter aux commandes concernées (ex. « Rouge remplacé par jaune (accord SEFI du 12/10) »). Rédige une réponse courte et polie au nom d\'IGS CUSTOM BAR. Sans mail_id : le dernier mail en attente. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { mail_id: { type: 'string' }, reponse: { type: 'string', description: 'texte de la réponse à SEFI (vide = classer sans répondre)' }, remarques: { type: 'array', items: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, texte: { type: 'string' } }, required: ['cle', 'texte'] } } } } },
   { name: 'tableau_de_bord', description: 'Vue d\'ensemble IGS : demandes de devis en cours, urgences WhatsApp sans réponse, commandes par statut et en retard, BAT en attente, planches par statut, devis à relancer, reste à facturer, impayés.', input_schema: { type: 'object', properties: {} } },
+  { name: 'preparer_confirmation_devis', description: 'PRÉPARE la confirmation d\'un devis Odoo (« confirme le devis / la commande DE… ») : le devis passe en commande dans Odoo et la commande apparaît dans le dashboard (PAYÉE). Pour un devis que tu viens de créer, réutilise SON numéro : ne crée jamais un nouveau devis pour ça. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' } }, required: ['numero_devis'] } },
+  { name: 'preparer_tableau_commande', description: 'PRÉPARE le tableau des articles d\'une commande (Tailles.xlsx, à la place du formulaire client) : une ligne par produit/couleur/taille/coupe avec la quantité, + nom du visuel et zone de flocage si connus ; puis BDC SEFI rempli si la commande est payée. Il faut produit, couleur, taille et quantité pour chaque ligne (demande-les à Ismaël s\'il manque quelque chose). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, zone_flocage: { type: 'string', description: 'ex. « Cœur (9cm) + Dos (27cm) »' }, lignes: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', description: 'produit : T-Shirt, Polo, Débardeur, Sweat à capuche, Sweat col rond, Sweat zippé à capuche, Tote Bag, Tablier, Casquette, T-Shirt Enfant, T-shirt fourni, T-Shirt vierge (sans flocage)…' }, couleur: { type: 'string' }, taille: { type: 'string', description: 'XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, 2A…12A, TU' }, coupe: { type: 'string', description: 'Unisexe (défaut) ou Femme' }, quantite: { type: 'number' }, visuel: { type: 'string' } }, required: ['type', 'couleur', 'taille', 'quantite'] } } }, required: ['cle', 'lignes'] } },
   { name: 'devis_depuis_conversation', description: 'Ismaël a discuté d\'un devis avec un client sur le WhatsApp IGS (« prépare le devis de Marie, on en a parlé sur WhatsApp ») : relit la conversation avec ce client, en tire la demande (structure, produit, quantité, marquage…) et la met dans « Demandes à traiter » avec le brouillon Odoo. Rien n\'est envoyé au client. Exécuté tout de suite.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom WhatsApp du client ou son numéro' } }, required: ['client'] } },
   { name: 'preparer_annulation_devis', description: 'PRÉPARE l\'annulation d\'un devis Odoo en brouillon ou envoyé (erreur, incompréhension, client qui renonce). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, motif: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, preparer_tableau_commande: preparerTableau };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -399,6 +425,7 @@ function systeme() {
 - Plusieurs commandes correspondent ? Liste-les en une ligne chacune et demande laquelle.
 - Actions (ajout d'articles, message à un client, modification d'une commande ou d'une planche) : appelle l'outil preparer_… correspondant ; le résumé et la demande de confirmation sont ajoutés automatiquement à ta réponse. Ne dis jamais qu'une action est faite : elle ne l'est qu'après son « oui ».
 - « Livrée » = statut LIVRÉE (ou dans les livrées récentes) ; TERMINÉE = prête, pas encore remise ; EXPÉDIÉE = colis parti.
+- Ne crée JAMAIS deux fois le même devis : un devis déjà créé dans la conversation se réutilise par son numéro. « Confirme la commande / le devis » = preparer_confirmation_devis avec ce numéro. « Remplis le tableau / mets dedans … » = preparer_tableau_commande (demande produit, couleur, taille, quantité s'il en manque).
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
@@ -442,6 +469,23 @@ async function executer(a) {
     if (typeof a.prioritaire === 'boolean') await require('./planches').setPrioritaire(a.cle, a.prioritaire, PAR);
     await journal({ ...a.champs, prioritaire: a.prioritaire ?? undefined });
     return `✅ Planche mise à jour${a.champs.statut ? ` (statut *${a.champs.statut}*)` : ''}.`;
+  }
+  if (a.type === 'confirmer_devis') {
+    const odoo = require('./odoo'), commandes = require('./commandes');
+    const r = await odoo.confirmerDevis(a.numero);
+    const { rows } = await commandes.listCommandes({ force: true });
+    let ligne = '';
+    if (!rows.some(x => String(x.n_devis || '').toUpperCase() === r.numero.toUpperCase())) {
+      await commandes.creerCommande({ n_devis: r.numero, client: r.client, infos: r.infos, statut: 'PAYÉE' }, PAR);
+      ligne = '\nLa commande est dans le dashboard (PAYÉE).';
+    } else ligne = '\nLa commande était déjà dans le dashboard.';
+    if (supabase) await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: PAR, traite_le: new Date().toISOString() }).eq('devis_numero', r.numero).in('statut', ['nouvelle', 'brouillon', 'erreur']).then(() => {}, () => {});
+    await journal({ numero: r.numero });
+    return `✅ Devis ${r.numero} ${r.deja ? 'déjà confirmé' : 'confirmé dans Odoo'}.${ligne}\nTu peux me dire quoi mettre dans son tableau (produit, couleur, taille, quantité).`;
+  }
+  if (a.type === 'tableau') {
+    const r = await require('./commandes').remplirTableau(a.cle, { lignes: a.lignes, zone_flocage: a.zone_flocage }, PAR);
+    return `✅ ${r.etapes.join('\n')}`;
   }
   if (a.type === 'annuler_devis') {
     const r = await require('./commercial').annulerDevis(a.numero, PAR, a.motif);

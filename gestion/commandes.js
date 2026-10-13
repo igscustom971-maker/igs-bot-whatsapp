@@ -1039,6 +1039,31 @@ async function majBordereaux(ndevis, liste) {
   await supabase.from('gestion_commandes').update({ bordereaux: v }).eq('cle', row.cle);
 }
 
+// Tableau de la commande (Tailles.xlsx) rempli à la place du client (sans formulaire) : dossier créé si besoin,
+// Tailles.xlsx neuf depuis le modèle, puis BDC SEFI rempli si la commande est payée (même chemin que le formulaire)
+async function remplirTableau(cle, { lignes, zone_flocage }, user) {
+  const row = cache.rows.find(r => r.cle === cle || String(r.n_devis || '').toUpperCase() === String(cle || '').toUpperCase());
+  if (!row || !row.n_devis) throw new Error('Commande introuvable (ou sans N° de devis)');
+  const ls = (lignes || []).map(l => ({ type: String(l.type || '').trim(), couleur: String(l.couleur || '').trim(), taille: String(l.taille || '').trim().toUpperCase(), coupe: String(l.coupe || 'Unisexe').trim(), quantite: Number(l.quantite) || 0, visuel: String(l.visuel || '').trim(), remarques: String(l.remarques || '').trim() })).filter(l => l.type && l.quantite > 0);
+  if (!ls.length) throw new Error('Aucun article à mettre dans le tableau');
+  const etapes = [];
+  const nom = `${row.n_devis} - ${row.client || ''}`.replace(/[\\"*:<>?/|#%]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const dossier = await dossierCommande(nom, row.n_devis);
+  const sd = (await g.children(dossier.id)).find(i => i.folder && /^tailles?$/i.test(i.name.trim()));
+  const deja = sd ? (await g.children(sd.id)).find(i => i.file && /^tailles\.xlsx$/i.test(i.name)) : null;
+  if (deja) throw new Error('Le tableau des tailles existe déjà pour cette commande : utilise « ajouter des articles »');
+  const fileId = await require('./duplication').taillesRemplies(dossier.id, ls, sd ? sd.name : 'Tailles');
+  etapes.push(`Tableau rempli (${ls.reduce((t, l) => t + l.quantite, 0)} pièces) dans « ${dossier.name} »`);
+  if (zone_flocage) { await modifier(row.cle, { zone_flocage }, user); etapes.push(`Zone de flocage : ${zone_flocage}`); }
+  const st = key(row.statut || '');
+  if (['payee', 'validee'].includes(st) && await require('./depot').actif().catch(() => false)) {
+    try { const b = await require('./sefi').remplirDepuisTailles(row.n_devis, row.client, fileId); etapes.push(b && b.ok ? 'BDC SEFI rempli' : `⚠️ BDC SEFI non rempli (${(b && b.raison) || '?'})`); }
+    catch (err) { etapes.push(`⚠️ BDC SEFI non rempli (${err.message.slice(0, 100)})`); }
+  } else etapes.push('ℹ️ BDC SEFI : rempli au paiement / à faire selon le statut');
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'tableau_rempli', cle: row.cle, details: { lignes: ls } }).then(() => {}, () => {});
+  return { ok: true, etapes, n_devis: row.n_devis };
+}
+
 // Dossier SharePoint créé à la demande (commandes d'objets sans formulaire client : eco cup…), pour le BAT et les visuels
 async function creerDossier(cle, user) {
   const row = cache.rows.find(r => r.cle === cle);
@@ -1092,4 +1117,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

@@ -466,6 +466,14 @@ async function lignesDevis(numero) {
   };
 }
 // « 5 x T-shirt personnalisé » par ligne : même format que la colonne « Informations complémentaires »
+// Confirmer un devis (= commande validée/payée dans le flux IGS) ; Odoo envoie ensuite son mail habituel (formulaire)
+async function confirmerDevis(numero) {
+  const so = await devisParNumero(String(numero || '').trim().toUpperCase());
+  if (!so) throw new Error('Devis introuvable dans Odoo');
+  if (so.state === 'cancel') throw new Error(`${so.name} est annulé`);
+  if (so.state !== 'sale') await kw('sale.order', 'action_confirm', [[so.id]]);
+  return { id: so.id, numero: so.name, client: so.partner_id ? so.partner_id[1] : '', deja: so.state === 'sale', infos: await infosDevis(so.id).catch(() => '') };
+}
 async function infosDevis(soId) {
   const [o] = await kw('sale.order', 'read', [[soId]], { fields: ['order_line'] });
   const ls = o?.order_line?.length ? await kw('sale.order.line', 'read', [o.order_line], { fields: ['product_uom_qty', 'name', 'display_type', 'is_downpayment'] }) : [];
@@ -876,7 +884,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

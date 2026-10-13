@@ -255,4 +255,4 @@ async function dupliquer(cleSource, data, user) {
   return { numero, dossier: dossier.webUrl || null, devis, etapes };
 }
 
-module.exports = { historique, dupliquer, taillesDepuisModele };
+module.exports = { historique, dupliquer, taillesDepuisModele, taillesRemplies };
