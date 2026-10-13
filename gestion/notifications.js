@@ -24,6 +24,20 @@ const HORAIRES = 'du lundi au vendredi de 14h30 à 17h30';
 const ADRESSE = '62 rue Louis Vatable, Pointe-à-Pitre';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const heureGuadeloupe = () => new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
+// Heures ouvrées : les messages automatiques aux clients ne partent qu'en semaine, de 8 h à 17 h 30 (heure de Guadeloupe).
+// Une commande passée LIVRÉE / prête / expédiée le soir ou le week-end : le message part à la réouverture.
+const JOURS_OUVRES = String(process.env.NOTIF_JOURS || '1,2,3,4,5').split(',').map(Number);
+const [H_OUV, H_FERM] = String(process.env.NOTIF_HEURES || '08:00-17:30').split('-').map(x => { const [h, m] = x.split(':').map(Number); return h * 60 + (m || 0); });
+function heuresOuvrees(d = heureGuadeloupe()) {
+  const min = d.getHours() * 60 + d.getMinutes();
+  return JOURS_OUVRES.includes(d.getDay()) && min >= H_OUV && min < H_FERM;
+}
+// Prochain jour ouvré à h:mm à partir d'une date (heure de Guadeloupe)
+function prochainOuvre(d, h, m = 0) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m, 0);
+  while (!JOURS_OUVRES.includes(x.getDay())) x.setDate(x.getDate() + 1);
+  return x;
+}
 const suiviLien = n => `https://www.laposte.fr/outils/suivre-vos-envois?code=${encodeURIComponent(n)}`;
 const statutKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
 
@@ -247,7 +261,7 @@ async function aEnvoyer() {
     const maintenant = heureGuadeloupe();
     for (const c of data || []) {
       const vu = new Date(new Date(c.livree_vu_le).toLocaleString('en-US', { timeZone: 'America/Guadeloupe' }));
-      const du = new Date(vu.getFullYear(), vu.getMonth(), vu.getDate() + 1, 10, 0, 0);
+      const du = prochainOuvre(new Date(vu.getFullYear(), vu.getMonth(), vu.getDate() + 1), 10); // lendemain 10 h, jour ouvré
       if (maintenant >= du) cands.push({ item: { cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, type: 'avis', lienAvis }, alias: [] });
     }
   }
@@ -280,6 +294,31 @@ async function releverLivrees() {
   await supabase.from('gestion_commandes').update({ livree_vu_le: new Date().toISOString() }).in('cle', livrees).is('livree_vu_le', null);
 }
 
+// Messages déclenchés hors heures ouvrées par un événement ponctuel (colis livré lu dans un mail de La Poste) :
+// gardés et envoyés à la réouverture
+async function lireDifferes() {
+  if (!supabase) return [];
+  try { const v = await reglage('notif_differes', '[]'); const l = JSON.parse(v || '[]'); return Array.isArray(l) ? l : []; } catch { return []; }
+}
+async function envoyerAuxHeuresOuvrees(item, par) {
+  if (heuresOuvrees() || !supabase) return envoyer(item, par);
+  const l = await lireDifferes();
+  if (!l.some(x => x.item && x.item.cle === item.cle && x.item.type === item.type)) l.push({ item, par, le: new Date().toISOString() });
+  await supabase.from('gestion_reglages').upsert({ cle: 'notif_differes', valeur: JSON.stringify(l.slice(-200)), updated_at: new Date().toISOString() });
+  console.log(`Gestion notifications : ${item.type} ${item.devis || item.nom} gardé jusqu'aux heures ouvrées`);
+  return { ok: true, differe: true };
+}
+async function viderDifferes() {
+  const l = await lireDifferes();
+  if (!l.length) return;
+  await supabase.from('gestion_reglages').upsert({ cle: 'notif_differes', valeur: '[]', updated_at: new Date().toISOString() });
+  for (const x of l) {
+    const { faits } = await dejaTraites([x.item.cle]);
+    if (faits.has(`${x.item.cle}|${x.item.type}`)) continue;
+    await envoyer(x.item, x.par).catch(err => console.error('Gestion notifications (différé) :', err.message));
+  }
+}
+
 let enCours = false;
 async function cycle() {
   if (enCours) return;
@@ -287,6 +326,9 @@ async function cycle() {
   try {
     await releverLivrees();
     if ((await reglage('notif_actives', 'off')) !== 'on') return;
+    // Hors heures ouvrées : rien ne part, les messages en attente partiront à la réouverture (calculés à nouveau)
+    if (!heuresOuvrees()) return;
+    await viderDifferes();
     for (const item of await aEnvoyer()) {
       await envoyer(item);
     }
@@ -335,4 +377,4 @@ function start() {
   setInterval(() => purger().catch(() => {}), 24 * 3600e3);
 }
 
-module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerTexteWhatsApp, profilClient, contactPlanche, reglage, journal, dejaTraites, _test: { textes, aEnvoyer, clesPlanche, semaine } };
+module.exports = { start, cycle, etat, activer, definirLienAvis, envoyer, envoyerAuxHeuresOuvrees, heuresOuvrees, envoyerTexteWhatsApp, profilClient, contactPlanche, reglage, journal, dejaTraites, _test: { textes, aEnvoyer, clesPlanche, semaine } };

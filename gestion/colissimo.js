@@ -63,7 +63,7 @@ async function livrer(cible, recuLe) {
     } catch (err) { console.error('Gestion Colissimo (Odoo) :', err.message); }
   }
   const lienAvis = await notif.reglage('notif_avis_lien', 'https://g.page/r/CWIVVFwaHQYBEBM/review');
-  await notif.envoyer({ cle: cible.cle, type, devis: l.n_devis, nom: l.client, email, tel, suivi: cible.suivi, lienAvis }, 'Colissimo (automatique)');
+  await notif.envoyerAuxHeuresOuvrees({ cle: cible.cle, type, devis: l.n_devis, nom: l.client, email, tel, suivi: cible.suivi, lienAvis }, 'Colissimo (automatique)'); // le soir / week-end : à la réouverture
   // L'avis est déjà demandé dans ce mail : pas de seconde demande le lendemain
   if (!cible.planche) await notif.journal({ cle: cible.cle, type: 'avis', canal: null, statut: 'ignore', destinataire: null, sujet: null, message: null, erreur: `Avis déjà demandé dans le mail « colis livré » (${new Date(recuLe).toLocaleDateString('fr-FR')})`, par: 'Colissimo (automatique)' });
 }
