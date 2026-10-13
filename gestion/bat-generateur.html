@@ -83,6 +83,7 @@ table.t td{padding:8px 10px;vertical-align:top;white-space:pre-line}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="/gestion/bat-commun.js"></script>
+<script src="/gestion/depot.js"></script>
 <script>
 'use strict';
 // ============================================
@@ -335,10 +336,10 @@ function reglages(){
     + '<label class="f">Logos</label>'
     + p.placements.map((pl, k) => '<div class="pl" data-k="' + k + '"><div class="row"><select data-f="zone">' + optZone(pl.zone) + '</select><select data-f="image">' + optImg(pl.image) + '</select></div>'
       + '<div class="row"><label class="note">Largeur (cm)</label><input type="number" step="0.5" min="1" max="60" data-f="largeur" value="' + pl.largeur + '"><label class="note">Rotation</label><input type="number" step="5" data-f="rot" value="' + (pl.rot ?? '') + '" placeholder="auto"></div>'
-      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc !== false ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent' + (pl.sansBlanc === 'auto' ? ' (auto)' : '') + '</label><label class="btn" title="Remplacer ce visuel par un fichier de l\'ordinateur' + (VIERGE ? '' : ' (remplacé aussi dans SharePoint)') + '">⬆<input type="file" accept="image/*" data-remplace="' + k + '" style="display:none"></label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
+      + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="sansBlanc"' + (pl.sansBlanc !== false ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent' + (pl.sansBlanc === 'auto' ? ' (auto)' : '') + '</label><label class="btn" title="Remplacer ce visuel par un fichier de l\'ordinateur' + (VIERGE ? '' : ' (remplacé aussi dans SharePoint)') + '">⬆<input type="file" accept="image/*,.pdf,application/pdf" data-remplace=""' + k + '" style="display:none"></label><button class="btn" data-a="reset" title="Revenir à la position par défaut">↺</button><button class="btn" data-a="suppr" title="Retirer ce logo">✕</button></div>'
       + '<div class="note pos" data-pos="' + k + '">' + positionTexte(p, pl) + '</div><div class="note" data-alerte="' + k + '" style="color:#b91c1c;font-weight:600"></div>'
       + (ADMIN ? '<button class="btn" data-a="defaut" style="margin-top:4px;width:100%">📌 Définir comme position par défaut (' + esc(ZONES[pl.zone].lib) + ')</button>' : '') + '</div>').join('')
-    + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*" style="display:none"></label></div>'
+    + '<div class="row"><button class="btn" data-a="ajout"' + (p.images.length ? '' : ' disabled') + '>＋ Ajouter un logo</button><label class="btn" style="justify-content:center">＋ Logo depuis l\'ordinateur<input type="file" id="logo-local" accept="image/*,.pdf,application/pdf" style="display:none"></label></div>'
     + (p.articles.some(a => PRODUITS[a.produit] && PRODUITS[a.produit].tote && a.actif) && totePlacement(p) ? '<label class="f">Tote bag / tablier (une face)</label><div class="pl" data-tote="1"><div class="row"><select data-f="toteImage">' + optImg(p.totePl.image) + '</select><input type="number" step="0.5" min="1" max="40" data-f="toteLargeur" value="' + p.totePl.largeur + '" title="Largeur (cm)" style="max-width:80px"><span class="note" style="flex:none">cm</span></div>'
       + '<div class="row"><label class="note" style="flex:2"><input type="checkbox" data-f="toteBlanc"' + (p.totePl.sansBlanc ? ' checked' : '') + ' style="width:auto"> Fond blanc transparent</label><button class="btn" data-a="toteReset" title="Recentrer">↺</button></div></div>' : '')
     + '<label class="f">Couleurs et produits</label>'
@@ -409,6 +410,8 @@ $('reglages').addEventListener('click', e => {
 });
 // Envoi d'une image : dossier SharePoint de la commande (ou image locale pour un BAT vierge)
 async function envoyerVisuel(file, opts){
+  // Logo en PDF : 1re page convertie en PNG transparent (haute définition) avant l'envoi
+  if (window.IGSPDF && IGSPDF.estPdf(file)) { msg('Conversion du PDF en image…', 'info'); file = await IGSPDF.enImage(file); }
   if (VIERGE) { const id = 'local-' + Date.now() + Math.random().toString(36).slice(2, 6); logosLocaux.set(id, URL.createObjectURL(file)); return { id, nom: file.name }; }
   const fd = new FormData(); fd.append('fichier', file, file.name);
   for (const [k, v] of Object.entries(opts)) if (v != null) fd.append(k, v);

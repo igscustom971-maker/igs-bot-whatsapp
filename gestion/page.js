@@ -426,6 +426,7 @@ a.brand:hover h1{color:#FF1E8E}
 #lei-out{white-space:pre-wrap;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:#FBF6EC;border-radius:12px;padding:12px;max-height:420px;overflow:auto;margin:0}
 .btn.pink:hover{background:#E6127C}
 </style>
+<script src="/gestion/depot.js" defer></script>
 </head>
 <body>
 <header><div class="bar">
@@ -2606,8 +2607,10 @@ async function ouvrir(cle){
     });
     h += '</div>';
     // Visuels
+    const depVis = '<label class="btn" style="cursor:pointer" title="Image ou PDF (le PDF est converti en image) ; tu peux aussi glisser les fichiers sur cette carte">⬆ Ajouter<input type="file" class="dep-vis" data-cle="'+esc(c.cle)+'" multiple accept="image/*,.pdf,application/pdf" hidden></label>';
+    if (!d.visuels.length) h += '<div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Visuels '+depVis+'</h3><div class="note">Aucun visuel dans le dossier : glisse les fichiers ici (images ou PDF).</div><div class="msg" id="vis-msg"></div></div>';
     if (d.visuels.length) {
-      h += '<div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Visuels <a class="btn" href="/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/visuels.zip" title="Télécharger tous les visuels de la commande (zip)">⬇ Tout télécharger</a></h3><div class="visuels">' + d.visuels.map(v =>
+      h += '<div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Visuels <span style="display:flex;gap:6px">'+depVis+'<a class="btn" href="/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/visuels.zip" title="Télécharger tous les visuels de la commande (zip)">⬇ Tout télécharger</a></span></h3><div class="msg" id="vis-msg"></div><div class="visuels">' + d.visuels.map(v =>
         '<div class="visuel"><div class="t">'+esc(v.nom)+'</div><div class="imgs">'
         + (v.images.length ? v.images.map(i => '<div style="display:flex;flex-direction:column;gap:4px"><a href="/gestion/api/fichier/'+encodeURIComponent(i.id)+'" target="_blank" rel="noopener">'
           + (i.miniature ? '<img loading="lazy" src="'+esc(i.miniature)+'" alt="">' : '<img loading="lazy" src="/gestion/api/fichier/'+encodeURIComponent(i.id)+'" alt="">')
@@ -2622,7 +2625,7 @@ async function ouvrir(cle){
       : '<div class="btnrow"><button class="btn primary" data-bat-send="'+esc(c.cle)+'">📨 Envoyer le BAT au client (mail + WhatsApp)</button><button class="btn" data-bat-env="'+esc(c.cle)+'" data-v="1">✓ Déjà envoyé autrement</button></div>') + '<div class="msg" id="bat-msg"></div></div>';
     h += '<div class="card"><h3>Bon à tirer</h3>' + (d.bat
       ? '<iframe class="bat" src="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'#view=FitH" title="BAT"></iframe><div class="note" style="margin-top:6px"><a href="/gestion/api/fichier/'+encodeURIComponent(d.bat.id)+'" target="_blank" rel="noopener">Ouvrir le BAT en grand</a> · modifié le '+new Date(d.bat.modifie).toLocaleDateString('fr-FR')+'</div>'
-      : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '<div class="btnrow" style="margin-top:8px"><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 '+(d.bat ? 'Refaire le BAT avec le générateur' : 'Générer le BAT')+'</a></div></div>';
+      : '<div class="note">Pas encore de « BON A TIRER.pdf » dans le dossier.</div>') + '<div class="btnrow" style="margin-top:8px"><a class="btn primary" href="/gestion/bat/'+encodeURIComponent(c.cle)+'" target="_blank" rel="noopener">🎨 '+(d.bat ? 'Refaire le BAT avec le générateur' : 'Générer le BAT')+'</a><label class="btn" style="cursor:pointer" title="BAT déjà prêt (PDF) : déposé comme « BON A TIRER.pdf » ; tu peux aussi le glisser sur cette carte">⬆ Déposer un BAT (PDF)<input type="file" class="dep-bat" data-cle="'+esc(c.cle)+'" accept=".pdf,application/pdf" hidden></label></div><div class="msg" id="depbat-msg"></div></div>';
     if (d.dossier.lien) h += '<div class="note"><a href="'+esc(d.dossier.lien)+'" target="_blank" rel="noopener">📁 Ouvrir le dossier dans SharePoint</a></div>';
     $('dossier').innerHTML = h;
     $('dossier').onclick = batClic;
@@ -2633,6 +2636,42 @@ async function ouvrir(cle){
     if (cle === panelCle) $('dossier').innerHTML = '<div class="card warnbox">Dossier indisponible : '+esc(e.message)+'</div>';
   }
 }
+// ---------- Dépôt de fichiers dans le dossier de la commande (bouton ou glisser-déposer) ----------
+document.addEventListener('change', async e => {
+  const t = e.target;
+  if (!t.matches || !t.files || !t.files.length) return;
+  if (t.matches('.dep-bat')) {
+    const cleD = t.dataset.cle, f = t.files[0], m = $('depbat-msg');
+    if (!/pdf$/i.test(f.type || '') && !/[.]pdf$/i.test(f.name || '')) { alert('Le BAT doit être un PDF'); t.value = ''; return; }
+    if (dernierDossier && dernierDossier.bat && !confirm('Remplacer le « BON A TIRER.pdf » actuel par « ' + f.name + ' » ?')) { t.value = ''; return; }
+    if (m) { m.className = 'msg on info'; m.textContent = 'Dépôt du BAT dans le dossier…'; }
+    try {
+      const fd = new FormData(); fd.append('pdf', f, 'BON A TIRER.pdf');
+      const r = await fetch('/gestion/api/commandes/' + encodeURIComponent(cleD) + '/bat-pdf', { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
+      if (panelCle === cleD) await ouvrir(cleD);
+    } catch (err) { if (m) { m.className = 'msg on err'; m.textContent = '❌ ' + err.message; } else alert(err.message); }
+    t.value = ''; return;
+  }
+  if (t.matches('.dep-vis')) {
+    const cleD = t.dataset.cle, fs = [...t.files], m = $('vis-msg');
+    const defaut = (dernierDossier && dernierDossier.visuels && dernierDossier.visuels.find(v => v.cle !== '__racine__')) ? dernierDossier.visuels.find(v => v.cle !== '__racine__').nom : 'Logo';
+    const nom = prompt('Nom du visuel (dossier dans SharePoint) :', defaut);
+    if (!nom) { t.value = ''; return; }
+    try {
+      for (let i = 0; i < fs.length; i++) {
+        let f = fs[i];
+        if (m) { m.className = 'msg on info'; m.textContent = 'Envoi ' + (i + 1) + '/' + fs.length + ' : ' + f.name + '…'; }
+        if (window.IGSPDF && IGSPDF.estPdf(f)) f = await IGSPDF.enImage(f);
+        const fd = new FormData(); fd.append('fichier', f, f.name); fd.append('visuel', nom); fd.append('face', /arri|dos|back/i.test(f.name) ? 'arriere' : 'avant');
+        const r = await fetch('/gestion/api/commandes/' + encodeURIComponent(cleD) + '/visuel', { method: 'POST', body: fd });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(f.name + ' : ' + (j.error || ('Erreur ' + r.status)));
+      }
+      if (panelCle === cleD) await ouvrir(cleD);
+    } catch (err) { if (m) { m.className = 'msg on err'; m.textContent = '❌ ' + err.message; } else alert(err.message); }
+    t.value = '';
+  }
+});
 // ---------- Journal de la commande : messages envoyés, conversation WhatsApp, questions internes à Leïla ----------
 const jrHeure = d => new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 async function jrCharger(c){

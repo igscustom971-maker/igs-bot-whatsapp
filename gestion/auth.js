@@ -204,6 +204,9 @@ function mount(app) {
   app.get('/gestion/produits.js', statique('produits.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/apprentissage.js', statique('apprentissage.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/sefi-bdc.js', statique('sefi-bdc.js', 'text/javascript; charset=utf-8', 300));
+  app.get('/gestion/depot.js', statique('depot.js', 'text/javascript; charset=utf-8', 300));
+  // pdf.js (navigateur) : conversion des logos PDF en image
+  for (const f of ['pdf.min.mjs', 'pdf.worker.min.mjs']) app.get(`/gestion/pdfjs/${f}`, (req, res) => res.set({ 'Cache-Control': 'public, max-age=604800', 'Content-Type': 'text/javascript; charset=utf-8' }).sendFile(require.resolve(`pdfjs-dist/build/${f}`)));
   app.get('/gestion/manifest.webmanifest', (req, res) => res.set({ 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=3600' }).send(JSON.stringify({
     id: '/gestion/', name: 'IGS Dashboard', short_name: 'IGS', description: 'Commandes, BAT, planches DTF, stock et commercial d\'IGS Custom Bar',
     start_url: '/gestion/', scope: '/gestion/', display: 'standalone', orientation: 'any', lang: 'fr',
