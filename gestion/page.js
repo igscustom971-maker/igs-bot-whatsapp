@@ -797,7 +797,7 @@ const isoLocal = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate(
 const addDays = n => { const d = new Date(); d.setDate(d.getDate()+n); return isoLocal(d); };
 const today = isoLocal(new Date());
 const actif = c => !FINIS.includes(statutKey(c.statut));
-const enRetard = c => c.date_livraison && c.date_livraison < today && actif(c) && !PRETES.includes(statutKey(c.statut));
+const enRetard = c => c.date_livraison && c.date_livraison < today && actif(c) && !PRETES.includes(statutKey(c.statut)) && statutKey(c.statut) !== 'EXPÉDIÉE'; // expédiée : plus entre nos mains
 const fphone = p => { if(!p) return ''; const m = p.match(/^(59[06])(\\d{3})(\\d{2})(\\d{2})(\\d{2})$/); return m ? '+'+m[1]+' '+m[2]+' '+m[3]+' '+m[4]+' '+m[5] : '+'+p; };
 
 async function api(path, force){
@@ -2399,7 +2399,8 @@ function accueil(){
   $('kpi-remettre').onclick = e => { e.preventDefault(); remettre(); };
 
   const vus = new Set(), prios = [];
-  const add = (c, why, cls) => { if (!vus.has(c.cle)) { vus.add(c.cle); prios.push({c, why, cls}); } };
+  // Commande expédiée : rien à faire de notre côté, elle n'apparaît pas ici (elle reste suivie jusqu'à LIVRÉE)
+  const add = (c, why, cls) => { if (statutKey(c.statut) === 'EXPÉDIÉE') return; if (!vus.has(c.cle)) { vus.add(c.cle); prios.push({c, why, cls}); } };
   retards.sort((a,b)=>a.date_livraison.localeCompare(b.date_livraison)).forEach(c => add(c, 'En retard · '+fdate(c.date_livraison), 'r'));
   actifs.filter(c => c.date_livraison === today).forEach(c => add(c, 'Livraison aujourd\\'hui', 'o'));
   actifs.filter(c => c.date_livraison === addDays(1)).forEach(c => add(c, 'Livraison demain', 'o'));
