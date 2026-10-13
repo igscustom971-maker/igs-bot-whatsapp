@@ -372,9 +372,28 @@ async function preparerConfirmation({ numero_devis }) {
   return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
 }
 // Remplir le tableau de la commande (Tailles.xlsx) à la place du formulaire client
+// Commande du dashboard pour un n° de devis : relue tout de suite ; devis confirmé dans Odoo mais pas encore dans le
+// dashboard -> la ligne est créée maintenant (pas d'attente de la synchro)
+async function commandeOuCreer(cle) {
+  const commandes = require('./commandes');
+  let c = await trouverCommande(cle);
+  if (c) return { c };
+  const { rows } = await commandes.listCommandes({ force: true });
+  c = rows.find(r => r.cle === cle || txt(r.n_devis).toUpperCase() === txt(cle).toUpperCase());
+  if (c) return { c };
+  const n = txt(cle).toUpperCase();
+  const odoo = require('./odoo');
+  const so = /^[A-Z]{1,5}\d{3,}/.test(n) ? await odoo.devisParNumero(n).catch(() => null) : null;
+  if (!so) return { erreur: `ni commande ni devis ${n} trouvé (vérifie le n° avec devis_odoo_client)` };
+  if (so.state !== 'sale') return { erreur: `le devis ${so.name} n'est pas confirmé dans Odoo (état : ${so.state}) : prépare d'abord sa confirmation avec preparer_confirmation_devis` };
+  await commandes.creerCommande({ n_devis: so.name, client: so.partner_id ? so.partner_id[1] : '', infos: await odoo.infosDevis(so.id).catch(() => ''), statut: 'PAYÉE' }, PAR);
+  c = ((await commandes.listCommandes({ force: true })).rows || []).find(r => txt(r.n_devis).toUpperCase() === so.name.toUpperCase());
+  return c ? { c, cree: true } : { erreur: 'commande créée mais pas encore relue : redemande dans un instant' };
+}
 async function preparerTableau({ cle, lignes, zone_flocage }) {
-  const c = await trouverCommande(cle);
-  if (!c) return { erreur: 'commande introuvable parmi les commandes en cours (si le devis vient d\'être confirmé, attends quelques secondes et réessaie)' };
+  const t = await commandeOuCreer(cle);
+  if (t.erreur) return { erreur: t.erreur };
+  const c = t.c;
   const ls = (Array.isArray(lignes) ? lignes : []).filter(l => l && l.type && Number(l.quantite) > 0);
   if (!ls.length) return { erreur: 'aucun article : il faut produit, couleur, taille, quantité' };
   const manque = ls.filter(l => !l.couleur || !l.taille);
@@ -431,6 +450,7 @@ function systeme() {
 - Plusieurs commandes correspondent ? Liste-les en une ligne chacune et demande laquelle.
 - Actions (ajout d'articles, message à un client, modification d'une commande ou d'une planche) : appelle l'outil preparer_… correspondant ; le résumé et la demande de confirmation sont ajoutés automatiquement à ta réponse. Ne dis jamais qu'une action est faite : elle ne l'est qu'après son « oui ».
 - « Livrée » = statut LIVRÉE (ou dans les livrées récentes) ; TERMINÉE = prête, pas encore remise ; EXPÉDIÉE = colis parti.
+- Tu ne peux rien faire plus tard tout seul : ne promets jamais « je te préviens dès que… ». Si un outil répond une erreur, dis-la telle quelle. Une commande confirmée est mise dans le dashboard tout de suite par preparer_tableau_commande / preparer_confirmation_devis : il n'y a pas de synchro à attendre.
 - Ne crée JAMAIS deux fois le même devis : un devis déjà créé dans la conversation se réutilise par son numéro ; sans numéro, cherche-le avec devis_odoo_client (devis Odoo du client) avant tout. « Confirme le devis de X » : devis_odoo_client puis preparer_confirmation_devis sur le devis en brouillon/envoyé le plus récent qui correspond. « Confirme la commande / le devis » = preparer_confirmation_devis avec ce numéro. « Remplis le tableau / mets dedans … » = preparer_tableau_commande (demande produit, couleur, taille, quantité s'il en manque).
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
