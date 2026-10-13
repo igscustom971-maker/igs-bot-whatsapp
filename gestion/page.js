@@ -3106,7 +3106,15 @@ if (!['admin', 'heures', 'leila', 'factures'].includes(VIEW)) {
   var invite = null, b = document.getElementById('pwa-installer');
   addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); invite = e; if (b) b.hidden = false; });
   addEventListener('appinstalled', function(){ if (b) b.hidden = true; invite = null; });
-  if (b) b.onclick = function(e){ e.preventDefault(); if (!invite) return; invite.prompt(); invite.userChoice.finally(function(){ invite = null; b.hidden = true; }); };
+  // iPhone / iPad : Safari ne propose jamais l’installation tout seul ; le bouton explique comment faire
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var installee = window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  if (ios && !installee && b) b.hidden = false;
+  if (b) b.onclick = function(e){
+    e.preventDefault();
+    if (invite) { invite.prompt(); invite.userChoice.finally(function(){ invite = null; b.hidden = true; }); return; }
+    if (ios) { var n = String.fromCharCode(10); alert('Installer IGS Dashboard sur l’iPhone :' + n + n + '1. Ouvre cette page dans Safari (pas dans Chrome ni dans WhatsApp).' + n + '2. Touche le bouton Partager (le carré avec la flèche vers le haut, en bas de l’écran).' + n + '3. Fais défiler et choisis « Sur l’écran d’accueil ».' + n + '4. Touche « Ajouter » : l’icône IGS apparaît sur ton écran d’accueil.'); }
+  };
 })();
 </script>
 </body>
