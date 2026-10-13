@@ -568,6 +568,20 @@ $('dl').onclick = async () => {
   try { (await genererPdf()).save('BON A TIRER - ' + (C.n_devis || '') + '.pdf'); msg('✅ PDF téléchargé', 'ok'); }
   catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { $('dl').disabled = false; }
 };
+// Envoi du BAT enregistré au client sans quitter le générateur (même envoi que l'onglet BAT : mail + WhatsApp)
+async function envoyerBat(){
+  const b = $('bat-send');
+  const tel = C.telephone ? String(C.telephone) : '';
+  if (!confirm('Envoyer le BAT à ' + C.client + ' ?\n\n📧 Par mail : ' + (C.email || 'aucune adresse') + '\n💬 Par WhatsApp : ' + (tel ? tel + ' (si le client a écrit dans les dernières 24 h)' : 'aucun numéro'))) return;
+  b.disabled = true; b.textContent = 'Envoi…';
+  try {
+    const r = await fetch('/gestion/api/commandes/' + encodeURIComponent(cle) + '/bat-envoyer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status);
+    const l = [j.mail ? (j.mail.ok ? '📧 Mail envoyé à ' + esc(j.mail.a) : '📧 Mail non envoyé : ' + esc(j.mail.raison)) : '', j.whatsapp ? (j.whatsapp.ok ? '💬 WhatsApp envoyé' : '💬 WhatsApp non envoyé (' + esc(j.whatsapp.raison) + ')') : ''].filter(Boolean);
+    msg('✅ BAT envoyé au client.<br>' + l.join('<br>') + '<div style="margin-top:6px"><a href="/gestion/commandes#bat">Retour à l\'onglet BAT</a></div>', 'ok');
+  } catch(e){ b.disabled = false; b.textContent = '📨 Envoyer le BAT au client (mail + WhatsApp)'; alert('❌ ' + e.message); }
+}
 $('save').onclick = async () => {
   if (D.bat && !confirm('Remplacer le « BON A TIRER.pdf » existant dans le dossier ?')) return;
   $('save').disabled = true; msg('Création du PDF et dépôt dans le dossier SharePoint…', 'info');
@@ -578,7 +592,8 @@ $('save').onclick = async () => {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || 'Erreur ' + r.status);
     D.bat = true;
-    msg('✅ « BON A TIRER.pdf » enregistré dans le dossier. <a href="/gestion/commandes#bat">Retour à l\'onglet BAT</a> pour l\'envoyer au client.', 'ok');
+    msg('✅ « BON A TIRER.pdf » enregistré dans le dossier.<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="bat-send">📨 Envoyer le BAT au client (mail + WhatsApp)</button><a class="btn" href="/gestion/commandes#bat">Onglet BAT</a></div>', 'ok');
+    $('bat-send').onclick = envoyerBat;
   } catch(e){ msg('❌ ' + esc(e.message), 'err'); } finally { $('save').disabled = false; }
 };
 init();
