@@ -273,6 +273,19 @@ module.exports = function mountGestion(app) {
     try { res.json(await require('./produits').changerPrix(Number(req.params.id), req.body?.prix_ttc, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // ---------- Apprentissage de Leïla (admin) ----------
+  const actAp = fn => async (req, res) => {
+    try { res.json(await fn(req)); }
+    catch (err) { console.error('Gestion apprentissage :', err.message); res.status(400).json({ error: err.message }); }
+  };
+  const appr = () => require('./apprentissage');
+  const quiAp = req => req.user.name || req.user.email;
+  app.get('/gestion/api/apprentissage', auth.requireUser, auth.requireAdmin, actAp(() => appr().etat()));
+  app.post('/gestion/api/apprentissage/mode', auth.requireUser, auth.requireAdmin, actAp(req => appr().setMode(req.body?.mode)));
+  app.post('/gestion/api/apprentissage/lecons/:action(valider|refuser|modifier|supprimer)', auth.requireUser, auth.requireAdmin, actAp(req => appr().changer(req.body?.ids, req.params.action, req.body?.texte, quiAp(req))));
+  app.post('/gestion/api/apprentissage/apprendre', auth.requireUser, auth.requireAdmin, actAp(req => appr().apprendre(req.body || {}, quiAp(req))));
+  app.post('/gestion/api/apprentissage/analyser', auth.requireUser, auth.requireAdmin, actAp(() => appr().analyser().then(r => ({ resultat: r }))));
+  app.post('/gestion/api/apprentissage/bilan', auth.requireUser, auth.requireAdmin, actAp(req => appr().bilan({ envoyer: !!req.body?.envoyer }).then(t => ({ texte: t }))));
   app.get('/gestion/stock', auth.requireUser, tech, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'stock'));
   });

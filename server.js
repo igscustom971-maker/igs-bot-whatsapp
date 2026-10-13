@@ -731,7 +731,9 @@ async function buildSystemPrompt(isKnownClient, from) {
   let commandesNote = '';
   try { commandesNote = await require('./gestion/leila').contexteCommandes(from); } catch (e) { console.error('Contexte commandes :', e.message); }
   const catalogue = (await db.getSetting('leila_catalogue')) || CATALOGUE_DEFAUT;
-  return clientSpecificBlock + SYSTEM_PROMPT_BASE.replace('{{CATALOGUE}}', catalogue) + '\n\n' + clientKnownNote + regionNote + extraNote + commandesNote;
+  let appris = '';
+  try { appris = await require('./gestion/apprentissage').blocPrompt(); } catch (e) { console.error('Apprentissage (prompt) :', e.message); }
+  return clientSpecificBlock + SYSTEM_PROMPT_BASE.replace('{{CATALOGUE}}', catalogue) + '\n\n' + clientKnownNote + regionNote + extraNote + commandesNote + appris;
 }
 
 // ============================================
@@ -813,6 +815,7 @@ async function traiterEcho(echo) {
   // Le CONTENU de la réponse manuelle est enregistré dans l'historique (Leïla et les récaps ont toute la conversation)
   const echoText = echo.text?.body || echo.image?.caption || echo.document?.caption || (['image', 'video', 'document', 'audio', 'sticker'].includes(echo.type) ? '[Image ou fichier envoyé par l\'équipe]' : '');
   if (echoText) await db.appendMessage(clientNumber, 'assistant', echoText);
+  if (echoText) { try { require('./gestion/apprentissage').noterReponseEquipe(clientNumber, echoText); } catch (e) { console.error('Apprentissage :', e.message); } }
   console.log(`Écho détecté : réponse manuelle enregistrée pour ${clientNumber}`);
 }
 
@@ -820,6 +823,21 @@ async function traiterEcho(echo) {
 require('./gestion/assistant-ismael').fournisseurs.urgences = () => [...urgentAlertedAt.entries()]
   .filter(([, t]) => Date.now() - t < 24 * 3600e3)
   .map(([from, t]) => { const i = urgencesInfos.get(from) || {}; return `${i.display || from} – ${String(i.summary || '').slice(0, 160)} (depuis ${new Date(t).toLocaleTimeString('fr-FR', { timeZone: 'America/Guadeloupe', hour: '2-digit', minute: '2-digit' })})`; });
+
+// Apprentissage de Leïla : ce qu'elle aurait répondu (simulation, rien n'est envoyé) et envoi du bilan à Ismaël
+{
+  const app = require('./gestion/apprentissage');
+  app.fournisseurs.simuler = async (tel, hist) => {
+    const brut = await callClaudeAPI(hist, true, tel);
+    if (!brut) return null;
+    let t = extractRecapNote(brut).clean;
+    if (t.includes(IGNORE_MARKER)) return '(ne répond rien)';
+    const lei = require('./gestion/leila');
+    t = lei.extrairePlanche(lei.extraireDevis(lei.extraireBat(t).clean).clean).clean;
+    return nettoyerPourClient(t) || null;
+  };
+  app.fournisseurs.envoyerAIsmael = (t, sujet) => envoyerAIsmael(t, sujet);
+}
 
 // Mails de SEFI signalés à Ismaël (WhatsApp, repli mail)
 require('./gestion/sefi-mails').fournisseurs.envoyerAIsmael = (t, sujet) => envoyerAIsmael(t, sujet);

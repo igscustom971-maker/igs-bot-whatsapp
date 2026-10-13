@@ -417,6 +417,38 @@ async function preparerAnnulationDevis({ numero_devis, motif }) {
   return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
 }
 
+
+// ---------- Apprentissage de Leïla (bilan, leçons à valider, règles apprises directement) ----------
+const appr = () => require('./apprentissage');
+async function aValiderListe() { const e = await appr().etat(); return e.lecons.slice().reverse().filter(l => l.statut === 'proposee'); }
+async function apprentissageEtat() {
+  const e = await appr().etat();
+  const attente = e.lecons.slice().reverse().filter(l => l.statut === 'proposee');
+  const actives = e.lecons.filter(l => l.statut === 'validee' || l.statut === 'auto');
+  return {
+    mode: e.mode === 'autonome' ? 'autonome (leçons sûres appliquées toutes seules)' : 'avec validation (rien n\'est appliqué sans ton accord)',
+    ressemblance_semaine: e.semaine ? `${e.semaine.moy.toFixed(1)}/5 sur ${e.semaine.n} échange(s)` : 'pas encore de note cette semaine',
+    semaine_precedente: e.semaine_precedente ? `${e.semaine_precedente.moy.toFixed(1)}/5` : null,
+    ou_elle_se_trompe: (e.derniers_ecarts || []).map(x => x.ecart),
+    a_valider: attente.slice(0, 15).map((l, i) => ({ numero: i + 1, id: l.id, situation: l.situation, regle: l.regle, exemple: l.exemple })),
+    lecons_appliquees: actives.slice(0, 40).map(l => ({ id: l.id, situation: l.situation, regle: l.regle, source: l.source === 'ismael' ? 'apprise de toi' : l.statut === 'auto' ? 'apprise seule' : 'validée' })),
+  };
+}
+async function validerLecons({ numeros, ids, action, texte }) {
+  if (!['valider', 'refuser', 'modifier', 'supprimer'].includes(action)) return { erreur: 'action inconnue (valider, refuser, modifier, supprimer)' };
+  const attente = await aValiderListe();
+  const cibles = [].concat(ids || []);
+  for (const n of [].concat(numeros || [])) { const l = attente[Number(n) - 1]; if (l) cibles.push(l.id); else return { erreur: `pas de leçon à valider n° ${n} (regarde apprentissage_etat)` }; }
+  if (!cibles.length) return { erreur: 'aucune leçon indiquée' };
+  if (action === 'modifier' && (!texte || cibles.length !== 1)) return { erreur: 'pour modifier : une seule leçon et le nouveau texte' };
+  const r = await appr().changer(cibles, action, texte, 'Ismaël (WhatsApp)');
+  return { ok: true, action, nombre: r.faits.length };
+}
+async function apprendreRegle({ situation, regle, exemple }) {
+  const l = await appr().apprendre({ situation, regle, exemple }, 'Ismaël (WhatsApp)');
+  return { ok: true, appris: `${l.situation ? l.situation + ' → ' : ''}${l.regle}`, note: 'appliquée dès maintenant aux réponses aux clients' };
+}
+
 const OUTILS = [
   { name: 'chercher_commandes', description: 'Cherche des commandes textile par nom de client ou n° de devis : commandes en cours (statut, contenu, livraison, remarque, BAT) et commandes déjà livrées récemment. À utiliser pour toute question sur une commande.', input_schema: { type: 'object', properties: { recherche: { type: 'string', description: 'nom du client (même partiel) ou n° de devis' } }, required: ['recherche'] } },
   { name: 'detail_commande', description: 'Détail complet d\'une commande en cours : tailles du tableau, contact, instructions, ton à employer avec le client (tutoiement/vouvoiement).', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'cle ou n° de devis renvoyé par chercher_commandes' } }, required: ['cle'] } },
@@ -437,9 +469,12 @@ const OUTILS = [
   { name: 'preparer_tableau_commande', description: 'PRÉPARE le tableau des articles d\'une commande (Tailles.xlsx, à la place du formulaire client) : une ligne par produit/couleur/taille/coupe avec la quantité, + nom du visuel et zone de flocage si connus ; puis BDC SEFI rempli si la commande est payée. Il faut produit, couleur, taille et quantité pour chaque ligne (demande-les à Ismaël s\'il manque quelque chose). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, zone_flocage: { type: 'string', description: 'ex. « Cœur (9cm) + Dos (27cm) »' }, lignes: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', description: 'produit : T-Shirt, Polo, Débardeur, Sweat à capuche, Sweat col rond, Sweat zippé à capuche, Tote Bag, Tablier, Casquette, T-Shirt Enfant, T-shirt fourni, T-Shirt vierge (sans flocage)…' }, couleur: { type: 'string' }, taille: { type: 'string', description: 'XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, 2A…12A, TU' }, coupe: { type: 'string', description: 'Unisexe (défaut) ou Femme' }, quantite: { type: 'number' }, visuel: { type: 'string' } }, required: ['type', 'couleur', 'taille', 'quantite'] } } }, required: ['cle', 'lignes'] } },
   { name: 'devis_depuis_conversation', description: 'Ismaël a discuté d\'un devis avec un client sur le WhatsApp IGS (« prépare le devis de Marie, on en a parlé sur WhatsApp ») : relit la conversation avec ce client, en tire la demande (structure, produit, quantité, marquage…) et la met dans « Demandes à traiter » avec le brouillon Odoo. Rien n\'est envoyé au client. Exécuté tout de suite.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom WhatsApp du client ou son numéro' } }, required: ['client'] } },
   { name: 'preparer_annulation_devis', description: 'PRÉPARE l\'annulation d\'un devis Odoo en brouillon ou envoyé (erreur, incompréhension, client qui renonce). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, motif: { type: 'string' } }, required: ['numero_devis'] } },
+  { name: 'apprentissage_etat', description: 'Où en est l\'apprentissage de Leïla (ce qu\'elle apprend en observant les réponses d\'Ismaël aux clients) : mode, note de ressemblance de la semaine, où elle se trompe encore, leçons à valider (numérotées comme dans le bilan du lundi) et leçons appliquées.', input_schema: { type: 'object', properties: {} } },
+  { name: 'valider_lecons', description: 'Valide, refuse, modifie ou supprime des leçons d\'apprentissage (« valide 1, 3 », « refuse 2 », « retire la leçon sur les emojis »). numeros = numéros des leçons À VALIDER (ceux du bilan / d\'apprentissage_etat) ; ids = identifiants pour les leçons déjà appliquées. Exécuté tout de suite.', input_schema: { type: 'object', properties: { numeros: { type: 'array', items: { type: 'number' } }, ids: { type: 'array', items: { type: 'string' } }, action: { type: 'string', enum: ['valider', 'refuser', 'modifier', 'supprimer'] }, texte: { type: 'string', description: 'nouvelle règle (action modifier)' } }, required: ['action'] } },
+  { name: 'apprendre_regle', description: 'Ismaël apprend directement une façon de répondre aux clients à Leïla (« apprends que… », « quand un client … réponds … », « mets moins d\'emojis »). Une règle générale, reformulée clairement. Appliquée tout de suite à ses réponses (sans jamais passer avant les prix, devis, urgences et sécurité). Exécuté tout de suite.', input_schema: { type: 'object', properties: { situation: { type: 'string', description: 'quand ça s\'applique' }, regle: { type: 'string', description: 'quoi faire / comment le dire' }, exemple: { type: 'string' } }, required: ['regle'] } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_tableau_commande: preparerTableau };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_tableau_commande: preparerTableau, apprentissage_etat: apprentissageEtat, valider_lecons: validerLecons, apprendre_regle: apprendreRegle };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -454,6 +489,7 @@ function systeme() {
 - Ne crée JAMAIS deux fois le même devis : un devis déjà créé dans la conversation se réutilise par son numéro ; sans numéro, cherche-le avec devis_odoo_client (devis Odoo du client) avant tout. « Confirme le devis de X » : devis_odoo_client puis preparer_confirmation_devis sur le devis en brouillon/envoyé le plus récent qui correspond. « Confirme la commande / le devis » = preparer_confirmation_devis avec ce numéro. « Remplis le tableau / mets dedans … » = preparer_tableau_commande (demande produit, couleur, taille, quantité s'il en manque).
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
+- Apprentissage (comment Leïla répond aux clients) : « apprends que… / quand un client… réponds… / moins d'emojis » = apprendre_regle ; « valide 1, 3 », « refuse 2 », « retire la leçon… » = valider_lecons (les numéros sont ceux du bilan, vérifie avec apprentissage_etat) ; « elle apprend bien ? » = apprentissage_etat.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
 - Ce que tu ne sais pas faire ici (chiffre d'affaires, heures, suppression…) : dis-le et renvoie vers le dashboard ; « récap » donne le récap de production.`;
 }

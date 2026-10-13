@@ -247,7 +247,8 @@ const TACHES = [
     quand: (h, d) => autreJour(h, d) },
   { id: 'vider_archives_planches', nom: 'Vidage mensuel des archives de planches', flux: 'IGS - vider archive planche', rythme: 'le 8 de chaque mois (10 h), fichiers archivés depuis plus de 30 jours', fn: viderArchivesPlanches,
     // Le 8 du mois (rattrapage les jours suivants si le serveur était arrêté) ; jamais dès l'activation de la tâche
-    quand: (h, d) => h.getDate() >= 8 && h.getDate() <= 15 && h.getHours() >= 10 && (d ? (heureGP(d).getMonth() !== h.getMonth() && Date.now() - d > 20 * 86400e3) : h.getDate() === 8) },
+    quand: (h, d) => h.getDate() >= 8 && h.getDate() <= 15 && h.getHours() >= 10 && (d ? (heureGP(d).getMonth() !== h.getMonth() && Date.now() - d > 20 * 86400e3) : h.getDate() === 8) },  { id: 'leila_apprentissage', nom: 'Apprentissage de Leïla (compare ses réponses à celles de l’équipe, en tire des leçons ; bilan le lundi)', flux: '(nouveau)', rythme: 'chaque soir (20 h)', fn: () => require('./apprentissage').tache(), defaut: 'on',
+    quand: (h, d) => h.getHours() >= 20 && autreJour(h, d) },
 ];
 
 const etatMemoire = new Map(); // id -> { le, ok, resultat }
