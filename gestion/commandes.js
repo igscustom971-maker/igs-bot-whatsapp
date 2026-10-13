@@ -300,6 +300,15 @@ async function chargerPrioritaires(force = false) {
 }
 // « Rien à payer » (commande interne, reprise / refaite) : liste de clés dans gestion_reglages ; les reprises -R1, -R2… le sont d'office
 let sansPaiement = { set: new Set(), le: 0 };
+// Commande marquée « Rien à payer » (case de la fiche) ou reprise interne (-R1, -R2…) : jamais de facture ni de relance
+async function estSansPaiement(nDevis) {
+  const n = String(nDevis || '').trim().toUpperCase();
+  if (!n) return false;
+  if (/-R\d+$/.test(n)) return true;
+  const set = await chargerSansPaiement();
+  const row = cache.rows.find(r => String(r.n_devis || '').trim().toUpperCase() === n);
+  return !!(row && set.has(row.cle)) || set.has(n);
+}
 async function chargerSansPaiement(force = false) {
   if (!supabase) return sansPaiement.set;
   if (!force && Date.now() - sansPaiement.le < 30e3) return sansPaiement.set;
@@ -1165,4 +1174,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { oublierDossier, remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { oublierDossier, estSansPaiement, remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

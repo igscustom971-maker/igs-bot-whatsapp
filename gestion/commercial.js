@@ -462,11 +462,12 @@ async function relancerClientImpayes(ids, user, { niveau, message } = {}) {
 }
 
 // ---------- Facture du solde ----------
-const LIB_SOLDE = { introuvable: 'devis introuvable dans Odoo', pas_confirme: 'devis pas encore confirmé', pas_d_acompte: 'pas d\'acompte facturé', brouillon_existant: 'une facture brouillon existe déjà dans Odoo', deja_facture: 'déjà entièrement facturé', rien_a_facturer: 'rien à facturer', pas_d_email: 'pas d\'e-mail sur la fiche client Odoo', en_cours: 'facture déjà en cours de création' };
+const LIB_SOLDE = { sans_paiement: 'commande marquée « Rien à payer »', introuvable: 'devis introuvable dans Odoo', pas_confirme: 'devis pas encore confirmé', pas_d_acompte: 'pas d\'acompte facturé', brouillon_existant: 'une facture brouillon existe déjà dans Odoo', deja_facture: 'déjà entièrement facturé', rien_a_facturer: 'rien à facturer', pas_d_email: 'pas d\'e-mail sur la fiche client Odoo', en_cours: 'facture déjà en cours de création' };
 const soldeEnCours = new Set(); // verrou par devis : bouton manuel et passage automatique ne facturent jamais deux fois
 async function facturerSolde(numero, user, { auto = false } = {}) {
   const cleV = String(numero || '').trim().toUpperCase();
   if (soldeEnCours.has(cleV)) return { statut: 'en_cours', libelle: LIB_SOLDE.en_cours };
+  if (await require('./commandes').estSansPaiement(cleV).catch(() => false)) return { statut: 'sans_paiement', libelle: LIB_SOLDE.sans_paiement };
   soldeEnCours.add(cleV);
   let r;
   try { r = await odoo.facturerSolde(numero, { exigerAcompte: auto }); }
@@ -486,7 +487,7 @@ async function surStatutCommande(c, nouveauStatut, par) {
     if (!['TERMINEE', 'AEXPEDIER'].includes(st) || !c?.n_devis || !odoo.configured()) return;
     if ((await require('./notifications').reglage('tache_facture_solde', 'off')) !== 'on') return;
     const r = await facturerSolde(c.n_devis, `${par} (automatique)`, { auto: true });
-    if (r.statut !== 'envoyee' && !['pas_d_acompte', 'deja_facture', 'pas_confirme', 'en_cours'].includes(r.statut)) {
+    if (r.statut !== 'envoyee' && !['pas_d_acompte', 'deja_facture', 'pas_confirme', 'en_cours', 'sans_paiement'].includes(r.statut)) {
       // Cas à regarder à la main : prévenir par mail
       await g.sendMail(MAILBOX, { to: MAILBOX, subject: `Facture du solde non envoyée - ${c.n_devis} - ${c.client || ''}`, html: `<p>La commande ${esc(c.n_devis)} (${esc(c.client || '')}) est passée en ${esc(nouveauStatut)}, mais la facture du solde n'a pas pu partir : <b>${esc(r.libelle || r.statut)}</b>.</p><p>À vérifier dans Odoo.</p>` }).catch(() => {});
     }
