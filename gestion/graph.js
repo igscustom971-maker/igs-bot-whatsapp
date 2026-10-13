@@ -76,6 +76,22 @@ async function children(itemId, o) {
   return out;
 }
 
+// Enfants d'un dossier AVEC leurs miniatures, en un seul appel (au lieu d'un appel par image)
+async function childrenMiniatures(itemId, o) {
+  try { return await childrenMiniaturesBrut(itemId, o); }
+  catch (err) { console.error('Graph miniatures (repli sans) :', err.message); return children(itemId, o); }
+}
+async function childrenMiniaturesBrut(itemId, o) {
+  let url = `${await D(o)}/items/${encodeURIComponent(itemId)}/children?$top=999&$expand=thumbnails`;
+  const out = [];
+  while (url) {
+    const page = await graph(url);
+    out.push(...page.value);
+    url = page['@odata.nextLink'] || null;
+  }
+  return out;
+}
+
 // Plage complète d'un tableau Excel (en-tête + données) : valeurs calculées et formules
 async function tableRange(itemId, tableName, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/workbook/tables/${encodeURIComponent(tableName)}/range`);
@@ -303,4 +319,4 @@ async function deleteTableRow(itemId, table, index, o) {
   throw new Error(`Suppression de la ligne ${index} du tableau ${table} impossible`);
 }
 
-module.exports = { deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, tableRange, thumbnailUrl, content, norm };
+module.exports = { deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, childrenMiniatures, tableRange, thumbnailUrl, content, norm };

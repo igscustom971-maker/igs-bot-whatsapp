@@ -716,6 +716,7 @@ async function executer(a) {
     return `✅ ${envoye ? `Devis ${a.numero} envoyé par mail depuis Odoo.` : `Devis ${a.numero} déjà envoyé (pas de 2e mail).`}${waTxt}`;
   }
   if (a.type === 'tableau') {
+    require('./commandes').oublierDossier();
     const r = await require('./commandes').remplirTableau(a.cle, { lignes: a.lignes, zone_flocage: a.zone_flocage }, PAR);
     return `✅ ${r.etapes.join('\n')}`;
   }

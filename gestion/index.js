@@ -54,6 +54,8 @@ module.exports = function mountGestion(app) {
 
   // Profils : technique = atelier (commandes, BAT, planches, stock, espèces, Leïla) ; commercial = module Commercial ; admin = tout
   const tech = auth.requireProfil('technique');
+  // Toute écriture sur une commande ou un BAT : le dossier SharePoint mis en cache est relu à la prochaine ouverture
+  app.use((req, res, next) => { if (req.method === 'POST' && /^\/gestion\/api\/(commandes|bat)\b/.test(req.path)) { commandes.oublierDossier(); cacheFichiers.clear(); } next(); });
   // API de l'atelier : profil technique obligatoire (un compte seulement commercial n'y a pas accès)
   const API_TECH = new Set(['bat', 'caisse', 'commandes', 'commandes-historique', 'fichier', 'planches', 'sefi', 'stock', 'leila']);
   app.use('/gestion/api', (req, res, next) => {
@@ -530,23 +532,37 @@ module.exports = function mountGestion(app) {
 
   app.get('/gestion/api/commandes/:devis/dossier', auth.requireUser, async (req, res) => {
     try {
-      res.json(await commandes.getDossierControle(req.params.devis));
+      res.json(await commandes.getDossierControle(req.params.devis, { force: req.query.force === '1' }));
     } catch (err) {
       console.error('Gestion dossier :', err.message);
       res.status(502).json({ erreur: err.message });
     }
   });
 
+  const cacheFichiers = new Map(); // id -> { le, it, buf, type }
   // Proxy de fichier (BAT PDF, visuels) : affichage dans le navigateur sans exposer SharePoint
   app.get('/gestion/api/fichier/:id', auth.requireUser, async (req, res) => {
     try {
-      const it = await commandes.fichierAutorise(req.params.id);
-      if (!it) return res.status(403).send('Fichier non autorisé');
-      const r = await require('./graph').content(it.id);
-      res.set('Content-Type', it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream');
+      // Fichiers gardés 10 min en mémoire (visuels rouverts par la fiche puis le générateur de BAT)
+      const c = cacheFichiers.get(req.params.id);
+      let it, buf, type;
+      if (c && Date.now() - c.le < 10 * 60e3) ({ it, buf, type } = c);
+      else {
+        it = await commandes.fichierAutorise(req.params.id);
+        if (!it) return res.status(403).send('Fichier non autorisé');
+        const r = await require('./graph').content(it.id);
+        type = it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream';
+        buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length <= 8e6 && /^image\//i.test(type)) { // images seulement : un BAT (PDF) remplacé est toujours relu
+          cacheFichiers.set(req.params.id, { le: Date.now(), it, buf, type });
+          let total = 0; for (const v of cacheFichiers.values()) total += v.buf.length;
+          while (total > 80e6 && cacheFichiers.size) { const k = cacheFichiers.keys().next().value; total -= cacheFichiers.get(k).buf.length; cacheFichiers.delete(k); }
+        }
+      }
+      res.set('Content-Type', type);
       res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
-      res.set('Cache-Control', 'private, max-age=300');
-      res.send(Buffer.from(await r.arrayBuffer()));
+      res.set('Cache-Control', 'private, max-age=600');
+      res.send(buf);
     } catch (err) {
       console.error('Gestion fichier :', err.message);
       res.status(502).send('Fichier indisponible');

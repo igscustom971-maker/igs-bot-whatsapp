@@ -90,4 +90,48 @@ async function ecrireLignes(buf, lignes, nomTable = 'LignesCommande') {
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
-module.exports = { ecrireLignes };
+// Lecture locale d'un tableau (en-tête + lignes, valeurs calculées en cache) : bien plus rapide qu'Excel Online
+async function lireTableau(buf, nomTable = 'LignesCommande') {
+  const zip = await JSZip.loadAsync(buf);
+  const tables = Object.keys(zip.files).filter(f => /^xl\/tables\/table\d+\.xml$/.test(f));
+  let tablePath = null, tableXml = null;
+  for (const t of tables) {
+    const x = await zip.file(t).async('string');
+    if (new RegExp(`(?:name|displayName)="${nomTable}"`, 'i').test(x)) { tablePath = t; tableXml = x; break; }
+  }
+  if (!tableXml) throw new Error(`tableau ${nomTable} introuvable`);
+  const [, c0, r0, c1, r1] = (tableXml.match(/\sref="([A-Z]+)(\d+):([A-Z]+)(\d+)"/) || []);
+  if (!c0) throw new Error('plage du tableau introuvable');
+  const tableFichier = tablePath.split('/').pop();
+  let feuillePath = null;
+  for (const f of Object.keys(zip.files).filter(f => /^xl\/worksheets\/_rels\/sheet\d+\.xml\.rels$/.test(f))) {
+    if ((await zip.file(f).async('string')).includes(tableFichier)) { feuillePath = f.replace('_rels/', '').replace(/\.rels$/, ''); break; }
+  }
+  if (!feuillePath || !zip.file(feuillePath)) throw new Error('feuille du tableau introuvable');
+  const dec = s => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (t, n) => String.fromCharCode(Number(n))).replace(/&amp;/g, '&');
+  const textes = x => [...String(x).matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(m => dec(m[1])).join('');
+  const ss = zip.file('xl/sharedStrings.xml') ? [...(await zip.file('xl/sharedStrings.xml').async('string')).matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m => textes(m[1])) : [];
+  const xml = await zip.file(feuillePath).async('string');
+  const a = colI(c0), b = colI(c1), debut = Number(r0), fin = Number(r1);
+  const lignes = [];
+  for (let r = debut; r <= fin; r++) lignes.push(new Array(b - a + 1).fill(''));
+  for (const m of xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const ref = (m[1].match(/\br="([A-Z]+)(\d+)"/) || []);
+    if (!ref[1]) continue;
+    const c = colI(ref[1]), r = Number(ref[2]);
+    if (r < debut || r > fin || c < a || c > b) continue;
+    const t = (m[1].match(/\bt="(\w+)"/) || [])[1];
+    const corps = m[2] || '';
+    const v = (corps.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+    let val = '';
+    if (t === 's') val = ss[Number(v)] ?? '';
+    else if (t === 'inlineStr') val = textes(corps);
+    else if (t === 'str' || t === 'e') val = v != null ? dec(v) : '';
+    else if (t === 'b') val = v === '1';
+    else if (v != null && v !== '') val = Number(v);
+    lignes[r - debut][c - a] = val;
+  }
+  return lignes;
+}
+
+module.exports = { ecrireLignes, lireTableau };

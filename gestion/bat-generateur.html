@@ -166,8 +166,9 @@ async function chargerPositions(){
 }
 const VIERGE = cle === 'vierge';
 async function init(){
-  await chargerPositions();
-  try { const l = await (await fetch('/gestion/api/listes')).json(); NUANCIER = (l && l.couleurs) || []; } catch(e){}
+  // Tout est demandé en même temps (positions, nuancier, commande, dossier) au lieu de l'un après l'autre
+  const pCommandes = VIERGE ? null : fetch('/gestion/api/commandes');
+  await Promise.all([chargerPositions(), (async () => { try { const l = await (await fetch('/gestion/api/listes')).json(); NUANCIER = (l && l.couleurs) || []; } catch(e){} })()]);
   if (!NUANCIER.length) NUANCIER = BATCOMMUN.NUANCIER_DEFAUT.slice();
   if (VIERGE) {
     // BAT vierge : aucune commande, tout se remplit à la main (logos importés depuis l'ordinateur), PDF téléchargé
@@ -180,7 +181,7 @@ async function init(){
     return;
   }
   try {
-    const rc = await fetch('/gestion/api/commandes'); if (rc.status === 401) return location.href = '/gestion/auth/login';
+    const rc = await pCommandes; if (rc.status === 401) return location.href = '/gestion/auth/login';
     const jc = await rc.json();
     C = (jc.commandes || []).find(x => x.cle === cle);
     if (!C) throw new Error('Commande introuvable (elle est peut-être livrée ou supprimée)');

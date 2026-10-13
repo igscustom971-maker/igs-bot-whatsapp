@@ -748,8 +748,14 @@ function normTaille(t) {
 }
 
 async function readTailles(fileId) {
-  const range = await g.tableRange(fileId, cfg.TABLE_TAILLES);
-  const [header, ...rows] = range.values;
+  // Lecture directe du fichier (rapide) ; Excel Online seulement si elle échoue
+  let values = null;
+  try {
+    const r = await g.content(fileId);
+    values = await require('./tailles-xlsx').lireTableau(Buffer.from(await r.arrayBuffer()), cfg.TABLE_TAILLES);
+  } catch (err) { console.error(`Tailles (lecture directe) ${fileId} :`, err.message); }
+  if (!values) values = (await g.tableRange(fileId, cfg.TABLE_TAILLES)).values;
+  const [header, ...rows] = values;
   const idx = {};
   header.forEach((h, i) => { idx[key(h)] = i; });
   const col = (r, ...names) => { for (const n of names) if (idx[n] !== undefined) return r[idx[n]]; return null; };
@@ -770,7 +776,7 @@ async function getDossier(ndevis) {
   const folder = await findCommandeFolder(ndevis);
   if (!folder) return { trouve: false };
 
-  const items = await g.children(folder.id);
+  const items = await g.childrenMiniatures(folder.id);
   const files = items.filter(i => i.file);
   const folders = items.filter(i => i.folder);
 
@@ -782,40 +788,39 @@ async function getDossier(ndevis) {
   const bat = files.find(f => key(f.name) === 'bonatirerpdf')
     || files.find(f => /\.pdf$/i.test(f.name) && /bonatirer|^bat/.test(key(f.name)));
 
-  // Tailles : sous-dossier "Taille(s)" -> Tailles.xlsx
+  // Tailles (sous-dossier "Taille(s)" -> Tailles.xlsx) et visuels lus EN PARALLÈLE
   let tailles = null, taillesErreur = null;
   const dossierTailles = folders.find(f => key(f.name).startsWith('taille'));
-  try {
-    let fichier = null;
-    if (dossierTailles) {
-      const inside = (await g.children(dossierTailles.id)).filter(i => i.file && /\.xlsx$/i.test(i.name));
-      fichier = inside.find(i => key(i.name).startsWith('taille')) || inside[0];
+  const lireTaillesDossier = (async () => {
+    try {
+      let fichier = null;
+      if (dossierTailles) {
+        const inside = (await g.children(dossierTailles.id)).filter(i => i.file && /\.xlsx$/i.test(i.name));
+        fichier = inside.find(i => key(i.name).startsWith('taille')) || inside[0];
+      }
+      fichier = fichier || files.find(i => /\.xlsx$/i.test(i.name) && key(i.name).startsWith('taille'));
+      if (fichier) tailles = await readTailles(fichier.id);
+    } catch (err) {
+      taillesErreur = err.message;
+      console.error(`Gestion tailles ${ndevis} :`, err.message);
     }
-    fichier = fichier || files.find(i => /\.xlsx$/i.test(i.name) && key(i.name).startsWith('taille'));
-    if (fichier) tailles = await readTailles(fichier.id);
-  } catch (err) {
-    taillesErreur = err.message;
-    console.error(`Gestion tailles ${ndevis} :`, err.message);
-  }
-
+  })();
+  // Miniatures récupérées avec la liste des fichiers (un appel par dossier, plus un par image)
+  const mini = i => (i.thumbnails && i.thumbnails[0] && i.thumbnails[0].large && i.thumbnails[0].large.url) || null;
+  const image = async i => ({ id: i.id, nom: i.name, face: face(i.name), miniature: mini(i) || await g.thumbnailUrl(i.id) });
   // Visuels : un dossier par visuel, avec Nom_Avant / Nom_Arriere
   const visuelFolders = folders.filter(f => f !== dossierTailles && !/archive/i.test(f.name));
-  const visuels = await Promise.all(visuelFolders.map(async f => {
-    const imgs = (await g.children(f.id)).filter(i => i.file && isImage(i.name));
-    const images = await Promise.all(imgs.map(async i => ({
-      id: i.id, nom: i.name, face: face(i.name), miniature: await g.thumbnailUrl(i.id),
-    })));
+  const lireVisuels = Promise.all(visuelFolders.map(async f => {
+    const imgs = (await g.childrenMiniatures(f.id)).filter(i => i.file && isImage(i.name));
+    const images = await Promise.all(imgs.map(image));
     images.sort((a, b) => ['avant', 'arriere', 'autre'].indexOf(a.face) - ['avant', 'arriere', 'autre'].indexOf(b.face));
     return { nom: f.name, cle: key(f.name), images };
   }));
   // Images posées directement dans le dossier de la commande (sans sous-dossier)
   const imagesRacine = files.filter(f => isImage(f.name));
-  if (imagesRacine.length) {
-    visuels.push({
-      nom: 'Visuels', cle: '__racine__',
-      images: await Promise.all(imagesRacine.map(async i => ({ id: i.id, nom: i.name, face: face(i.name), miniature: await g.thumbnailUrl(i.id) }))),
-    });
-  }
+  const lireRacine = imagesRacine.length ? Promise.all(imagesRacine.map(image)) : Promise.resolve([]);
+  const [visuels, racine] = await Promise.all([lireVisuels, lireRacine, lireTaillesDossier]);
+  if (racine.length) visuels.push({ nom: 'Visuels', cle: '__racine__', images: racine });
 
   // Regroupement des tailles par visuel, rattaché au bon dossier visuel
   let groupes = [];
@@ -849,7 +854,22 @@ async function getDossier(ndevis) {
 }
 
 // Dossier + contrôle devis / tableau (et mise à jour du cache de contrôle)
-async function getDossierControle(ndevis) {
+// Dossier d'une commande gardé 90 s (ouvrir / refermer une fiche, puis le générateur de BAT : pas de 2e lecture
+// SharePoint) ; oublié dès qu'on écrit dans le dossier depuis le dashboard
+const cacheDossiers = new Map(); // ndevis -> { le, p }
+const DOSSIER_TTL = Number(process.env.DOSSIER_CACHE_MS || 90e3);
+function oublierDossier(ndevis) { if (ndevis) cacheDossiers.delete(String(ndevis)); else cacheDossiers.clear(); }
+async function getDossierControle(ndevis, { force = false } = {}) {
+  const k = String(ndevis);
+  const c = cacheDossiers.get(k);
+  if (!force && c && Date.now() - c.le < DOSSIER_TTL) return c.p;
+  const p = getDossierControleFrais(ndevis);
+  cacheDossiers.set(k, { le: Date.now(), p });
+  p.catch(() => cacheDossiers.delete(k));
+  if (cacheDossiers.size > 200) cacheDossiers.delete(cacheDossiers.keys().next().value);
+  return p;
+}
+async function getDossierControleFrais(ndevis) {
   const d = await getDossier(ndevis);
   const row = cache.rows.find(r => r.n_devis === ndevis);
   if (d.trouve && row) {
@@ -1145,4 +1165,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { oublierDossier, remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
