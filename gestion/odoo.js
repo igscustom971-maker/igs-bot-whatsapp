@@ -466,6 +466,16 @@ async function lignesDevis(numero) {
   };
 }
 // « 5 x T-shirt personnalisé » par ligne : même format que la colonne « Informations complémentaires »
+// Derniers devis / commandes Odoo d'un client (recherche par nom de client ou n° de devis)
+async function devisOdooClient(recherche, limite = 10) {
+  const q = String(recherche || '').trim();
+  if (!q) return [];
+  const dom = /^[A-Z]{1,5}\d{3,}/i.test(q) ? [['name', 'ilike', q]] : [['partner_id.name', 'ilike', q]];
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ...dom]], { fields: ['id', 'name', 'state', 'partner_id', 'amount_total', 'create_date', 'date_order', 'invoice_status'], order: 'create_date desc', limit: limite });
+  const ETAT = { draft: 'brouillon', sent: 'envoyé', sale: 'confirmé', done: 'verrouillé', cancel: 'annulé' };
+  const ls = await Promise.all(r.map(o => infosDevis(o.id).catch(() => '')));
+  return r.map((o, i) => ({ numero: o.name, client: o.partner_id ? o.partner_id[1] : '', etat: ETAT[o.state] || o.state, montant_ttc: o.amount_total, cree_le: o.create_date, contenu: String(ls[i] || '').replace(/\r?\n/g, ' / ').slice(0, 200), lien: lienOdoo('sale.order', o.id) }));
+}
 // Confirmer un devis (= commande validée/payée dans le flux IGS) ; Odoo envoie ensuite son mail habituel (formulaire)
 async function confirmerDevis(numero) {
   const so = await devisParNumero(String(numero || '').trim().toUpperCase());
@@ -884,7 +894,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
