@@ -18,7 +18,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', factures: 'Factures fournisseurs', admin: 'Admin', leila: 'Leïla', bat: 'BAT' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', factures: 'Factures fournisseurs', admin: 'Admin', leila: 'Leïla', bat: 'BAT', sefi: 'BDC SEFI' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/favicon.ico" sizes="any"><link rel="icon" href="/gestion/icon-192.png" type="image/png">
 <link rel="manifest" href="/gestion/manifest.webmanifest"><meta name="theme-color" content="#1E1E4B">
 <link rel="apple-touch-icon" href="/gestion/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="IGS"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -435,6 +435,7 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${view === 'commandes' && !batSeul ? 'on' : ''}" href="/gestion/commandes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7l-8-4-8 4 8 4 8-4z"/><path d="M4 7v10l8 4 8-4V7"/></svg><span class="lb" data-m="Cmdes">Commandes</span><span class="nn" id="nav-n-cmd"></span></a>
     <a class="${batSeul ? 'on' : ''}" href="/gestion/bat"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg><span class="lb" data-m="BAT">BAT</span><span class="nn o" id="nav-n-bat"></span></a>
     <a class="${view === 'planches' ? 'on' : ''}" href="/gestion/planches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg><span class="lb" data-m="Planches">Planches DTF</span></a>
+    <a class="${view === 'sefi' ? 'on' : ''}" href="/gestion/sefi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/><circle cx="10" cy="20" r="1"/><circle cx="17" cy="20" r="1"/></svg><span class="lb" data-m="SEFI">BDC SEFI</span></a>
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg><span class="lb" data-m="Stock">Stock</span></a>
     <a class="${view === 'produits' ? 'on' : ''}" href="/gestion/produits"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><span class="lb" data-m="Produits">Produits</span></a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
@@ -641,7 +642,22 @@ ${view === 'accueil' ? `
     <div id="pr-tabs"></div>
     <div id="pr-liste"><div class="card"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
   </section>
-  <script src="/gestion/produits.js" defer></script>` : view === 'stock' ? `
+  <script src="/gestion/produits.js" defer></script>` : view === 'sefi' ? `
+  <section id="v-sefi">
+    <div class="hello"><div><h2>Bon de commande SEFI</h2><div class="sub">Ce qui partira au prochain envoi (9 h, 11 h, 17 h ou à la demande), mis à jour en direct.</div></div>
+      <div class="tools" style="margin:0"><span id="sf-sync" class="sync"></span><button id="sf-envoyer" class="btn pink">📨 Envoyer maintenant</button></div></div>
+    <div id="sf-etat"></div>
+    <div class="card" style="margin-bottom:14px"><h3>＋ Ajouter un article</h3>
+      <div class="sf-form"><div class="field" style="flex:2 1 240px"><label>Article (« t-shirt noir », « polo femme blanc »… ou réf. SEFI « REGENT NOIR »)</label><input id="sf-texte" autocomplete="off" placeholder="t-shirt noir"></div>
+        <div class="field" style="flex:0 1 110px"><label>Taille</label><select id="sf-taille"></select></div>
+        <div class="field" style="flex:0 1 90px"><label>Quantité</label><input id="sf-qte" type="number" min="1" max="999" value="1"></div>
+        <div class="field" style="flex:1 1 180px"><label>Pour (n° de devis ou motif, facultatif)</label><input id="sf-pour" placeholder="DE2601087 ou stock atelier"></div>
+        <div class="field" style="flex:0 0 auto;align-self:flex-end"><button id="sf-ajouter" class="btn primary" disabled>Ajouter</button></div></div>
+      <div id="sf-apercu" class="note" style="margin-top:6px">&nbsp;</div></div>
+    <div id="sf-lignes"><div class="card"><div class="skel"></div><div class="skel"></div></div></div>
+    <div id="sf-commandes"></div>
+  </section>
+  <script src="/gestion/sefi-bdc.js" defer></script>` : view === 'stock' ? `
   <section id="v-stock">
     <div class="tools">
       <input id="q" class="search" type="search" placeholder="Filtrer les articles (type, couleur, taille, référence)…">
@@ -3125,11 +3141,11 @@ if (VIEW === 'commandes') {
   { let tq; $('q').addEventListener('input', e => { recherche = e.target.value; clearTimeout(tq); tq = setTimeout(afficher, 150); }); }
   chargerAuto();
   $('nouvelle').addEventListener('click', nouvellePlanche);
-} else {
+} else if ($('prios')) {
   $('prios').addEventListener('click', e => { const p = e.target.closest('.prio'); if (p){ panelCle = p.dataset.k; ouvrir(panelCle); } });
 }
-$('refresh').addEventListener('click', () => charger(true));
-$('overlay').addEventListener('click', fermer); $('pclose').addEventListener('click', fermer);
+if ($('refresh')) $('refresh').addEventListener('click', () => charger(true));
+if ($('overlay')) $('overlay').addEventListener('click', fermer); if ($('pclose')) $('pclose').addEventListener('click', fermer);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fermer(); });
 if (VIEW === 'admin' || VIEW === 'heures') chargerListes().finally(() => charger(false));
 else Promise.allSettled([chargerListes(), charger(false)]).then(() => { try { if (Array.isArray(data) && data.length) afficher(); } catch(e){} });
@@ -3138,7 +3154,7 @@ if (${TECH ? 'true' : 'false'} && !['accueil','commandes','planches'].includes(V
 // Actualisation automatique (pas sur Admin ni Heures : elle effacerait une saisie en cours)
 // Actualisation auto toutes les 2 min (onglet visible seulement) ; au retour sur l'onglet, tout de suite si c'est ancien.
 // Pas sur les pages de réglages (Admin, Leïla, Heures) : une saisie en cours serait effacée.
-if (!['admin', 'heures', 'leila', 'factures'].includes(VIEW)) {
+if (!['admin', 'heures', 'leila', 'factures', 'sefi'].includes(VIEW)) {
   let dernierAuto = Date.now();
   const tick = () => { if (document.hidden) return; dernierAuto = Date.now(); charger(false, true); };
   setInterval(tick, 120000);

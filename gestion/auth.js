@@ -203,6 +203,7 @@ function mount(app) {
   app.get('/gestion/import-whatsapp.js', statique('import-whatsapp.js', 'text/javascript; charset=utf-8', 3600));
   app.get('/gestion/produits.js', statique('produits.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/apprentissage.js', statique('apprentissage.js', 'text/javascript; charset=utf-8', 300));
+  app.get('/gestion/sefi-bdc.js', statique('sefi-bdc.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/manifest.webmanifest', (req, res) => res.set({ 'Content-Type': 'application/manifest+json', 'Cache-Control': 'public, max-age=3600' }).send(JSON.stringify({
     id: '/gestion/', name: 'IGS Dashboard', short_name: 'IGS', description: 'Commandes, BAT, planches DTF, stock et commercial d\'IGS Custom Bar',
     start_url: '/gestion/', scope: '/gestion/', display: 'standalone', orientation: 'any', lang: 'fr',

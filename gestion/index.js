@@ -599,6 +599,15 @@ module.exports = function mountGestion(app) {
   };
   app.post('/gestion/api/sefi/envoyer', auth.requireUser, actN(req => lancerSefi(req.user.name || req.user.email)));
   app.post('/gestion/api/sefi/debloquer', auth.requireUser, auth.requireAdmin, actN(() => sefi.debloquer()));
+  // Onglet « BDC SEFI » : contenu en temps réel, conversion, ajout manuel, ajustement (toute l'équipe)
+  const quiS2 = req => req.user.name || req.user.email;
+  const actS = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { console.error('BDC SEFI :', err.message); res.status(/Graph|SharePoint|fetch/i.test(err.message) ? 502 : 400).json({ error: err.message }); } };
+  app.get('/gestion/sefi', auth.requireUser, tech, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'sefi')));
+  app.get('/gestion/api/sefi/bdc', auth.requireUser, actS(req => sefi.contenuBdc({ force: req.query.force === '1' }).then(c => ({ ...c, admin: req.user.role === 'admin' }))));
+  app.get('/gestion/api/sefi/convertir', auth.requireUser, actS(async req => { const c = sefi.convertir(req.query.texte, req.query.taille); if (req.user.role !== 'admin') delete c.prix; return c; }));
+  app.post('/gestion/api/sefi/ajouter', auth.requireUser, actS(req => sefi.ajouterManuel(req.body || {}, quiS2(req))));
+  app.post('/gestion/api/sefi/quantite', auth.requireUser, actS(req => sefi.fixerQuantite(req.body || {}, quiS2(req))));
+  app.post('/gestion/api/sefi/supprimer-ligne', auth.requireUser, actS(req => sefi.supprimerLigne(req.body || {}, quiS2(req))));
   // Bouton du fichier Excel (script Office) : jeton dédié SEFI_BOUTON_JETON, ne permet QUE de lancer l'envoi
   app.options('/gestion/public/sefi/envoyer', (req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST', 'Access-Control-Allow-Headers': 'Content-Type' }).sendStatus(204); });
   app.post('/gestion/public/sefi/envoyer', (req, res) => {

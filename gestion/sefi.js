@@ -367,6 +367,7 @@ async function envoyer(par = 'Envoi automatique') {
       try { await commandes.modifier(c.cle, { statut: 'EN COMMANDE' }, par); passes.push(d); }
       catch (err) { console.error(`SEFI : ${d} non passé EN COMMANDE`, err.message); }
     }
+    cacheBdc.le = 0;
     const res = { ok: true, lot, devis: L.devis, enCommande: passes, bdcVide: vide, contenu: contenuLot(L) };
     await setReglage('sefi_dernier_envoi', JSON.stringify({ le: new Date().toISOString(), par, ...res }));
     if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: par, action: 'bdc_sefi_envoye', cle: lot, details: res });
@@ -395,4 +396,159 @@ async function etat() {
   return { verrou: await reglage('sefi_verrou', ''), dernier: JSON.parse((await reglage('sefi_dernier_envoi', 'null')) || 'null') };
 }
 
-module.exports = { remplir, remplirDepuisTailles, envoyer, debloquer, etat, contenuActuel, _test: { lireLot, recap, hash } };
+// ============================================
+// SAISIE MANUELLE DU BDC (onglet « BDC SEFI » du dashboard, accessible à toute l'équipe)
+// Voir ce qui est saisi, ajuster une quantité, ajouter un article à la main (« t-shirt noir » converti en réf. SEFI,
+// ou directement « REGENT NOIR »). Toutes les écritures passent par la même file que le remplissage et l'envoi.
+// ============================================
+const sansAcc = v => txt(v).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const MODELES = [...new Set([...Object.values(REFS), ...Object.keys(TARIFS), ...Object.keys(CODES_MODELE)])].filter(m => m !== 'AUTRE').sort((a, b) => b.length - a.length);
+const SYN_COULEUR = { 'bleu marine': 'Marine', 'bleu roi': 'Royal', 'gris chine': 'Gris Chine', 'gris': 'Gris Chine', 'vert': 'Vert Prairie', 'rose': 'Rose Bonbon', 'violet': 'Violet Fonce', 'kaki fonce': 'Kaki', 'beige': 'Sable' };
+function couleurSefi(t) {
+  const s = sansAcc(t);
+  if (!s) return null;
+  for (const [k, v] of Object.entries(NORM_COULEUR)) if (sansAcc(k) === s) return v;
+  for (const k of Object.keys(CODES)) if (sansAcc(k) === s) return k;
+  return SYN_COULEUR[s] || null;
+}
+const TYPES_TEXTE = [
+  [/sweat.*zip|zipp|\bzip\b/, 'Sweat zippé à capuche'], [/sweat.*(capuche|hood)|hoodie|\bcapuche\b/, 'Sweat à capuche'], [/\bsweat/, 'Sweat col rond'],
+  [/\bpolos?\b/, 'Polo'], [/debardeur/, 'Débardeur'], [/tote|\bsacs?\b/, 'Tote Bag'], [/casquette/, 'Casquette'],
+  [/manches? longues?/, 'T-Shirt Longue Manche'], [/col v\b/, 'T-Shirt Col V'], [/polyester|\bsport/, 'T-Shirt Polyester'],
+  [/t[ -]?shirt|tee[ -]?shirt|\btee\b|\bts\b/, 'T-Shirt'],
+];
+const prixDe = (refBase, couleur, taille) => TARIFS_BLANC_COULEUR[refBase] ? TARIFS_BLANC_COULEUR[refBase][couleur === 'Blanc' ? 0 : 1]
+  : ((GRANDES.includes(maj(taille)) ? TARIFS_3XL[refBase] : TARIFS[refBase]) || 0);
+const couleursPossibles = refBase => Object.keys(CODES_MODELE[refBase] || CODES);
+
+// « t-shirt noir », « polo femme blanc », « t-shirt enfant noir » (avec une taille enfant), « REGENT NOIR », « IMPERIAL BLANC 102 »
+function convertir(texte, taille) {
+  const s = sansAcc(texte).replace(/[,;:]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) return { erreur: 'Écris un article (ex. « t-shirt noir » ou « REGENT NOIR »)' };
+  let t = NORM_TAILLE[txt(taille)] || maj(taille);
+  if (taille && !TAILLES.includes(t)) return { erreur: `Taille inconnue : ${taille}` };
+  let refBase = null, reste = '';
+  // 1. Référence SEFI directe (modèle en tête ; « REGENT » suffit pour REGENT KIDS)
+  for (const m of MODELES) { const mm = sansAcc(m); if (s === mm || s.startsWith(mm + ' ')) { refBase = m; reste = s.slice(mm.length); break; } }
+  if (!refBase) {
+    const premier = s.split(' ')[0];
+    const cands = MODELES.filter(m => sansAcc(m).split(' ')[0] === premier);
+    const exact = cands.find(m => sansAcc(m) === premier);
+    if (cands.length === 1 || exact) { refBase = exact || cands[0]; reste = s.slice(premier.length); }
+  }
+  // 2. Description (« t-shirt noir femme »)
+  if (!refBase) {
+    const ty = TYPES_TEXTE.find(([re]) => re.test(s));
+    if (!ty) return { erreur: 'Produit non reconnu : écris le type (t-shirt, polo, sweat, débardeur, tote bag, casquette…) ou la référence SEFI (IMPERIAL, REGENT…)' };
+    const femme = /\b(femme|women|woman|fille)\b/.test(s);
+    const enfant = /\b(enfant|enfants|kids?|junior)\b/.test(s) || ENFANTS.includes(t);
+    let produit = ty[1];
+    if (produit === 'T-Shirt' && enfant) produit = 'T-Shirt Enfant';
+    refBase = REFS[produit + (femme ? 'Femme' : 'Unisexe')] || REFS[produit + 'Unisexe'];
+    const VOCAB = /^(sweats?|sweat-?shirts?|zip|zippes?|zipps?|capuches?|hood|hoodies?|polos?|debardeurs?|tote|totes|bags?|sacs?|casquettes?|manches?|longues?|col|v|polyester|sports?|sportif|t-?shirts?|tshirts?|tee-?shirts?|tee|ts|t|shirt|femme|women|woman|fille|homme|unisexe|enfants?|kids?|junior|vierges?|de|en|a|couleur|rond)$/;
+    reste = s.replace(/t[ -]shirt/g, 'tshirt').replace(/tee[ -]shirt/g, 'tshirt').replace(/tote[ -]bag/g, 'tote').split(' ').filter(w => !VOCAB.test(w)).join(' ');
+  }
+  // T-shirt adulte demandé en taille enfant : REGENT KIDS (comme le remplissage automatique)
+  if (t && ENFANTS.includes(t) && ['IMPERIAL', 'IMPERIAL WOMEN'].includes(refBase)) refBase = 'REGENT KIDS';
+  reste = reste.replace(/\b\d{3}\b/g, ' ').replace(/\s+/g, ' ').trim(); // code couleur éventuel recopié
+  if (!reste) return { erreur: `Précise la couleur (modèle ${refBase})`, refBase };
+  const couleur = couleurSefi(reste);
+  if (!couleur) return { erreur: `Couleur « ${reste} » inconnue`, refBase, couleurs: couleursPossibles(refBase) };
+  const code = CODES_MODELE[refBase] ? CODES_MODELE[refBase][couleur] : CODES[couleur];
+  if (!code) return { erreur: `${couleur} n'existe pas (ou pas encore de code) en ${refBase}`, refBase, couleurs: couleursPossibles(refBase) };
+  return { ok: true, refBase, couleur, code, ref: `${refBase} ${couleur.toUpperCase()} ${code}`, taille: t || null, prix: t ? prixDe(refBase, couleur, t) : null };
+}
+
+let cacheBdc = { le: 0, p: null };
+async function contenuBdc({ force = false } = {}) {
+  if (!force && cacheBdc.p && Date.now() - cacheBdc.le < 5000) return cacheBdc.p;
+  const p = (async () => {
+    const id = await bdc();
+    const [zone, L, e] = await Promise.all([g.readRange(id, F, 'A17:Q48').then(r => r.values), lireLot(id), etat()]);
+    const lignes = [];
+    let libres = 0;
+    for (let i = 0; i < 32; i += 2) {
+      const ref = txt(zone[i][0]);
+      if (!ref) { libres++; continue; }
+      const qtes = {};
+      TAILLES.forEach((tl, c) => { const q = Math.round(num(zone[i][c + 1])); if (q > 0) qtes[tl] = q; });
+      lignes.push({ ligne: 17 + i, ref, qtes, total: Object.values(qtes).reduce((a, b) => a + b, 0) });
+    }
+    return { lignes, libres, tailles: TAILLES, commandes: contenuLot(L), total: lignes.reduce((a, l) => a + l.total, 0), verrou: e.verrou, dernier: e.dernier, le: new Date().toISOString() };
+  })();
+  cacheBdc = { le: Date.now(), p };
+  p.catch(() => { cacheBdc = { le: 0, p: null }; });
+  return p;
+}
+async function journalBdc(par, action, details) {
+  if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: par, action, cle: 'BDC SEFI', details }).then(() => {}, () => {});
+}
+
+// Ajout manuel : ajouté à la quantité déjà saisie pour cette réf./taille, et noté dans DETAIL_COMMANDE (récap SEFI)
+async function ajouterManuel({ texte, taille, qte, pour }, par = 'Dashboard') {
+  const q = Math.round(num(qte));
+  if (q <= 0 || q > 999) throw new Error('Quantité invalide');
+  if (!taille) throw new Error('Choisis la taille');
+  const c = convertir(texte, taille);
+  if (!c.ok) throw new Error(c.erreur);
+  const r = await enFile(async () => {
+    const id = await bdc();
+    const zone = (await g.readRange(id, F, 'A17:Q48')).values;
+    let i = -1;
+    for (let k = 0; k < 32; k += 2) if (maj(zone[k][0]) === maj(c.ref)) { i = k; break; }
+    if (i < 0) for (let k = 0; k < 32; k += 2) if (!txt(zone[k][0])) { i = k; await g.patchRange(id, F, `A${17 + k}`, [[c.ref]]); break; }
+    if (i < 0) throw new Error('Bon de commande plein (16 références) : envoie-le ou regroupe des lignes');
+    const iT = TAILLES.indexOf(c.taille);
+    const v = num(zone[i][iT + 1]) + q;
+    await g.patchRange(id, F, `${colLettre(iT + 1)}${17 + i}`, [[v]]);
+    // Récap : une ligne au nom de la commande indiquée (n° de devis) ou « MANUEL »
+    const p = txt(pour);
+    const devis = /^[A-Z]{1,5}\d{4,}(-R\d+)?$/i.test(p) ? p.toUpperCase() : 'MANUEL';
+    let nomCmd = '';
+    if (devis !== 'MANUEL') { try { const c2 = ((await require('./commandes').listCommandes()).rows || []).find(r => maj(r.n_devis) === devis); nomCmd = c2 ? txt(c2.client) : ''; } catch {} }
+    const client = devis === 'MANUEL' ? `Ajout manuel${p ? ` - ${p}` : ''} (${par})` : `${nomCmd || devis} (ajout manuel)`;
+    const d = await lignesFeuille(id, 'DETAIL_COMMANDE');
+    let n = 2; while (n < d.length && txt(d[n][0])) n++;
+    await g.patchRange(id, 'DETAIL_COMMANDE', `A${n + 1}:J${n + 1}`, [[devis, client, c.ref, c.couleur, c.taille, q, 0, q, c.prix || 0, q * (c.prix || 0)]]);
+    return { ref: c.ref, taille: c.taille, qte: v, ajoute: q, devis };
+  });
+  cacheBdc.le = 0;
+  await journalBdc(par, 'bdc_sefi_ajout_manuel', { ...r, texte, pour: txt(pour) });
+  return r;
+}
+// Ajustement : quantité exacte d'une réf./taille (0 = retirée) ; ligne vidée si plus rien
+async function fixerQuantite({ ref, taille, qte }, par = 'Dashboard') {
+  const t = NORM_TAILLE[txt(taille)] || maj(taille);
+  const iT = TAILLES.indexOf(t);
+  if (iT < 0) throw new Error('Taille inconnue');
+  const q = Math.round(num(qte));
+  if (q < 0 || q > 999) throw new Error('Quantité invalide');
+  const r = await enFile(async () => {
+    const id = await bdc();
+    const zone = (await g.readRange(id, F, 'A17:Q48')).values;
+    let i = -1;
+    for (let k = 0; k < 32; k += 2) if (maj(zone[k][0]) === maj(ref)) { i = k; break; }
+    if (i < 0) throw new Error(`${ref} n'est plus dans le bon de commande (il vient peut-être d'être envoyé) : actualise`);
+    const avant = Math.round(num(zone[i][iT + 1]));
+    await g.patchRange(id, F, `${colLettre(iT + 1)}${17 + i}`, [[q || '']]);
+    zone[i][iT + 1] = q;
+    if (!zone[i].slice(1, 17).some(x => num(x) > 0)) await g.clearRange(id, F, `A${17 + i}:Q${17 + i}`);
+    return { ref: txt(zone[i][0]) || ref, taille: t, avant, apres: q };
+  });
+  cacheBdc.le = 0;
+  await journalBdc(par, 'bdc_sefi_ajustement', r);
+  return r;
+}
+async function supprimerLigne({ ref }, par = 'Dashboard') {
+  const r = await enFile(async () => {
+    const id = await bdc();
+    const zone = (await g.readRange(id, F, 'A17:Q48')).values;
+    for (let k = 0; k < 32; k += 2) if (maj(zone[k][0]) === maj(ref)) { await g.clearRange(id, F, `A${17 + k}:Q${17 + k}`); return { ref, supprime: true }; }
+    throw new Error(`${ref} n'est plus dans le bon de commande : actualise`);
+  });
+  cacheBdc.le = 0;
+  await journalBdc(par, 'bdc_sefi_suppression', r);
+  return r;
+}
+
+module.exports = { remplir, remplirDepuisTailles, envoyer, debloquer, etat, contenuActuel, contenuBdc, convertir, ajouterManuel, fixerQuantite, supprimerLigne, _test: { lireLot, recap, hash, convertir } };
