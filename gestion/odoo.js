@@ -511,6 +511,27 @@ async function ajouterLigneDevis(numero, { ligneId, qte, mention }) {
 
 // Liens de paiement d'un devis / d'une commande : factures restant à payer (lien de paiement de chaque facture),
 // sinon le devis lui-même (le client le signe et le paie en ligne)
+// Solde des devis (montant TTC, déjà payé d'après les factures Odoo, reste à payer) : plusieurs devis en 2 appels
+async function soldesDevis(numeros) {
+  const ns = [...new Set((numeros || []).map(n => String(n || '').trim().toUpperCase()).filter(n => /^[A-Z]{1,5}\d{3,}/.test(n)))].slice(0, 60);
+  if (!ns.length) return {};
+  const sos = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', 'in', ns]]], { fields: ['id', 'name', 'state', 'amount_total', 'invoice_ids'] });
+  const invIds = [...new Set(sos.flatMap(s => s.invoice_ids || []))];
+  const invs = invIds.length ? await kw('account.move', 'read', [invIds], { fields: ['id', 'name', 'state', 'move_type', 'payment_state', 'amount_total', 'amount_residual'] }) : [];
+  const parId = new Map(invs.map(f => [f.id, f]));
+  const out = {};
+  for (const s of sos) {
+    const fs = (s.invoice_ids || []).map(id => parId.get(id)).filter(f => f && f.state === 'posted');
+    const signe = f => (f.move_type === 'out_refund' ? -1 : 1);
+    const facture = fs.reduce((t, f) => t + signe(f) * f.amount_total, 0);
+    const paye = fs.reduce((t, f) => t + signe(f) * (f.amount_total - f.amount_residual), 0);
+    const r2 = n => Math.round(n * 100) / 100;
+    const reste = r2(Math.max(0, s.amount_total - paye));
+    out[s.name] = { total_ttc: r2(s.amount_total), facture_ttc: r2(facture), paye_ttc: r2(paye), reste_ttc: reste, etat: s.state, solde: reste < 0.05,
+      factures: fs.filter(f => f.move_type === 'out_invoice').map(f => ({ numero: f.name, ttc: f.amount_total, reste: f.amount_residual, payee: ['paid', 'in_payment'].includes(f.payment_state) })) };
+  }
+  return out;
+}
 async function liensPaiement(numero) {
   const so = await devisParNumero(String(numero || '').trim().toUpperCase());
   if (!so) return null;
@@ -894,7 +915,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

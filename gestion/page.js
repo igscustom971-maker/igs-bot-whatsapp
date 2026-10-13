@@ -2424,7 +2424,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'')+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'')+(['TERMINÉE','A EXPEDIER','EXPÉDIÉE'].includes(statutKey(c.statut)) ? soldeHtml(c, false) : '')+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -2435,6 +2435,9 @@ function liste(){
       + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
       + '</tr>';
   }).join('') : '<tr><td colspan="10" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+  // Commandes à remettre / expédier : montant restant à payer (Odoo), chargé en arrière-plan
+  const aVoir = rows.filter(c => c.n_devis && ['TERMINÉE','A EXPEDIER','EXPÉDIÉE'].includes(statutKey(c.statut)) && !SOLDES[String(c.n_devis).toUpperCase()]).map(c => c.n_devis);
+  if (aVoir.length && !listeSoldesEnCours) { listeSoldesEnCours = true; chargerSoldes(aVoir).finally(() => { listeSoldesEnCours = false; if (VIEW === 'commandes') liste(); }); }
 }
 
 function kv(k,v){ return v ? '<div class="kv"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>' : ''; }
@@ -2486,6 +2489,30 @@ function nouvelleCommande(){
   };
 }
 
+// Montant à payer (Odoo) : total TTC, déjà payé (factures), reste ; chargé à la demande et gardé 2 min
+const SOLDES = {}; let soldesLe = {}, listeSoldesEnCours = false;
+async function chargerSoldes(devis){
+  const aLire = [...new Set(devis.filter(Boolean).map(d => String(d).toUpperCase()))].filter(d => !SOLDES[d] || Date.now() - (soldesLe[d] || 0) > 120000);
+  for (let i = 0; i < aLire.length; i += 40) {
+    try {
+      const r = await fetch('/gestion/api/commandes/soldes?devis=' + encodeURIComponent(aLire.slice(i, i + 40).join(',')));
+      const j = r.ok ? await r.json() : {};
+      aLire.slice(i, i + 40).forEach(d => { SOLDES[d] = j[d] || { inconnu: true }; soldesLe[d] = Date.now(); });
+    } catch(e){ aLire.slice(i, i + 40).forEach(d => { SOLDES[d] = { inconnu: true }; soldesLe[d] = Date.now(); }); }
+  }
+}
+function soldeHtml(c, detail){
+  const s = c.n_devis && SOLDES[String(c.n_devis).toUpperCase()];
+  if (!s) return detail ? '<div class="note">Montant indisponible (Odoo).</div>' : '';
+  if (s.inconnu) return detail ? '<div class="note">Devis introuvable dans Odoo.</div>' : '';
+  const e = n => Number(n || 0).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+  if (!detail) return s.solde ? '<div><span class="paid">✅ Payé</span></div>' : '<div><span class="esp">💶 Reste '+e(s.reste_ttc)+'</span></div>';
+  let h = '<div class="grid">' + kv('Total', '<b>'+e(s.total_ttc)+'</b> TTC') + kv('Déjà payé', e(s.paye_ttc)) + kv('Reste à payer', s.solde ? '<span class="paid">✅ Soldé</span>' : '<b style="color:#b91c1c;font-size:18px">'+e(s.reste_ttc)+'</b>') + '</div>';
+  if (s.factures && s.factures.length) h += '<div class="note" style="margin-top:6px">Factures : '+s.factures.map(f => esc(f.numero)+' '+e(f.ttc)+(f.payee ? ' ✓' : ' (reste '+e(f.reste)+')')).join(' · ')+'</div>';
+  else if (!s.solde) h += '<div class="note" style="margin-top:6px">Aucune facture payée dans Odoo pour ce devis'+(s.etat === 'sale' ? ' (paiement en ligne, virement non rapproché ou à encaisser à la remise)' : '')+'.</div>';
+  if (c.a_payer_especes) h += '<div class="note">💵 Paiement en espèces prévu à la remise'+(c.montant_especes != null ? ' : '+montantFr(c.montant_especes) : '')+'.</div>';
+  return h;
+}
 async function ouvrir(cle){
   const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
   $('pbody').onclick = null;
@@ -2505,11 +2532,13 @@ async function ouvrir(cle){
     + '</div>' + (c.instructions ? '<div class="kv" style="margin-top:10px"><div class="k">Instructions client</div><div class="v pre">'+esc(c.instructions)+'</div></div>' : '')
     + (c.remarque ? '<div class="kv" style="margin-top:10px"><div class="k">Remarque</div><div class="v pre">'+esc(c.remarque)+'</div></div>' : '')
     + '</div>'
+    + (c.n_devis ? '<div class="card" id="paybox"><h3>💶 Paiement</h3><div class="skel"></div></div>' : '')
     + cmdActionsHtml(c)
     + '<div id="journal"></div>'
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherCmd(c);
   jrCharger(c);
+  if (c.n_devis) chargerSoldes([c.n_devis]).then(() => { if (panelCle === cle && $('paybox')) $('paybox').innerHTML = '<h3>💶 Paiement</h3>' + soldeHtml(c, true); });
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   if (!c.n_devis) { $('dossier').innerHTML = '<div class="card note">Pas de N° de devis : impossible de retrouver le dossier SharePoint.</div>'; return; }
 
