@@ -45,7 +45,7 @@ const estNomEntreprise = nom => {
   return /\b(sas|sarl|eurl|sasu|asso|association|club|mairie|ecole|école|ets|sci|team|factory|bar|restaurant|ste|société|store|shop|custom|antilles|martinique|guadeloupe|caraibes|caraïbes|pub|events?|cosm[ée]tiques?|services?|prod|studio|boutique|3d)\b/i.test(t)
 ;
 };
-async function profilClient(tel, nomCommande) {
+async function profilClient(tel, nomCommande, emailCommande) {
   const out = { tu: false, prenom: '', connu: false };
   if (supabase && tel) {
     const [{ data: hist }, { data: cl }, { data: note }] = await Promise.all([
@@ -58,15 +58,10 @@ async function profilClient(tel, nomCommande) {
     const n = String(note?.note || '');
     out.tu = /tutoi/i.test(n) && !/vouvoi/i.test(n) ? true
       : out.connu && /\b(tu|t'|ton|ta|tes|toi|stp|salut|coucou|wesh|cc|slt)\b/i.test(textes) && !/\b(vous|votre|vos)\b/i.test(textes.slice(0, 400));
-    // Prénom donné dans la note client (« Prénom : Manuel ») : prioritaire sur le nom WhatsApp (souvent un nom d'entreprise)
-    const pn = n.match(/pr[ée]nom\s*:\s*([A-Za-zÀ-ÿ'-]{2,30})/i);
-    if (pn) out.prenom = pn[1].charAt(0).toUpperCase() + pn[1].slice(1);
-    else if (cl?.name && !estNomEntreprise(cl.name)) out.prenom = String(cl.name).trim().split(/\s+/)[0];
   }
-  if (!out.prenom && nomCommande && !/\b(sas|sarl|eurl|sasu|asso|association|club|mairie|ecole|école|ets|sci|team|factory|bar|restaurant|ste|société)\b/i.test(nomCommande)) {
-    const mots = String(nomCommande).trim().split(/\s+/);
-    if (mots.length <= 3 && /^[A-Za-zÀ-ÿ-]+$/.test(mots[0])) out.prenom = mots[0].charAt(0).toUpperCase() + mots[0].slice(1).toLowerCase();
-  }
+  // Prénom seulement s'il est sûr (note, répertoire d'Ismaël, réponses de l'équipe, ou deux sources concordantes) :
+  // le nom WhatsApp seul ne suffit pas ; dans le doute, aucun prénom (« Bonjour » tout court)
+  try { out.prenom = (await require('./prenom').prenomFiable({ tel, noms: [nomCommande], emails: [emailCommande] })).prenom || ''; } catch { out.prenom = ''; }
   return out;
 }
 
@@ -121,7 +116,7 @@ function textes(type, ctx, ton) {
     livree_colis: 'Votre commande IGS CUSTOM BAR est livrée 📦',
     planche_livree: 'Votre planche DTF IGS CUSTOM BAR est livrée 📦',
   };
-  const qui = ton.prenom || (ctx.nom ? String(ctx.nom).trim() : '');
+  const qui = ton.prenom || ''; // jamais le nom de la commande en guise de prénom
   const bonjour = `<p>Bonjour${qui ? ' ' + esc(qui) : ''},</p>`;
   const sig = ''; // signature ajoutée automatiquement par CodeTwo
   const especesMail = ctx.especes ? `<p>Merci de prévoir <b>${esc(ctx.especes)}</b> en espèces lors du retrait.</p>` : '';
@@ -167,7 +162,7 @@ async function journal(o) {
 // Envoie un message (mail + WhatsApp si possible) ; renvoie { ok, canaux, raison }
 async function envoyer(item, par = 'Automatique') {
   const { dernierMessageClient } = require('./bat-envoi')._test;
-  const ton = await profilClient(item.tel, item.nom);
+  const ton = await profilClient(item.tel, item.nom, item.email);
   const t = textes(item.type, item, ton);
   const canaux = [], erreurs = [];
   if (item.tel) {

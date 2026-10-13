@@ -15,7 +15,6 @@ const LIEN_JOURS = 15;
 const FENETRE_H = 23.5; // marge sous les 24 h de Meta
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const prenom = client => String(client || '').trim().split(/\s+/)[0] || '';
 
 // Heure de chaque message reçu sur le WhatsApp de Leïla (notée depuis le webhook, même bot en pause)
 async function noterMessagesEntrants(nums) {
@@ -62,7 +61,7 @@ async function envoyer(cle, { mail = true, whatsapp = true } = {}, user, baseUrl
   if (!bat) throw new Error('Pas de « BON A TIRER.pdf » dans le dossier de la commande');
 
   const nomFichier = `BAT ${c.n_devis} - ${c.client}.pdf`.replace(/[\\/:*?"<>|]/g, '');
-  const p = prenom(c.client);
+  const p = (await require('./prenom').prenomFiable({ tel: c.telephone, noms: [c.client], emails: [c.email] }).catch(() => ({ prenom: '' }))).prenom;
   const resultat = { mail: null, whatsapp: null };
 
   // WhatsApp d'abord (pour pouvoir le mentionner dans le mail)

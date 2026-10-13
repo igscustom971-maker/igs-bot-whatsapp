@@ -82,7 +82,7 @@ async function detailCommande({ cle }) {
     if (d.trouve) out.bat_dans_dossier = !!d.bat;
   } catch {}
   if (c.telephone) {
-    const ton = await require('./notifications').profilClient(c.telephone, c.client).catch(() => null);
+    const ton = await require('./notifications').profilClient(c.telephone, c.client, c.email).catch(() => null);
     if (ton) out.ton_client = ton.tu ? `tutoiement${ton.prenom ? ` (prénom ${ton.prenom})` : ''}` : `vouvoiement${ton.prenom ? ` (prénom ${ton.prenom})` : ''}`;
   }
   return out;
@@ -592,6 +592,7 @@ function systeme() {
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Apprentissage (comment Leïla répond aux clients) : « apprends que… / quand un client… réponds… / moins d'emojis » = apprendre_regle ; « valide 1, 3 », « refuse 2 », « retire la leçon… » = valider_lecons (les numéros sont ceux du bilan, vérifie avec apprentissage_etat) ; « elle apprend bien ? » = apprentissage_etat.
+- Message préparé pour un client : n'utilise un prénom que s'il est donné par ton_client (prénom vérifié) ou par Ismaël lui-même ; jamais le nom WhatsApp ni le nom de la commande. Sinon « Bonjour » tout court.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
 - Ce que tu ne sais pas faire ici (chiffre d'affaires, heures, suppression…) : dis-le et renvoie vers le dashboard ; « récap » donne le récap de production.`;
 }

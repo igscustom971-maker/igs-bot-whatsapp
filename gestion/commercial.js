@@ -274,7 +274,7 @@ async function relancer(numero, user, message) {
   const p = await odoo.readPartner(so.partner_id[0]);
   if (!p?.email) throw new Error(`Pas d'e-mail sur la fiche Odoo de ${so.partner_id[1]}`);
   const lien = await odoo.lienPortailDevis(so.id);
-  const prenom = String(p.name || '').split(/\s+/)[0];
+  const prenom = (await require('./prenom').prenomFiable({ tel: require('./commandes').normalizePhone(p.mobile || p.phone || ''), noms: [p.name], emails: [p.email] }).catch(() => ({ prenom: '' }))).prenom;
   const texte = String(message || '').trim() || `Bonjour${prenom ? ' ' + prenom : ''},\n\nJe me permets de revenir vers vous concernant votre devis ${so.name}. Avez-vous pu en prendre connaissance ?\n\nSi vous avez la moindre question ou une modification à apporter (quantités, visuel, tailles…), n'hésitez pas à me répondre directement, je m'en occupe.\n\nBelle journée,\nL'équipe IGS CUSTOM BAR`;
   const html = `<div style="font:14px/1.6 Arial,sans-serif;color:#1E1E4B">${esc(texte).replace(/\n/g, '<br>')}${lien ? `<p style="margin:22px 0"><a href="${esc(lien)}" style="background:#FF1E8E;color:#fff;padding:11px 20px;border-radius:10px;text-decoration:none;font-weight:bold">Voir mon devis ${esc(so.name)}</a></p>` : ''}</div>`;
   await g.sendMail(MAILBOX, { to: p.email, subject: `Votre devis ${so.name} - IGS CUSTOM BAR`, html });
@@ -514,7 +514,7 @@ async function clientsAReactiver({ force = false } = {}) {
 async function relancerClient(partnerId, user, message) {
   const p = await odoo.readPartner(Number(partnerId));
   if (!p?.email) throw new Error('Pas d\'e-mail sur la fiche Odoo de ce client');
-  const prenom = String(p.name || '').split(/\s+/)[0];
+  const prenom = (await require('./prenom').prenomFiable({ tel: require('./commandes').normalizePhone(p.mobile || p.phone || ''), noms: [p.name], emails: [p.email] }).catch(() => ({ prenom: '' }))).prenom;
   const texte = String(message || '').trim() || `Bonjour${prenom ? ' ' + prenom : ''},\n\nÇa fait un moment ! J'espère que tout va bien de votre côté.\n\nSi vous avez un projet en vue (t-shirts, polos, sweats, tote bags, planches DTF…) pour un événement, votre équipe ou la saison qui arrive, je vous prépare un devis avec plaisir. Il suffit de répondre à ce mail.\n\nÀ très vite,\nL'équipe IGS CUSTOM BAR`;
   await g.sendMail(MAILBOX, { to: p.email, subject: 'Des nouvelles de IGS CUSTOM BAR', html: `<div style="font:14px/1.6 Arial,sans-serif;color:#1E1E4B">${esc(texte).replace(/\n/g, '<br>')}</div>` });
   await journal(user, 'client_reactivation', `partner-${p.id}`, { client: p.name, email: p.email });
