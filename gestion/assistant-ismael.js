@@ -468,6 +468,36 @@ async function preparerConfirmation({ numero_devis }) {
   enAttente = { type: 'confirmer_devis', le: Date.now(), resume, numero: so.name, cle: so.name };
   return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
 }
+// Envoi d'un devis au client PAR ODOO (mail Odoo habituel avec le lien du devis), puis WhatsApp au client
+// (seulement après l'envoi du mail, et seulement si la fenêtre de 24 h WhatsApp est ouverte)
+async function preparerEnvoiDevis({ numero_devis, message_whatsapp }) {
+  const n = txt(numero_devis).toUpperCase();
+  const odoo = require('./odoo');
+  const so = await odoo.devisParNumero(n).catch(() => null);
+  if (!so) return { erreur: `devis ${n} introuvable dans Odoo` };
+  if (so.state === 'cancel') return { erreur: `${so.name} est annulé dans Odoo` };
+  const deja = ['sent', 'sale', 'done'].includes(so.state);
+  const p = so.partner_id ? await odoo.readPartner(so.partner_id[0]).catch(() => null) : null;
+  if (!deja && !p?.email) return { erreur: `pas d'e-mail sur la fiche Odoo de ${so.partner_id ? so.partner_id[1] : 'ce client'} : demande l'e-mail à Ismaël (ou qu'il l'ajoute dans Odoo)` };
+  // Numéro WhatsApp : celui de la demande de devis, sinon celui de la fiche Odoo
+  const norm = require('./commandes').normalizePhone;
+  let tel = null;
+  if (supabase) { const { data } = await supabase.from('gestion_demandes').select('telephone').eq('devis_numero', so.name).not('telephone', 'is', null).limit(1); tel = data && data[0] && data[0].telephone ? norm(data[0].telephone) : null; }
+  if (!tel && p?.phone) tel = norm(p.phone);
+  let wa = null, waRaison = '';
+  const msg = txt(message_whatsapp);
+  if (tel) {
+    const dernier = await require('./bat-envoi')._test.dernierMessageClient(tel).catch(() => null);
+    if (dernier && Date.now() - dernier.getTime() < 23.5 * 3600e3) wa = msg || 'standard';
+    else waRaison = 'pas de WhatsApp : le client n\'a pas écrit depuis plus de 24 h';
+  } else waRaison = 'pas de WhatsApp : aucun numéro connu';
+  const montant = `${Number(so.amount_total || 0).toFixed(2).replace('.', ',')} € TTC`;
+  const resume = (deja ? `ℹ️ Le devis *${so.name}* (${so.partner_id ? so.partner_id[1] : '?'}, ${montant}) est déjà envoyé : le mail ne repart pas.` : `📨 Envoyer le devis *${so.name}* (${so.partner_id ? so.partner_id[1] : '?'}, ${montant}) par mail depuis Odoo à ${p.email}.`)
+    + (wa ? `\nPuis WhatsApp au client${wa === 'standard' ? ' (message habituel « ton devis est dans ta boîte mail »)' : ` :\n« ${wa} »`}` : `\n(${waRaison})`);
+  if (deja && !wa) return { erreur: `${so.name} est déjà envoyé et ${waRaison} : rien à faire` };
+  enAttente = { type: 'envoyer_devis', le: Date.now(), resume, numero: so.name, id: so.id, deja, tel, wa, cle: so.name };
+  return { prepare: true, a_montrer_a_ismael: resume, consigne: 'Le résumé et la question de confirmation sont ajoutés automatiquement : dis seulement en une phrase ce que tu as préparé.' };
+}
 // Remplir le tableau de la commande (Tailles.xlsx) à la place du formulaire client
 // Commande du dashboard pour un n° de devis : relue tout de suite ; devis confirmé dans Odoo mais pas encore dans le
 // dashboard -> la ligne est créée maintenant (pas d'attente de la synchro)
@@ -568,13 +598,14 @@ const OUTILS = [
   { name: 'retenir_nom_client', description: 'Retient le nom qu\'Ismaël donne à un client (son répertoire, ex. « Marina ») pour son numéro, une fois le client identifié avec lui : la prochaine fois, « la conversation de Marina » est trouvée directement. À appeler sans demander dès qu\'un client a été identifié par le contexte et qu\'Ismaël l\'a nommé autrement. Exécuté tout de suite.', input_schema: { type: 'object', properties: { telephone: { type: 'string' }, nom: { type: 'string' } }, required: ['telephone', 'nom'] } },
   { name: 'conversations_recentes', description: 'Liste les conversations WhatsApp clients des dernières heures (nom WhatsApp, numéro, derniers messages). Sert à retrouver un client qu\'Ismaël nomme autrement (prénom de son répertoire) d\'après ce dont ils ont parlé, et à voir qui a écrit récemment. Lecture seule.', input_schema: { type: 'object', properties: { heures: { type: 'number', description: 'défaut 24, max 168' } } } },
   { name: 'devis_depuis_conversation', description: 'Ismaël a discuté d\'un devis avec un client sur le WhatsApp IGS (« prépare le devis de Marie, on en a parlé sur WhatsApp ») : relit la conversation avec ce client, en tire la demande (structure, produit, quantité, marquage…) et la met dans « Demandes à traiter » avec le brouillon Odoo. Rien n\'est envoyé au client. Exécuté tout de suite.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom WhatsApp du client ou son numéro' } }, required: ['client'] } },
+  { name: 'preparer_envoi_devis', description: 'PRÉPARE l\'envoi d\'un devis au client : mail Odoo habituel (avec le lien pour voir, signer et payer le devis), puis message WhatsApp au client APRÈS l\'envoi du mail (si la fenêtre de 24 h est ouverte). « Envoie le devis (au client) », « envoie-le et préviens-la ». message_whatsapp : texte exact si Ismaël veut un message particulier (sinon message habituel) ; ne jamais y écrire que le devis est envoyé avant que ce soit fait (c\'est envoyé dans cet ordre), ni recopier son adresse e-mail. Jamais deux fois le même devis. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, message_whatsapp: { type: 'string', description: 'facultatif : message WhatsApp particulier pour le client' } }, required: ['numero_devis'] } },
   { name: 'preparer_annulation_devis', description: 'PRÉPARE l\'annulation d\'un devis Odoo en brouillon ou envoyé (erreur, incompréhension, client qui renonce). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, motif: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'apprentissage_etat', description: 'Où en est l\'apprentissage de Leïla (ce qu\'elle apprend en observant les réponses d\'Ismaël aux clients) : mode, note de ressemblance de la semaine, où elle se trompe encore, leçons à valider (numérotées comme dans le bilan du lundi) et leçons appliquées.', input_schema: { type: 'object', properties: {} } },
   { name: 'valider_lecons', description: 'Valide, refuse, modifie ou supprime des leçons d\'apprentissage (« valide 1, 3 », « refuse 2 », « retire la leçon sur les emojis »). numeros = numéros des leçons À VALIDER (ceux du bilan / d\'apprentissage_etat) ; ids = identifiants pour les leçons déjà appliquées. Exécuté tout de suite.', input_schema: { type: 'object', properties: { numeros: { type: 'array', items: { type: 'number' } }, ids: { type: 'array', items: { type: 'string' } }, action: { type: 'string', enum: ['valider', 'refuser', 'modifier', 'supprimer'] }, texte: { type: 'string', description: 'nouvelle règle (action modifier)' } }, required: ['action'] } },
   { name: 'apprendre_regle', description: 'Ismaël apprend directement une façon de répondre aux clients à Leïla (« apprends que… », « quand un client … réponds … », « mets moins d\'emojis »). Une règle générale, reformulée clairement. Appliquée tout de suite à ses réponses (sans jamais passer avant les prix, devis, urgences et sécurité). Exécuté tout de suite.', input_schema: { type: 'object', properties: { situation: { type: 'string', description: 'quand ça s\'applique' }, regle: { type: 'string', description: 'quoi faire / comment le dire' }, exemple: { type: 'string' } }, required: ['regle'] } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_tableau_commande: preparerTableau, lire_conversation: lireConversation, conversations_recentes: conversationsRecentes, retenir_nom_client: retenirNomClient, apprentissage_etat: apprentissageEtat, valider_lecons: validerLecons, apprendre_regle: apprendreRegle };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_envoi_devis: preparerEnvoiDevis, preparer_tableau_commande: preparerTableau, lire_conversation: lireConversation, conversations_recentes: conversationsRecentes, retenir_nom_client: retenirNomClient, apprentissage_etat: apprentissageEtat, valider_lecons: validerLecons, apprendre_regle: apprendreRegle };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -592,7 +623,8 @@ function systeme() {
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Apprentissage (comment Leïla répond aux clients) : « apprends que… / quand un client… réponds… / moins d'emojis » = apprendre_regle ; « valide 1, 3 », « refuse 2 », « retire la leçon… » = valider_lecons (les numéros sont ceux du bilan, vérifie avec apprentissage_etat) ; « elle apprend bien ? » = apprentissage_etat.
-- Message préparé pour un client : n'utilise un prénom que s'il est donné par ton_client (prénom vérifié) ou par Ismaël lui-même ; jamais le nom WhatsApp ni le nom de la commande. Sinon « Bonjour » tout court.
+- « Envoie le devis (au client) » = preparer_envoi_devis : TU l'envoies depuis Odoo (mail Odoo avec le lien), puis le WhatsApp part juste après ; ne dis jamais à Ismaël de l'envoyer lui-même depuis Odoo, et n'utilise pas preparer_message_client pour annoncer un devis pas encore envoyé.
+- Message préparé pour un client : jamais de tiret « — » (une virgule à la place), pas d'adresse e-mail recopiée ; n'utilise un prénom que s'il est donné par ton_client (prénom vérifié) ou par Ismaël lui-même ; jamais le nom WhatsApp ni le nom de la commande. Sinon « Bonjour » tout court.
 - Liens (paiement, formulaire) : recopie-les en entier, sur leur propre ligne.
 - Ce que tu ne sais pas faire ici (chiffre d'affaires, heures, suppression…) : dis-le et renvoie vers le dashboard ; « récap » donne le récap de production.`;
 }
@@ -647,6 +679,29 @@ async function executer(a) {
     if (supabase) await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: PAR, traite_le: new Date().toISOString() }).eq('devis_numero', r.numero).in('statut', ['nouvelle', 'brouillon', 'erreur']).then(() => {}, () => {});
     await journal({ numero: r.numero });
     return `✅ Devis ${r.numero} ${r.deja ? 'déjà confirmé' : 'confirmé dans Odoo'}.${ligne}\nTu peux me dire quoi mettre dans son tableau (produit, couleur, taille, quantité).`;
+  }
+  if (a.type === 'envoyer_devis') {
+    const odoo = require('./odoo'), commercial = require('./commercial');
+    let envoye = false;
+    if (!a.deja) {
+      // Jamais deux fois : état relu juste avant
+      const e = (await odoo.etatsDevisIds([a.id])).get(Number(a.id));
+      if (e && e.etat === 'cancel') throw new Error(`${a.numero} a été annulé entre-temps`);
+      if (!e || !['sent', 'sale', 'done'].includes(e.etat)) { await odoo.envoyerDevisOdoo(a.id); envoye = true; }
+    }
+    if (supabase) await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: PAR, traite_le: new Date().toISOString() }).eq('devis_numero', a.numero).in('statut', ['nouvelle', 'brouillon', 'erreur']).then(() => {}, () => {});
+    let waTxt = '';
+    if (a.wa === 'standard') {
+      const so = await odoo.devisParNumero(a.numero);
+      const r = await commercial.prevenirDevisWhatsApp(so, PAR, a.tel).catch(err => ({ statut: 'erreur', err: err.message }));
+      waTxt = r.statut === 'envoye' ? '\nClient prévenu sur WhatsApp.' : r.statut === 'deja' ? '\nLe client avait déjà été prévenu sur WhatsApp.' : `\nWhatsApp non envoyé (${r.err || r.statut}).`;
+    } else if (a.wa) {
+      await require('./notifications').envoyerTexteWhatsApp(a.tel, a.wa);
+      if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: PAR, action: 'devis_whatsapp', cle: a.numero, details: { tel: a.tel, statut: 'envoye', message: a.wa } }).then(() => {}, () => {});
+      waTxt = '\nMessage WhatsApp envoyé au client.';
+    }
+    await journal({ devis_envoye: a.numero, mail: envoye });
+    return `✅ ${envoye ? `Devis ${a.numero} envoyé par mail depuis Odoo.` : `Devis ${a.numero} déjà envoyé (pas de 2e mail).`}${waTxt}`;
   }
   if (a.type === 'tableau') {
     const r = await require('./commandes').remplirTableau(a.cle, { lignes: a.lignes, zone_flocage: a.zone_flocage }, PAR);
