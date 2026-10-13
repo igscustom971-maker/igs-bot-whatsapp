@@ -498,6 +498,10 @@ module.exports = function mountGestion(app) {
     try { res.json(await require('./odoo').soldesDevis(String(req.query.devis || '').split(','))); }
     catch (err) { res.status(502).json({ error: err.message }); }
   });
+  app.post('/gestion/api/commandes/:cle/sans-paiement', auth.requireUser, async (req, res) => {
+    try { res.json(await commandes.setSansPaiement(req.params.cle, !!req.body?.actif, req.user.name || req.user.email)); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/commandes/:cle/dossier', auth.requireUser, async (req, res) => {
     try { res.json(await commandes.creerDossier(req.params.cle, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }

@@ -247,7 +247,8 @@ async function listCommandes({ force = false } = {}) {
   if (force || !cache.syncedAt || Date.now() - new Date(cache.syncedAt).getTime() > cfg.SYNC_INTERVAL_MS) await syncNow();
   const ov = await loadOverrides();
   const prio = await chargerPrioritaires();
-  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), prioritaire: prio.has(r.cle), controle: controles.get(r.cle) || null, bat_info: batInfo.get(r.cle) || null })) };
+  const sp = await chargerSansPaiement();
+  return { ...cache, rows: cache.rows.map(r => ({ ...applyOverride(r, ov.get(r.cle)), prioritaire: prio.has(r.cle), sans_paiement: sp.has(r.cle) || /-R\d+$/i.test(String(r.n_devis || '')), sans_paiement_auto: !sp.has(r.cle) && /-R\d+$/i.test(String(r.n_devis || '')), controle: controles.get(r.cle) || null, bat_info: batInfo.get(r.cle) || null })) };
 }
 
 // ---------- Contrôle devis / tableau des tailles ----------
@@ -296,6 +297,33 @@ async function chargerPrioritaires(force = false) {
     prioritaires = { set: new Set(Array.isArray(l) ? l : []), le: Date.now() };
   } catch (err) { console.error('Commandes prioritaires :', err.message); }
   return prioritaires.set;
+}
+// « Rien à payer » (commande interne, reprise / refaite) : liste de clés dans gestion_reglages ; les reprises -R1, -R2… le sont d'office
+let sansPaiement = { set: new Set(), le: 0 };
+async function chargerSansPaiement(force = false) {
+  if (!supabase) return sansPaiement.set;
+  if (!force && Date.now() - sansPaiement.le < 30e3) return sansPaiement.set;
+  try {
+    const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', 'commandes_sans_paiement').maybeSingle();
+    const l = data && data.valeur ? JSON.parse(data.valeur) : [];
+    sansPaiement = { set: new Set(Array.isArray(l) ? l : []), le: Date.now() };
+  } catch (err) { console.error('Commandes sans paiement :', err.message); }
+  return sansPaiement.set;
+}
+async function setSansPaiement(cle, actif, user) {
+  const row = cache.rows.find(r => r.cle === cle);
+  if (!row) throw new Error('Commande introuvable');
+  const set = await chargerSansPaiement(true);
+  if (actif) set.add(cle); else set.delete(cle);
+  const presentes = new Set(cache.rows.map(r => r.cle));
+  const liste = [...set].filter(k => presentes.has(k));
+  if (supabase) {
+    const { error } = await supabase.from('gestion_reglages').upsert({ cle: 'commandes_sans_paiement', valeur: JSON.stringify(liste), updated_at: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+    await supabase.from('gestion_actions').insert({ utilisateur: user, action: actif ? 'commande_rien_a_payer' : 'commande_a_payer', cle: row.n_devis || cle, details: { client: row.client } }).then(() => {}, () => {});
+  }
+  sansPaiement = { set: new Set(liste), le: Date.now() };
+  return { sans_paiement: !!actif };
 }
 async function setPrioritaire(cle, actif, user) {
   const row = cache.rows.find(r => r.cle === cle);
@@ -1117,4 +1145,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

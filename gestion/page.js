@@ -2424,7 +2424,7 @@ function liste(){
     const late = enRetard(c);
     return '<tr class="row" data-k="'+esc(c.cle)+'">'
       + '<td class="devis"><a href="#" class="open">'+esc(c.n_devis || '—')+'</a></td>'
-      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'')+(['TERMINÉE','A EXPEDIER','EXPÉDIÉE'].includes(statutKey(c.statut)) ? soldeHtml(c, false) : '')+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
+      + '<td><a href="#" class="open client">'+esc(c.client)+'</a>'+(c.prioritaire?'<div class="urg">🔥 PRIORITAIRE</div>':'')+soldeHtml(c, false)+batBadge(c)+especesHtml(c)+(c.bordereaux?'<div>'+bordereauxLiens(c)+'</div>':'')+ecartHtml(c.controle)+(c.remarque?'<div class="sub clip">'+esc(c.remarque)+'</div>':'')+'</td>'
       + '<td class="c-statut">'+inlSel('cmd', c.cle, 'statut', STATUTS, statutKey(c.statut), COULEURS)+'</td>'
       + '<td class="c-hide"><div class="clip">'+esc(c.infos||'')+'</div></td>'
       + '<td class="c-zone"><span class="sub">'+esc(c.zone_flocage||'')+'</span></td>'
@@ -2436,7 +2436,7 @@ function liste(){
       + '</tr>';
   }).join('') : '<tr><td colspan="10" class="empty">Aucune commande '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
   // Commandes à remettre / expédier : montant restant à payer (Odoo), chargé en arrière-plan
-  const aVoir = rows.filter(c => c.n_devis && ['TERMINÉE','A EXPEDIER','EXPÉDIÉE'].includes(statutKey(c.statut)) && !SOLDES[String(c.n_devis).toUpperCase()]).map(c => c.n_devis);
+  const aVoir = rows.filter(c => c.n_devis && !c.sans_paiement && !FINIS.includes(statutKey(c.statut)) && !SOLDES[String(c.n_devis).toUpperCase()]).map(c => c.n_devis);
   if (aVoir.length && !listeSoldesEnCours) { listeSoldesEnCours = true; chargerSoldes(aVoir).finally(() => { listeSoldesEnCours = false; if (VIEW === 'commandes') liste(); }); }
 }
 
@@ -2502,6 +2502,7 @@ async function chargerSoldes(devis){
   }
 }
 function soldeHtml(c, detail){
+  if (c.sans_paiement) return detail ? '<div><span class="paid">🆓 Rien à payer</span> <span class="sub">'+(c.sans_paiement_auto ? 'commande refaite (reprise '+esc(String(c.n_devis).replace(/^.*-(R\\d+)$/i, '$1'))+')' : 'commande interne')+'</span></div>' : '<div><span class="paid">🆓 Rien à payer</span></div>';
   const s = c.n_devis && SOLDES[String(c.n_devis).toUpperCase()];
   if (!s) return detail ? '<div class="note">Montant indisponible (Odoo).</div>' : '';
   if (s.inconnu) return detail ? '<div class="note">Devis introuvable dans Odoo.</div>' : '';
@@ -2538,7 +2539,17 @@ async function ouvrir(cle){
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherCmd(c);
   jrCharger(c);
-  if (c.n_devis) chargerSoldes([c.n_devis]).then(() => { if (panelCle === cle && $('paybox')) $('paybox').innerHTML = '<h3>💶 Paiement</h3>' + soldeHtml(c, true); });
+  const payRendu = () => {
+    if (panelCle !== cle || !$('paybox')) return;
+    $('paybox').innerHTML = '<h3>💶 Paiement</h3>' + soldeHtml(c, true)
+      + (c.sans_paiement_auto ? '' : '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer;font-size:13px"><input type="checkbox" id="pay-rien"'+(c.sans_paiement?' checked':'')+'> 🆓 Rien à payer (commande interne, à refaire)</label>');
+    if ($('pay-rien')) $('pay-rien').onchange = async e => {
+      const actif = e.target.checked; e.target.disabled = true;
+      try { await post('/gestion/api/commandes/'+encodeURIComponent(c.cle)+'/sans-paiement', { actif }); majLocale(c, { sans_paiement: actif }); afficher(); if (!actif && c.n_devis) await chargerSoldes([c.n_devis]); payRendu(); }
+      catch(err){ e.target.checked = !actif; e.target.disabled = false; alert('❌ ' + err.message); }
+    };
+  };
+  if (c.n_devis) { if (c.sans_paiement) payRendu(); else chargerSoldes([c.n_devis]).then(payRendu); }
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   if (!c.n_devis) { $('dossier').innerHTML = '<div class="card note">Pas de N° de devis : impossible de retrouver le dossier SharePoint.</div>'; return; }
 
