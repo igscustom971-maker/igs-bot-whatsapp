@@ -1442,9 +1442,35 @@ function hrMsg(t, k){ $('hr-msg').className = 'msg on ' + k; $('hr-msg').innerHT
 function hrOptions(){
   const sel = $('hr-collab'); const cur = sel.value;
   if (MOI) { sel.innerHTML = '<option>'+esc(MOI)+'</option>'; sel.value = MOI; sel.disabled = true; return; }
+  hrIdentBox();
+  if (HR_QUI && Date.now() < HR_EXP) { sel.innerHTML = '<option>'+esc(HR_QUI)+'</option>'; sel.value = HR_QUI; sel.disabled = true; return; }
+  sel.disabled = false;
   sel.innerHTML = '<option value="">— Choisis ton nom —</option>' + EQUIPE.map(n => '<option>'+esc(n)+'</option>').join('');
   let last = cur; try { last = cur || localStorage.getItem('igs_hr_nom'); } catch(e){}
   if (last && EQUIPE.includes(last)) sel.value = last;
+}
+// Encadré « Qui es-tu ? » sur le poste partagé (compte Microsoft de l'atelier, pas de compte personnel ouvert)
+function hrIdentBox(){
+  let box = $('hr-ident');
+  if (!box) { box = document.createElement('div'); box.id = 'hr-ident'; box.className = 'espbox'; box.style.cssText = 'flex-direction:column;align-items:stretch;background:#eef2ff;border-color:#c7d2fe'; $('hr-collab').closest('.field').before(box); }
+  if (HR_QUI && Date.now() < HR_EXP) {
+    box.innerHTML = '<div>👤 Identifié(e) : <b>'+esc(HR_QUI)+'</b> <span class="sub">(jusqu’à '+new Date(HR_EXP).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})+')</span> <button class="btn" id="hr-ident-x" style="margin-left:8px">Ce n’est pas moi</button></div>';
+    $('hr-ident-x').onclick = () => { HR_JETON = HR_QUI = null; HR_EXP = 0; hrMesLundi = null; hrOptions(); hrMes(); };
+    return;
+  }
+  box.innerHTML = '<b>Poste de l’atelier : identifie-toi pour tes heures</b><div class="note">Ton prénom (identifiant) et ton mot de passe personnel du dashboard. Tu restes sur le compte de l’atelier.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="hr-id" placeholder="Identifiant (prénom)" autocomplete="off" style="flex:1;min-width:140px"><input id="hr-mdp" type="password" placeholder="Mot de passe" autocomplete="off" style="flex:1;min-width:140px"><button class="btn primary" id="hr-id-ok">Valider</button></div><div class="msg" id="hr-id-msg"></div>';
+  const valider = async () => {
+    const m = $('hr-id-msg'); m.className = 'msg on info'; m.textContent = 'Vérification…';
+    try {
+      const j = await post('/gestion/api/heures/identifier', { identifiant: $('hr-id').value.trim(), mot_de_passe: $('hr-mdp').value });
+      HR_JETON = j.jeton; HR_QUI = j.collaborateur; HR_EXP = j.expire || (Date.now() + 15 * 60e3);
+      hrMesLundi = null; hrOptions(); hrMes();
+      setTimeout(() => { if (Date.now() >= HR_EXP) { HR_JETON = HR_QUI = null; hrOptions(); hrMes(); } }, HR_EXP - Date.now() + 1000);
+    } catch(err){ m.className = 'msg on err'; m.textContent = '❌ ' + err.message; }
+  };
+  $('hr-id-ok').onclick = valider;
+  $('hr-mdp').addEventListener('keydown', e => { if (e.key === 'Enter') valider(); });
 }
 const hrMax = () => isoLocal(new Date());
 function hrLigneHtml(jour){
@@ -1459,7 +1485,7 @@ async function hrMes(){
   const nom = $('hr-collab').value, box = $('hr-mes');
   if (!nom) { box.innerHTML = '<h3>Mes heures</h3><div class="note">Choisis ton nom pour voir tes heures.</div>'; return; }
   try {
-    const r = await fetch('/gestion/api/heures/mes?collaborateur='+encodeURIComponent(nom)+(hrMesLundi?'&lundi='+hrMesLundi:''));
+    const r = await fetch('/gestion/api/heures/mes?collaborateur='+encodeURIComponent(nom)+(hrMesLundi?'&lundi='+hrMesLundi:''), { headers: hrEntetes() });
     if (r.status === 401) return location.href = '/gestion/auth/login';
     const d = await r.json(); if (d.error) throw new Error(d.error);
     hrMesLundi = d.lundi;
@@ -1561,7 +1587,7 @@ function hrEvents(){
       const fd = new FormData();
       fd.append('collaborateur', $('hr-collab').value); fd.append('lundi', hrMesLundi);
       for (const f of list) { const g = await ffReduire(f); fd.append('fichiers', g, g.name || 'facture'); }
-      const r = await fetch('/gestion/api/heures/facture', { method: 'POST', body: fd });
+      const r = await fetch('/gestion/api/heures/facture', { method: 'POST', body: fd, headers: hrEntetes() });
       if (r.status === 401) return location.href = '/gestion/auth/login';
       const j = await r.json(); if (j.error) throw new Error(j.error);
       await hrMes();
@@ -2131,8 +2157,11 @@ function plActionsHtml(p){
   return h + '<div class="msg" id="a-msg"></div><div id="a-cands"></div></div>';
 }
 function msg(t, cls){ const m = $('a-msg'); m.className = 'msg ' + cls; m.innerHTML = t; }
+// Poste partagé de l'atelier : jeton d'identification personnelle pour les heures (15 min)
+let HR_JETON = null, HR_QUI = null, HR_EXP = 0;
+const hrEntetes = (h) => { const o = Object.assign({}, h || {}); if (HR_JETON && Date.now() < HR_EXP) o['X-Heures-Jeton'] = HR_JETON; return o; };
 async function post(url, body){
-  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  const r = await fetch(url, {method:'POST', headers: url.indexOf('/gestion/api/heures') === 0 ? hrEntetes({'Content-Type':'application/json'}) : {'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
   const j = await r.json().catch(() => ({}));
   if ([500, 502, 503, 504, 520, 521, 522, 524].includes(r.status) && !j.error) throw new Error('Le serveur redémarrait (mise à jour en cours) ou n’a pas répondu à temps. Attends une minute, vérifie dans le tableau si l’action a quand même été faite, puis réessaie si besoin.');
   if (!r.ok) throw new Error(j.error || ('Erreur ' + r.status));
