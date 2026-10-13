@@ -245,23 +245,9 @@ module.exports = function mountGestion(app) {
   };
   // Compte individuel : toujours verrouillé sur son propre nom. Le compte partagé de l'atelier (Microsoft 365) ne peut
   // ni saisir, ni voir, ni supprimer les heures ou factures de quelqu'un : il faut se connecter avec son compte personnel.
-  // Poste partagé (compte Microsoft de l'atelier) : la personne s'identifie pour ses heures avec son identifiant et son mot de passe
-  // personnels, sans se déconnecter du compte Microsoft ; jeton signé valable 15 min, propre à cette personne
-  const nominatif = (req, res, next) => {
-    if (req.user.collab || req.user.role === 'admin') return next();
-    const j = auth.verify(String(req.get('x-heures-jeton') || ''));
-    if (j && j.t === 'heures' && j.collab && j.exp > Date.now()) { req.user = { ...req.user, collab: j.collab, name: `${j.collab} (poste atelier)` }; return next(); }
-    return res.status(403).json({ error: 'Identifie-toi avec ton prénom et ton mot de passe personnel pour tes heures', identification: true });
-  };
-  app.post('/gestion/api/heures/identifier', auth.requireUser, async (req, res) => {
-    try {
-      if (req.user.collab) return res.json({ collaborateur: req.user.collab, jeton: null });
-      const s = await require('./comptes').connecter(String(req.body?.identifiant || ''), String(req.body?.mot_de_passe || ''), req.ip);
-      if (s.provisoire) throw new Error('Ton mot de passe est encore provisoire : connecte-toi une fois avec ton compte personnel (sur ton téléphone) pour le changer');
-      res.json({ collaborateur: s.collab, jeton: auth.sign({ t: 'heures', collab: s.collab, cid: s.cid, exp: Date.now() + 15 * 60e3 }), expire: Date.now() + 15 * 60e3 });
-    } catch (err) { res.status(400).json({ error: err.message }); }
-  });
-  app.post('/gestion/api/heures', auth.requireUser, nominatif, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
+  const nominatif = (req, res, next) => (req.user.collab || req.user.role === 'admin') ? next() : res.status(403).json({ error: 'Pour voir ou modifier tes heures, connecte-toi avec ton compte personnel (prénom + mot de passe)' });
+  // Saisie : ouverte au poste partagé de l'atelier (compte Microsoft contact@) : on choisit son nom, on met ses heures, on valide
+  app.post('/gestion/api/heures', auth.requireUser, actH(req => heures.saisir({ ...(req.body || {}), ...(req.user.collab ? { collaborateur: req.user.collab } : {}) }, quiH(req), req.user.role)));
   // Facture de prestation de la semaine (collaborateurs indépendants : profil technique, et l'admin)
   app.post('/gestion/api/heures/facture', auth.requireUser, nominatif, (req, res, next) => (auth.aProfil(req.user, 'technique') ? next() : res.status(403).json({ error: 'Réservé aux techniciens' })),
     (req, res, next) => uploadFacture(req, res, err => err ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (20 Mo maximum)' : err.code === 'LIMIT_FILE_COUNT' ? '8 photos maximum par facture' : err.message }) : next()), actH(req => heures.deposerFacture({ collaborateur: req.user.collab || req.body?.collaborateur, lundi: req.body?.lundi, fichiers: req.files }, quiH(req))));
