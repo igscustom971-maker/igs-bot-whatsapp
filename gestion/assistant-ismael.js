@@ -309,6 +309,7 @@ async function tableauDeBord() {
     const d = await require('./commercial').demandes();
     out.demandes_devis_en_cours = { nombre: d.length, liste: d.slice(0, 10).map(x => `${x.nom || x.telephone || x.email || 'sans nom'} – ${[x.quantite, x.produit].filter(Boolean).join(' ') || 'produit ?'} (${x.statut === 'brouillon' ? `brouillon ${x.devis_numero}` : x.statut}${x.source === 'ismael' ? ', demandée par toi' : x.source === 'mail' ? ', par mail' : ''})`) };
   } catch (err) { out.demandes_devis_en_cours = { erreur: err.message }; }
+  try { const w = await devisAFaireWhatsApp(); out.devis_a_faire_whatsapp_sans_demande = { nombre: w.length, liste: w, note: 'clients qui ont donné nom / mail / demande de devis sur WhatsApp ces 72 h sans demande enregistrée (souvent quand c\'est toi qui leur réponds) : à vérifier, devis_depuis_conversation pour la préparer' }; } catch {}
   try { const u = fournisseurs.urgences() || []; out.urgences_sans_reponse = { nombre: u.length, liste: u }; } catch { out.urgences_sans_reponse = { nombre: 0 }; }
   try {
     const { rows } = await require('./commandes').listCommandes();
@@ -334,21 +335,117 @@ async function demandeDevis({ texte }) {
   return { resultat: await require('./demandes-ismael').traiter(`Devis ${txt(texte)}`) };
 }
 
+// ---------- Conversations WhatsApp des clients (lecture seule) ----------
+// Le nom qu'Ismaël donne à un client (son répertoire) n'est souvent PAS le nom WhatsApp enregistré :
+// on cherche aussi dans les notes client, les demandes de devis et le texte des conversations récentes.
+const heureCourte = d => new Date(d).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+async function trouverClientWhatsApp(client) {
+  const c = txt(client);
+  if (!c) return { erreur: 'précise le nom ou le numéro du client' };
+  if (/\d{6,}/.test(c.replace(/\D/g, ''))) return { tel: require('./commandes').normalizePhone(c) };
+  if (!supabase) return { erreur: 'base non configurée' };
+  const motif = c.replace(/[%_,()*]/g, ' ').trim();
+  const trouves = new Map(); // tel -> raison
+  const ajouter = (tel, raison) => { if (tel && !trouves.has(tel)) trouves.set(tel, raison); };
+  const depuis = new Date(Date.now() - 14 * 86400e3).toISOString();
+  const [cl, notes, dem, conv] = await Promise.all([
+    supabase.from('clients').select('phone_number, name').ilike('name', `%${motif}%`).limit(8),
+    supabase.from('client_notes').select('phone_number, note').ilike('note', `%${motif}%`).limit(8),
+    supabase.from('gestion_demandes').select('telephone, nom').ilike('nom', `%${motif}%`).limit(8),
+    supabase.from('conversations').select('phone_number, content, created_at').ilike('content', `%${motif}%`).gte('created_at', depuis).order('created_at', { ascending: false }).limit(30),
+  ].map(p => Promise.resolve(p).catch(() => ({ data: [] }))));
+  (cl.data || []).forEach(x => ajouter(x.phone_number, `nom WhatsApp « ${x.name} »`));
+  (notes.data || []).forEach(x => ajouter(x.phone_number, 'note client'));
+  (dem.data || []).forEach(x => ajouter(require('./commandes').normalizePhone(x.telephone || ''), `demande de devis « ${x.nom} »`));
+  (conv.data || []).forEach(x => ajouter(x.phone_number, `cité dans la conversation (« ${String(x.content).slice(0, 60)} »)`));
+  trouves.delete('');
+  if (!trouves.size) return { introuvable: true };
+  if (trouves.size === 1) return { tel: [...trouves.keys()][0] };
+  const noms = await Promise.all([...trouves.keys()].slice(0, 6).map(async t => `${(await require('../supabase').getClientName(t).catch(() => null)) || 'sans nom'} (${t}) : ${trouves.get(t)}`));
+  return { plusieurs: noms };
+}
+// Dernières conversations (pour retrouver un client dont Ismaël ne donne que le prénom de son répertoire)
+async function conversationsRecentes({ heures } = {}) {
+  if (!supabase) return { erreur: 'base non configurée' };
+  const h = Math.min(Math.max(Number(heures) || 24, 1), 168);
+  const { data } = await supabase.from('conversations').select('phone_number, role, content, created_at').gte('created_at', new Date(Date.now() - h * 3600e3).toISOString()).order('created_at', { ascending: false }).limit(800);
+  const par = new Map();
+  for (const m of data || []) {
+    if (!m.content || !m.content.trim()) continue;
+    const e = par.get(m.phone_number) || { tel: m.phone_number, dernier: m.created_at, messages: [] };
+    if (e.messages.length < 3) e.messages.push(`${m.role === 'user' ? 'Client' : 'IGS'} : ${String(m.content).replace(/###[\s\S]*?###/g, '').slice(0, 140)}`);
+    par.set(m.phone_number, e);
+  }
+  const base = require('../supabase');
+  const liste = await Promise.all([...par.values()].slice(0, 25).map(async e => ({ client: (await base.getClientName(e.tel).catch(() => null)) || 'sans nom', tel: e.tel, dernier_message: heureCourte(e.dernier), extrait: e.messages.reverse() })));
+  return { periode: `${h} dernières heures`, conversations: liste };
+}
+async function lireConversation({ client, jours }) {
+  const t = await trouverClientWhatsApp(client);
+  if (t.erreur) return t;
+  if (t.introuvable) return { introuvable: true, consigne: `Aucun client trouvé pour « ${txt(client)} » (ni nom WhatsApp, ni note, ni texte des conversations). Appelle conversations_recentes pour le retrouver d'après le contexte avant de demander son numéro à Ismaël.` };
+  if (t.plusieurs) return { plusieurs: t.plusieurs, consigne: 'Demande à Ismaël lequel (une ligne chacun).' };
+  const base = require('../supabase');
+  const j = Math.min(Math.max(Number(jours) || 7, 1), 30);
+  const msgs = (await base.getMessagesBetween(t.tel, Date.now() - j * 86400e3, Date.now()).catch(() => [])).filter(m => m.content && m.content.trim()).slice(-40);
+  if (!msgs.length) return { tel: t.tel, vide: true, consigne: `Aucun message ces ${j} derniers jours.` };
+  let demande = null;
+  try { const { data } = await supabase.from('gestion_demandes').select('nom, produit, quantite, statut, devis_numero, cree_le').eq('telephone', t.tel).order('cree_le', { ascending: false }).limit(1); demande = data && data[0] ? data[0] : null; } catch {}
+  return {
+    client: (await base.getClientName(t.tel).catch(() => null)) || 'sans nom', tel: t.tel,
+    derniere_demande_de_devis: demande ? `${demande.nom || ''} – ${[demande.quantite, demande.produit].filter(Boolean).join(' ')} (${demande.statut}${demande.devis_numero ? ' ' + demande.devis_numero : ''}, le ${heureCourte(demande.cree_le)})` : 'aucune',
+    conversation: msgs.map(m => `[${heureCourte(m.created_at)}] ${m.role === 'user' ? 'Client' : 'IGS'} : ${String(m.content).replace(/###[\s\S]*?###/g, '').slice(0, 600)}`),
+    consigne: 'Résume en 2-4 lignes ce qui compte (ce que veut le client, où on en est, ce qu\'il attend de nous). S\'il a donné de quoi faire un devis et qu\'aucune demande n\'existe, propose de la préparer (devis_depuis_conversation).',
+  };
+}
+// Ismaël confirme qui est le client : le nom de son répertoire est retenu dans la note client (retrouvé la prochaine fois)
+async function retenirNomClient({ telephone, nom }) {
+  const tel = require('./commandes').normalizePhone(txt(telephone));
+  const n = txt(nom).replace(/[\r\n]/g, ' ').slice(0, 60);
+  if (!tel || tel.length < 9 || !n) return { erreur: 'numéro et nom requis' };
+  const base = require('../supabase');
+  const note = String(await base.getClientNote(tel).catch(() => '') || '');
+  if (new RegExp(`Nom dans le répertoire d'Ismaël : ${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(note)) return { ok: true, deja: true };
+  const ligne = `Nom dans le répertoire d'Ismaël : ${n}`;
+  const nouvelle = /Nom dans le répertoire d'Ismaël : .*/i.test(note) ? note.replace(/Nom dans le répertoire d'Ismaël : .*/i, ligne) : (note ? note.trim() + '\n' : '') + ligne;
+  await base.upsertClientNote(tel, nouvelle);
+  return { ok: true, retenu: `${n} = ${tel}` };
+}
+// Clients qui ont donné de quoi faire un devis sur WhatsApp (souvent en échangeant avec Ismaël directement, donc sans
+// que Leïla ne crée la demande) et pour qui aucune demande n'existe encore
+async function devisAFaireWhatsApp() {
+  if (!supabase) return [];
+  const depuis = new Date(Date.now() - 72 * 3600e3).toISOString();
+  const { data } = await supabase.from('conversations').select('phone_number, content, created_at').eq('role', 'user').gte('created_at', depuis).order('created_at', { ascending: false }).limit(1000);
+  const signal = /[^\s@]+@[^\s@]+\.[a-z]{2,}|\bdevis\b/i;
+  const candidats = new Map();
+  for (const m of data || []) if (m.content && signal.test(m.content) && !candidats.has(m.phone_number)) candidats.set(m.phone_number, m);
+  if (!candidats.size) return [];
+  const { data: dem } = await supabase.from('gestion_demandes').select('telephone, cree_le').gte('cree_le', new Date(Date.now() - 10 * 86400e3).toISOString()).limit(1000);
+  const norm = require('./commandes').normalizePhone;
+  const avecDemande = new Map();
+  (dem || []).forEach(d => { const t = norm(d.telephone || ''); if (t && (!avecDemande.has(t) || d.cree_le > avecDemande.get(t))) avecDemande.set(t, d.cree_le); });
+  const base = require('../supabase');
+  const out = [];
+  for (const [tel, m] of candidats) {
+    const d = avecDemande.get(tel);
+    if (d && Date.parse(d) > Date.parse(m.created_at) - 12 * 3600e3) continue; // demande déjà faite pour ce message
+    out.push(`${(await base.getClientName(tel).catch(() => null)) || 'sans nom'} (${tel}) – ${heureCourte(m.created_at)} : « ${String(m.content).replace(/\s+/g, ' ').slice(0, 120)} »`);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 // Devis à partir de la conversation WhatsApp d'un client (Ismaël a discuté avec lui lui-même) : exécuté tout de suite
 // (rien n'est envoyé au client : la demande et le brouillon Odoo vont dans « Demandes à traiter »)
 async function devisConversation({ client }) {
   const c = txt(client);
   if (!c) return { erreur: 'précise le nom ou le numéro du client' };
-  let tel = null;
-  if (/\d{6,}/.test(c.replace(/\D/g, ''))) tel = require('./commandes').normalizePhone(c);
-  else if (supabase) {
-    const motif = c.replace(/[%_,()]/g, ' ').trim();
-    const { data } = await supabase.from('clients').select('phone_number, name').ilike('name', `%${motif}%`).limit(6);
-    const l = data || [];
-    if (!l.length) return { erreur: `aucun client WhatsApp nommé « ${c} » : demande son numéro à Ismaël` };
-    if (l.length > 1) return { plusieurs: l.map(x => `${x.name} (${x.phone_number})`), consigne: 'Demande à Ismaël lequel (ou son numéro).' };
-    tel = l[0].phone_number;
-  }
+  const t = await trouverClientWhatsApp(c);
+  if (t.erreur) return t;
+  if (t.introuvable) return { introuvable: true, consigne: `Aucun client trouvé pour « ${c} ». Appelle conversations_recentes pour le retrouver d'après le contexte (ce dont ils ont parlé), avant de demander son numéro à Ismaël.` };
+  if (t.plusieurs) return { plusieurs: t.plusieurs, consigne: 'Demande à Ismaël lequel (ou son numéro).' };
+  const tel = t.tel;
   if (!tel) return { erreur: 'numéro invalide' };
   try {
     const r = await require('./commercial').depuisConversation(tel, PAR);
@@ -467,6 +564,9 @@ const OUTILS = [
   { name: 'devis_odoo_client', description: 'Derniers devis et commandes d\'un client lus DIRECTEMENT dans Odoo (brouillons, envoyés, confirmés, annulés), avec date, montant TTC et contenu. À utiliser pour « quels sont les derniers devis de X », pour retrouver le n° d\'un devis à confirmer, et TOUJOURS avant de recréer un devis (éviter les doublons). chercher_commandes ne voit que les commandes de l\'atelier, pas les devis.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom du client (même partiel) ou n° de devis' } }, required: ['client'] } },
   { name: 'preparer_confirmation_devis', description: 'PRÉPARE la confirmation d\'un devis Odoo (« confirme le devis / la commande DE… ») : le devis passe en commande dans Odoo et la commande apparaît dans le dashboard (PAYÉE). Pour un devis que tu viens de créer, réutilise SON numéro : ne crée jamais un nouveau devis pour ça. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'preparer_tableau_commande', description: 'PRÉPARE le tableau des articles d\'une commande (Tailles.xlsx, à la place du formulaire client) : une ligne par produit/couleur/taille/coupe avec la quantité, + nom du visuel et zone de flocage si connus ; puis BDC SEFI rempli si la commande est payée. Il faut produit, couleur, taille et quantité pour chaque ligne (demande-les à Ismaël s\'il manque quelque chose). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, zone_flocage: { type: 'string', description: 'ex. « Cœur (9cm) + Dos (27cm) »' }, lignes: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', description: 'produit : T-Shirt, Polo, Débardeur, Sweat à capuche, Sweat col rond, Sweat zippé à capuche, Tote Bag, Tablier, Casquette, T-Shirt Enfant, T-shirt fourni, T-Shirt vierge (sans flocage)…' }, couleur: { type: 'string' }, taille: { type: 'string', description: 'XS, S, M, L, XL, 2XL, 3XL, 4XL, 5XL, 2A…12A, TU' }, coupe: { type: 'string', description: 'Unisexe (défaut) ou Femme' }, quantite: { type: 'number' }, visuel: { type: 'string' } }, required: ['type', 'couleur', 'taille', 'quantite'] } } }, required: ['cle', 'lignes'] } },
+  { name: 'lire_conversation', description: 'Lit la conversation WhatsApp IGS avec un client (« vérifie / regarde la conversation de Marina », « qu\'est-ce qu\'elle a dit ? »). Le nom donné par Ismaël est souvent celui de SON répertoire, pas le nom WhatsApp : la recherche regarde aussi les notes, les demandes et le texte des messages. Lecture seule.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom (même celui du répertoire d\'Ismaël) ou numéro' }, jours: { type: 'number', description: 'défaut 7' } }, required: ['client'] } },
+  { name: 'retenir_nom_client', description: 'Retient le nom qu\'Ismaël donne à un client (son répertoire, ex. « Marina ») pour son numéro, une fois le client identifié avec lui : la prochaine fois, « la conversation de Marina » est trouvée directement. À appeler sans demander dès qu\'un client a été identifié par le contexte et qu\'Ismaël l\'a nommé autrement. Exécuté tout de suite.', input_schema: { type: 'object', properties: { telephone: { type: 'string' }, nom: { type: 'string' } }, required: ['telephone', 'nom'] } },
+  { name: 'conversations_recentes', description: 'Liste les conversations WhatsApp clients des dernières heures (nom WhatsApp, numéro, derniers messages). Sert à retrouver un client qu\'Ismaël nomme autrement (prénom de son répertoire) d\'après ce dont ils ont parlé, et à voir qui a écrit récemment. Lecture seule.', input_schema: { type: 'object', properties: { heures: { type: 'number', description: 'défaut 24, max 168' } } } },
   { name: 'devis_depuis_conversation', description: 'Ismaël a discuté d\'un devis avec un client sur le WhatsApp IGS (« prépare le devis de Marie, on en a parlé sur WhatsApp ») : relit la conversation avec ce client, en tire la demande (structure, produit, quantité, marquage…) et la met dans « Demandes à traiter » avec le brouillon Odoo. Rien n\'est envoyé au client. Exécuté tout de suite.', input_schema: { type: 'object', properties: { client: { type: 'string', description: 'nom WhatsApp du client ou son numéro' } }, required: ['client'] } },
   { name: 'preparer_annulation_devis', description: 'PRÉPARE l\'annulation d\'un devis Odoo en brouillon ou envoyé (erreur, incompréhension, client qui renonce). Ismaël confirme par oui.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' }, motif: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'apprentissage_etat', description: 'Où en est l\'apprentissage de Leïla (ce qu\'elle apprend en observant les réponses d\'Ismaël aux clients) : mode, note de ressemblance de la semaine, où elle se trompe encore, leçons à valider (numérotées comme dans le bilan du lundi) et leçons appliquées.', input_schema: { type: 'object', properties: {} } },
@@ -474,7 +574,7 @@ const OUTILS = [
   { name: 'apprendre_regle', description: 'Ismaël apprend directement une façon de répondre aux clients à Leïla (« apprends que… », « quand un client … réponds … », « mets moins d\'emojis »). Une règle générale, reformulée clairement. Appliquée tout de suite à ses réponses (sans jamais passer avant les prix, devis, urgences et sécurité). Exécuté tout de suite.', input_schema: { type: 'object', properties: { situation: { type: 'string', description: 'quand ça s\'applique' }, regle: { type: 'string', description: 'quoi faire / comment le dire' }, exemple: { type: 'string' } }, required: ['regle'] } },
   { name: 'enregistrer_demande_devis', description: 'Enregistre une demande de devis transmise par Ismaël (client, produit, quantité, marquage…) et prépare le brouillon Odoo. Exécuté tout de suite.', input_schema: { type: 'object', properties: { texte: { type: 'string', description: 'la demande en clair, ex. « pour BLACHA GRILL, 5 t-shirts flocage avant arrière »' } }, required: ['texte'] } },
 ];
-const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_tableau_commande: preparerTableau, apprentissage_etat: apprentissageEtat, valider_lecons: validerLecons, apprendre_regle: apprendreRegle };
+const IMPL = { chercher_commandes: chercherCommandes, detail_commande: detailCommande, etat_bdc_sefi: etatSefi, preparer_ajout_articles: preparerAjout, preparer_message_client: preparerMessage, preparer_modification_commande: preparerModifCommande, chercher_planches: chercherPlanches, preparer_modification_planche: preparerModifPlanche, lien_paiement: lienPaiement, lien_formulaire: lienFormulaire, etat_stock: etatStock, tableau_de_bord: tableauDeBord, mails_sefi: mailsSefi, preparer_reponse_sefi: preparerReponseSefi, enregistrer_demande_devis: demandeDevis, devis_depuis_conversation: devisConversation, preparer_annulation_devis: preparerAnnulationDevis, preparer_confirmation_devis: preparerConfirmation, devis_odoo_client: devisOdoo, preparer_tableau_commande: preparerTableau, lire_conversation: lireConversation, conversations_recentes: conversationsRecentes, retenir_nom_client: retenirNomClient, apprentissage_etat: apprentissageEtat, valider_lecons: validerLecons, apprendre_regle: apprendreRegle };
 
 function systeme() {
   const maintenant = gp().toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -487,6 +587,8 @@ function systeme() {
 - « Livrée » = statut LIVRÉE (ou dans les livrées récentes) ; TERMINÉE = prête, pas encore remise ; EXPÉDIÉE = colis parti.
 - Tu ne peux rien faire plus tard tout seul : ne promets jamais « je te préviens dès que… ». Si un outil répond une erreur, dis-la telle quelle. Une commande confirmée est mise dans le dashboard tout de suite par preparer_tableau_commande / preparer_confirmation_devis : il n'y a pas de synchro à attendre.
 - Ne crée JAMAIS deux fois le même devis : un devis déjà créé dans la conversation se réutilise par son numéro ; sans numéro, cherche-le avec devis_odoo_client (devis Odoo du client) avant tout. « Confirme le devis de X » : devis_odoo_client puis preparer_confirmation_devis sur le devis en brouillon/envoyé le plus récent qui correspond. « Confirme la commande / le devis » = preparer_confirmation_devis avec ce numéro. « Remplis le tableau / mets dedans … » = preparer_tableau_commande (demande produit, couleur, taille, quantité s'il en manque).
+- « Vérifie / regarde la conversation de X » = lire_conversation. Le nom qu'Ismaël donne vient souvent de SON répertoire et n'est pas le nom WhatsApp : si lire_conversation ne trouve rien, appelle conversations_recentes et retrouve le client d'après le contexte (ce dont Ismaël parle, l'heure) ; ne demande le numéro qu'en dernier recours. Une fois le client retrouvé (ou confirmé par Ismaël), appelle retenir_nom_client avec le nom qu'Ismaël a utilisé.
+- « Qu'est-ce qu'il y a en attente de devis ? » = tableau_de_bord : donne les demandes en cours ET devis_a_faire_whatsapp_sans_demande (clients qui ont envoyé nom, mail ou demande de devis sur WhatsApp sans demande enregistrée) ; propose de les préparer avec devis_depuis_conversation. Ne réponds jamais « aucun devis en attente » sans avoir regardé les deux.
 - Pour une demande de devis (« devis pour … »), utilise enregistrer_demande_devis ; si Ismaël dit que les infos sont dans sa conversation WhatsApp avec le client (« prépare le devis de X, on en a parlé »), utilise devis_depuis_conversation. Pour annuler un devis, preparer_annulation_devis.
 - Quand Ismaël répond à un mail de SEFI que tu lui as signalé (« ok on fait comme ça »), utilise mails_sefi puis preparer_reponse_sefi, avec la remarque sur la ou les commandes concernées.
 - Apprentissage (comment Leïla répond aux clients) : « apprends que… / quand un client… réponds… / moins d'emojis » = apprendre_regle ; « valide 1, 3 », « refuse 2 », « retire la leçon… » = valider_lecons (les numéros sont ceux du bilan, vérifie avec apprentissage_etat) ; « elle apprend bien ? » = apprentissage_etat.
