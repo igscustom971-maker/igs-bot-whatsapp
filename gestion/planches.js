@@ -117,10 +117,26 @@ function versBase(fields, actuel) {
   if ('statut' in o && o.statut !== actuel.statut) o.statut_le = new Date().toISOString();
   return o;
 }
+// La clé d'une planche = son n° de devis. Si une autre ligne a déjà cette clé :
+//  - ancienne planche retirée de la liste (livrée/payée, archivée) : elle est renommée (historique gardé) ;
+//  - planche encore en cours sur le même devis : la nouvelle prend « devis-n° de ligne » (deux planches, un devis).
+async function cleLibre(voulue, excelId, cleActuelle) {
+  if (!voulue || voulue === cleActuelle) return voulue;
+  const { data } = await supabase.from('gestion_planches').select('cle, present, excel_id').eq('cle', voulue).limit(1);
+  const ex = data && data[0];
+  if (!ex) return voulue;
+  if (!ex.present) {
+    const { error } = await supabase.from('gestion_planches').update({ cle: `${voulue}~${ex.excel_id || Date.now()}` }).eq('cle', voulue);
+    if (error) throw new Error(`Supabase : ${error.message}`);
+    return voulue;
+  }
+  return `${voulue}-${excelId || Date.now()}`;
+}
 async function ecrireBase(cle, fields) {
   const actuel = cache.rows.find(r => r.cle === cle) || (await lireBase()).find(r => r.cle === cle);
   if (!actuel) throw new Error('Planche introuvable : actualise et réessaie');
   const o = versBase(fields, actuel);
+  if (o.cle) o.cle = await cleLibre(o.cle, actuel.excel_id, cle);
   if (sansStatutLe) delete o.statut_le;
   let { error } = await supabase.from('gestion_planches').update(o).eq('cle', cle);
   if (error && /statut_le/.test(error.message)) { sansStatutLe = true; delete o.statut_le; ({ error } = await supabase.from('gestion_planches').update(o).eq('cle', cle)); }
@@ -130,7 +146,7 @@ async function insererBase(fields) {
   const { data: mx } = await supabase.from('gestion_planches').select('excel_id').order('excel_id', { ascending: false, nullsFirst: false }).limit(1);
   const id = ((mx && mx[0] && mx[0].excel_id) || 0) + 1;
   const o = { ...versBase(fields, { excel_id: id }), excel_id: id, present: true, synced_at: new Date().toISOString() };
-  o.cle = cleDe(o, id);
+  o.cle = await cleLibre(cleDe(o, id), id, null);
   delete o.statut_le;
   const { error } = await supabase.from('gestion_planches').insert(o);
   if (error) throw new Error(`Supabase : ${error.message}`);
@@ -593,7 +609,7 @@ async function modifier(cle, champs, user) {
 }
 
 // Après une écriture, la clé peut changer (ex. N° de devis ajouté) : on retrouve la ligne par sa position
-const trouveApres = p => (p._row != null ? cache.rows.find(r => r._row === p._row) : null) || cache.rows.find(r => r.cle === p.cle) || (p.n_devis ? cache.rows.find(r => r.n_devis === p.n_devis) : null) || null;
+const trouveApres = p => (p._row != null ? cache.rows.find(r => r._row === p._row) : null) || (p.excel_id != null ? cache.rows.find(r => r.excel_id === p.excel_id) : null) || cache.rows.find(r => r.cle === p.cle) || (p.n_devis ? cache.rows.find(r => r.n_devis === p.n_devis) : null) || null;
 
 async function clientOdoo(p, partnerId, user) {
   if (partnerId) {
