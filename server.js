@@ -650,6 +650,7 @@ INFOS PRATIQUES (à utiliser quand c'est utile) :
 - Taille de logo standard : 9 cm (possible 10 ou 11 cm à la demande)
 - T-shirt vierge (sans flocage, sans impression) : 7 € TTC l'unité, toutes couleurs et tailles du nuancier ; pas de BAT ni de visuel à fournir (seulement couleurs, tailles et quantités)
 - Création de logo / graphisme : on ne le fait pas, mise en relation possible avec un partenaire
+- MODÈLES (nom du modèle de chaque produit, à donner si le client demande « c'est quel modèle / quelle référence ? » ou pour comparer ; ne donne jamais de fournisseur, de prix d'achat, de grammage ou de dimensions que tu ne connais pas) : Tote bag = modèle IBIZA ; T-shirt unisexe = IMPERIAL, femme = IMPERIAL WOMEN ; T-shirt col V homme = VICTORY, femme = MOON ; T-shirt polyester (sport) = SPORTY, femme = SPORTY WOMEN ; T-shirt manches longues homme = MONARCH, femme = MAJESTIC ; T-shirt enfant = REGENT KIDS ; Débardeur = JUSTIN, femme = JUSTIN WOMEN ; Polo homme = SPRING, femme = PEOPLE ; Casquette = LONG BEACH ; Sweat à capuche = CONNOR (coupe oversize) ; Sweat col rond = SPIDER ; Sweat zippé à capuche = STONE
 - Facture au nom d'une entreprise : oui, envoyée par mail. Paiement par chèque : à confirmer par le responsable (ne promets rien)
 - Le matin, l'équipe est chez les fournisseurs et prépare les commandes : retraits uniquement l'après-midi 14h30-17h30
 - Délai plus court que d'habitude : possible exceptionnellement si tout est validé très vite (paiement + BAT), jamais garanti, récupération l'après-midi seulement
