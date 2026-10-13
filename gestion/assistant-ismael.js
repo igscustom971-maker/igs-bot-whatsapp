@@ -272,15 +272,27 @@ async function lienFormulaire({ cle }) {
 }
 
 // ---------- Stock ----------
+// Type de produit de chaque modèle (le stock est rangé par modèle : « tote bag blanc » doit trouver IBIZA Blanc)
+const TYPE_MODELE = {
+  IBIZA: 'tote bag sac', IMPERIAL: 't-shirt tshirt tee shirt', 'IMPERIAL WOMEN': 't-shirt tshirt tee shirt femme', VICTORY: 't-shirt tshirt col v', MOON: 't-shirt tshirt col v femme',
+  SPORTY: 't-shirt tshirt sport polyester', 'SPORTY WOMEN': 't-shirt tshirt sport polyester femme', MONARCH: 't-shirt tshirt manches longues manche longue', MAJESTIC: 't-shirt tshirt manches longues manche longue femme',
+  'REGENT KIDS': 't-shirt tshirt enfant kids', JUSTIN: 'debardeur', 'JUSTIN WOMEN': 'debardeur femme', SPRING: 'polo', PEOPLE: 'polo femme', 'LONG BEACH': 'casquette',
+  CONNOR: 'sweat capuche hoodie', SPIDER: 'sweat col rond', STONE: 'sweat zippe capuche zip',
+};
+const motsRech = s => txt(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/t[\s-]?shirts?/g, 'tshirt').replace(/tote[\s-]?bags?/g, 'totebag').split(/[^a-z0-9]+/).filter(Boolean).map(w => w.length > 3 ? w.replace(/(s|x)$/, '') : w);
 async function etatStock({ recherche }) {
   const e = await require('./stock').etat();
-  const k = cleRech(recherche);
-  const v = (e.vierges || []).filter(x => !k || cleRech(`${x.reference} ${x.couleur} ${x.taille} ${x.coupe}`).includes(k));
+  const q = motsRech(recherche).filter(w => !['stock', 'combien', 'vierge', 'en', 'de', 'du', 'des', 'le', 'la', 'les', 'j', 'ai', 'il', 'reste', 'y', 'a'].includes(w));
+  const typeDe = x => TYPE_MODELE[txt(x.reference).toUpperCase()] || '';
+  // Tous les mots cherchés doivent se retrouver (dans n'importe quel ordre) dans modèle + type + couleur + taille + coupe
+  const v = (e.vierges || []).filter(x => { if (!q.length) return true; const m = new Set(motsRech(`${x.reference} ${typeDe(x)} ${x.couleur} ${x.taille} ${x.coupe}`)); return q.every(w => m.has(w)); });
   const parArticle = {};
-  v.forEach(x => { const a = `${x.reference} ${x.couleur}${x.coupe && !/unisexe/i.test(x.coupe) ? ` ${x.coupe}` : ''}`.trim(); (parArticle[a] = parArticle[a] || []).push(`${x.taille} : ${x.quantite}`); });
+  v.forEach(x => { const t = typeDe(x).split(' ')[0]; const a = `${t ? `${t === 'tshirt' ? 'T-shirt' : t === 'tote' ? 'Tote bag' : t.charAt(0).toUpperCase() + t.slice(1)} ` : ''}${x.reference} ${x.couleur}${x.coupe && !/unisexe|tote/i.test(x.coupe) ? ` ${x.coupe}` : ''}`.trim(); (parArticle[a] = parArticle[a] || []).push(`${x.taille} : ${x.quantite}`); });
   return {
-    tshirts_vierges: Object.entries(parArticle).slice(0, 40).map(([a, t]) => `${a} → ${t.join(', ')}`),
-    total_vierges: v.reduce((t, x) => t + (Number(x.quantite) || 0), 0),
+    recherche: recherche || '(tout)',
+    articles_vierges: Object.entries(parArticle).slice(0, 40).map(([a, t]) => `${a} → ${t.join(', ')}`),
+    total_trouve: v.reduce((t, x) => t + (Number(x.quantite) || 0), 0),
+    ...(q.length && !v.length ? { note: 'Aucune ligne de stock ne correspond à cette recherche : dis « rien trouvé dans le stock pour … » (pas « 0 en stock ») et propose de chercher autrement (couleur ou modèle seul).' } : {}),
     consommables_en_alerte: (e.consommables || []).filter(c => c.alerte).map(c => `${c.nom} : ${c.stock} (seuil ${c.seuil})`),
     consommables: (e.consommables || []).slice(0, 30).map(c => `${c.nom} : ${c.stock}`),
   };
@@ -587,7 +599,7 @@ const OUTILS = [
   { name: 'preparer_modification_planche', description: 'PRÉPARE une modification de planche DTF : statut (A PREPARER, A VERIFIER, A IMPRIMER, A RECUPERER, A EXPEDIER, EN ATTENTE = devis envoyé pas encore validé, EXPÉDIÉE, LIVRÉE), paiement (PAYÉE / NON PAYÉE), remarques, métrage. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { cle: { type: 'string' }, statut: { type: 'string' }, paiement: { type: 'string' }, remarques: { type: 'string', description: 'texte AJOUTÉ à la suite des remarques existantes (remarques_mode remplacer pour tout remplacer)' }, remarques_mode: { type: 'string', enum: ['ajouter', 'remplacer'] }, prioritaire: { type: 'boolean', description: 'true = case 🔥 Prioritaire cochée (en haut de la liste), false = décochée' }, metres: { type: 'string' } }, required: ['cle'] } },
   { name: 'lien_paiement', description: 'Lien(s) de paiement d\'un devis Odoo (commande textile ou planche) : factures restant à payer, ou le devis à signer et payer en ligne.', input_schema: { type: 'object', properties: { numero_devis: { type: 'string' } }, required: ['numero_devis'] } },
   { name: 'lien_formulaire', description: 'Lien du formulaire de commande prérempli (devis, client, mail, téléphone) d\'une commande en cours.', input_schema: { type: 'object', properties: { cle: { type: 'string' } }, required: ['cle'] } },
-  { name: 'etat_stock', description: 'Stock de t-shirts vierges (par référence, couleur, taille) et consommables (alertes sous le seuil). Filtre optionnel (ex. « noir », « polo »).', input_schema: { type: 'object', properties: { recherche: { type: 'string' } } } },
+  { name: 'etat_stock', description: 'Stock des textiles vierges (t-shirts, tote bags IBIZA, polos, sweats, casquettes… par modèle, couleur, taille) et consommables (alertes sous le seuil). Filtre optionnel en mots libres, dans n\'importe quel ordre (ex. « tote bag blanc », « noir », « polo »).', input_schema: { type: 'object', properties: { recherche: { type: 'string' } } } },
   { name: 'mails_sefi', description: 'Mails reçus du fournisseur SEFI (rupture, remplacement de couleur, délai…) en attente de réponse, avec résumé, texte et devis concernés.', input_schema: { type: 'object', properties: {} } },
   { name: 'preparer_reponse_sefi', description: 'PRÉPARE la réponse à un mail de SEFI (dans le fil du mail, depuis contact@) et les remarques à ajouter aux commandes concernées (ex. « Rouge remplacé par jaune (accord SEFI du 12/10) »). Rédige une réponse courte et polie au nom d\'IGS CUSTOM BAR. Sans mail_id : le dernier mail en attente. Ismaël confirme par oui.', input_schema: { type: 'object', properties: { mail_id: { type: 'string' }, reponse: { type: 'string', description: 'texte de la réponse à SEFI (vide = classer sans répondre)' }, remarques: { type: 'array', items: { type: 'object', properties: { cle: { type: 'string', description: 'n° de devis de la commande' }, texte: { type: 'string' } }, required: ['cle', 'texte'] } } } } },
   { name: 'tableau_de_bord', description: 'Vue d\'ensemble IGS : demandes de devis en cours, urgences WhatsApp sans réponse, commandes par statut et en retard, BAT en attente, planches par statut, devis à relancer, reste à facturer, impayés.', input_schema: { type: 'object', properties: {} } },
