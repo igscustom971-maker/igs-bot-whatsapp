@@ -655,7 +655,7 @@ INFOS PRATIQUES (à utiliser quand c'est utile) :
 - Le matin, l'équipe est chez les fournisseurs et prépare les commandes : retraits uniquement l'après-midi 14h30-17h30
 - Délai plus court que d'habitude : possible exceptionnellement si tout est validé très vite (paiement + BAT), jamais garanti, récupération l'après-midi seulement
 - Alignement sur le prix d'un concurrent : non
-- Simple remerciement ou réaction sans question (« merci pour le partage » sur un statut, « merci », « top », 🙏) : réponse ultra courte, 2-3 mots max, ex. "De rien 😊" ou "Avec plaisir 🙏". JAMAIS de relance du type "n'hésite pas si tu as besoin de quoi que ce soit", ni de question, ni de proposition commerciale.
+- Simple remerciement ou réaction sans question (« merci pour le partage » sur un statut, « merci », « ok super merci », « top », 🙏) qui clôt l'échange après notre dernier message : NE RÉPONDS RIEN : ta réponse est vide (le client a dit merci, la conversation est finie, l'équipe ne répond pas non plus). Seulement si ce remerciement arrive sans échange avant (premier message) : réponse ultra courte, 2-3 mots max, ex. "Avec plaisir 🙏". JAMAIS de relance du type "n'hésite pas si tu as besoin de quoi que ce soit", ni de question, ni de proposition commerciale.
 - Question de taille (« le L taille grand ? », « ça taille comment ? ») : nos t-shirts taillent assez grand (coupe unisexe ample), on conseille de prendre sa taille habituelle. Coupe femme : plus ajustée, prendre une taille au-dessus. Sweats à capuche CONNOR : coupe oversize (large). Si le client veut des mesures, t-shirt unisexe (largeur à plat × longueur) : S 50×70, M 53×72, L 56×74, XL 59×76, XXL 62×78, 3XL 65×80 cm. Ex. : "Il taille assez grand, je vous conseille de prendre votre taille habituelle 😊"
 - Article à remplacer sur une commande déjà faite (mauvaise couleur, mauvais modèle, erreur par rapport à la commande initiale) : c'est un REMPLACEMENT, PAS de devis ni de demande de nom/email. Réponds que c'est noté, que l'équipe s'en occupe, et invite le client à rapporter l'article reçu s'il l'a déjà récupéré (ex. "C'est noté, on s'occupe du remplacement ! Si vous avez déjà récupéré la pièce, pensez à la rapporter quand vous viendrez chercher la nouvelle."). Ne promets pas de délai. (+ ###RECAP:Remplacement d'article sur commande existante : <détail>###)
 
@@ -1163,6 +1163,13 @@ async function handleIncomingText(from, rawText, recuLe = Date.now()) {
     if (!estAutomatique(fullHistory[fullHistory.length - 1].content)) { console.log(`Pas de réponse de Leïla pour ${from} : la conversation a déjà une réponse`); return; }
     fullHistory.push({ role: 'user', content: text });
   }
+  // Simple « ok super merci ! » / « d'accord merci 🙏 » en réponse à notre dernier message : la conversation est close,
+  // pas de réponse (ni « De rien »), comme le ferait l'équipe
+  {
+    let i = fullHistory.length - 1; const tour = [];
+    while (i >= 0 && fullHistory[i].role === 'user') tour.unshift(String(fullHistory[i--].content || ''));
+    if (i >= 0 && tour.length && tour.every(x => isPureAcknowledgment(x))) { console.log(`Pas de réponse de Leïla pour ${from} : simple accusé / remerciement, conversation close`); return; }
+  }
   const isKnownClient = fullHistory.length > 1; // déjà de vrais échanges avant ce message = client connu
   // Dernier tour complet du client (ses messages regroupés) : une question suivie d'une photo reste une question
   const lastUserText = String(fullHistory[fullHistory.length - 1].content || '').replace(/\[Message vocal reçu\]|\[Image ou fichier reçu, sans texte\]/g, '').trim();
@@ -1389,8 +1396,12 @@ const MAX_BACKLOG_AGE_MS = 72 * 60 * 60 * 1000; // au-delà de 72 h (un week-end
 function isPureAcknowledgment(text) {
   const t = (text || '').toLowerCase().replace(/[^a-zà-ÿ0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return true; // que des émojis/ponctuation
-  if (t.length > 40) return false;
-  return /^(ok|okay|d accord|dac|merci|merci beaucoup|merci bien|super|parfait|top|nickel|entendu|bien recu|c est note|noté|compris|bonne journee|bonne soiree|bonne continuation|a bientot|a plus|cool|genial|impec|tres bien|bien note)( (merci|beaucoup|a vous|a toi|bien|ok))*$/.test(t);
+  if (t.length > 60) return false;
+  // Tous les mots sont des mots d'accusé / de politesse (« ok super merci ! », « d'accord merci beaucoup 🙏 », « top merci à vous ») ;
+  // une question, une demande ou un mot « de fond » (planche, commande, devis…) => pas un simple accusé
+  if (/\?|\b(mais|par contre|est ce|pourquoi|quand|combien|comment|planche|commande|devis|facture|lien|demain|aujourd hui)\b/.test(t)) return false;
+  const MOTS = new Set('ok okay oki okk d accord dac daccord merci mrc mci beaucoup bcp bien super parfait top nickel entendu recu re cu c est cest note noté compris bonne journee journée soiree soirée nuit continuation semaine week end weekend a à bientot bientôt plus tard cool genial génial impec impeccable tres très ca ça marche roule vous toi encore infiniment mille fois oui ouais yes vale vala thanks thank you thx good great perfect top top top la le les ensemble aussi pareil idem de rien avec plaisir cimer'.split(' '));
+  return t.split(' ').every(w => MOTS.has(w) || /^[a-z]$/.test(w) || /^(merci+|okk*|super+|top+|ah+|oh+|hi+|haha+|mdr|lol)$/.test(w));
 }
 
 // ============================================
