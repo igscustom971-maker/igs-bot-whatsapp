@@ -317,8 +317,27 @@ async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
 async function etatsDevisIds(ids) {
   const l = [...new Set((ids || []).map(Number).filter(Boolean))];
   if (!l.length) return new Map();
-  const r = await kw('sale.order', 'read', [l], { fields: ['id', 'name', 'state'] });
-  return new Map(r.map(o => [o.id, { numero: o.name, etat: o.state }]));
+  const r = await kw('sale.order', 'read', [l], { fields: ['id', 'name', 'state', 'partner_id', 'create_date'] });
+  return new Map(r.map(o => [o.id, { numero: o.name, etat: o.state, partner_id: o.partner_id ? o.partner_id[0] : null, cree: o.create_date }]));
+}
+// Autre devis envoyé ou confirmé pour le même client (ou sa société) depuis le brouillon : Ismaël a refait / envoyé
+// le devis lui-même dans Odoo. [{ id (brouillon), partner_id, depuis }] -> Map(id brouillon -> { numero, etat })
+async function devisRemplacants(brouillons) {
+  const out = new Map();
+  const l = (brouillons || []).filter(b => b.id && b.partner_id);
+  if (!l.length) return out;
+  const parts = [...new Set(l.map(b => b.partner_id))];
+  const ps = await kw('res.partner', 'read', [parts], { fields: ['id', 'commercial_partner_id'] });
+  const societe = new Map(ps.map(p => [p.id, p.commercial_partner_id ? p.commercial_partner_id[0] : p.id]));
+  const depuis = l.map(b => b.depuis).filter(Boolean).sort()[0];
+  const so = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['state', 'in', ['sent', 'sale']], ['partner_id', 'child_of', [...new Set([...societe.values()])]], ...(depuis ? [['create_date', '>=', depuis]] : [])]], { fields: ['id', 'name', 'state', 'partner_id', 'create_date'], order: 'create_date desc', limit: 200 });
+  const soc = so.length ? new Map((await kw('res.partner', 'read', [[...new Set(so.map(o => o.partner_id[0]))]], { fields: ['id', 'commercial_partner_id'] })).map(p => [p.id, p.commercial_partner_id ? p.commercial_partner_id[0] : p.id])) : new Map();
+  for (const b of l) {
+    const s0 = societe.get(b.partner_id);
+    const r = so.find(o => o.id !== b.id && soc.get(o.partner_id[0]) === s0 && (!b.depuis || o.create_date >= b.depuis));
+    if (r) out.set(b.id, { numero: r.name, etat: r.state });
+  }
+  return out;
 }
 async function etatDevis(numero) {
   const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['state'], limit: 1 });
@@ -915,7 +934,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

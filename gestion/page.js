@@ -917,7 +917,7 @@ function coAfficher(){
     + '<div><b>'+esc([x.quantite, x.produit].filter(Boolean).join(' × ') || 'Demande')+'</b>'+(x.zone ? ' · '+esc(x.zone) : '')+'</div>'
     + (x.details ? '<div class="mt">'+esc(x.details)+'</div>' : '') + (x.statut === 'erreur' && x.erreur ? '<div class="mt" style="color:#991b1b">'+esc(x.erreur)+'</div>' : '')
     + '<div class="mt">'+esc([x.telephone ? fphone(x.telephone) : '', x.email].filter(Boolean).join(' · '))+'</div>'
-    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>'+(x.lien_odoo ? '<a class="btn" href="'+esc(x.lien_odoo)+'" target="_blank" rel="noopener" title="Ouvrir le brouillon dans Odoo pour l’ajuster">✏️ Ajuster dans Odoo ↗</a>' : '') : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+(x.devis_id ? '<button class="btn" data-co="annuler-dem" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler le devis</button>' : '<button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button>')+'</div></div>').join('') + '</div>' + coPlus('dem', dem.length);
+    + '<div class="ac">'+(x.devis_id ? '<button class="btn pink" data-co="envoyer">Envoyer le devis</button>'+(x.lien_odoo ? '<a class="btn" href="'+esc(x.lien_odoo)+'" target="_blank" rel="noopener" title="Ouvrir le brouillon dans Odoo pour l’ajuster">✏️ Ajuster dans Odoo ↗</a>' : '') : '<button class="btn" data-co="brouillon">Préparer le brouillon</button>')+(x.devis_id ? '<button class="btn" data-co="deja-envoye" title="Devis déjà envoyé par toi (autre devis, lien, PDF…) : la demande quitte la liste, rien ne change dans Odoo">✓ Déjà envoyé</button><button class="btn" data-co="annuler-dem" title="Annule le devis dans Odoo (erreur, incompréhension…)">✖ Annuler le devis</button>' : '<button class="btn" data-co="deja-envoye" title="Devis déjà fait et envoyé par toi">✓ Déjà envoyé</button><button class="btn" data-co="abandonner" title="Demande sans suite">Sans suite</button>')+'</div></div>').join('') + '</div>' + coPlus('dem', dem.length);
   // Devis en cours
   const f = $('co-f').value, tri = $('co-tri').value;
   const cours = d.en_cours.filter(x => f === 'tous' || (f === 'relancer' ? x.a_relancer : x.etat === f))
@@ -1178,6 +1178,7 @@ function coEvents(){
       url = a === 'annuler' ? '/gestion/api/commercial/devis/' + encodeURIComponent(num) + '/annuler' : '/gestion/api/commercial/demandes/' + dem + '/annuler'; body = { motif };
     }
     else if (a === 'abandonner') { if (!confirm('Classer cette demande sans suite ?')) return; url = '/gestion/api/commercial/demandes/' + dem + '/abandonner'; }
+    else if (a === 'deja-envoye') { if (!confirm('Tu as déjà envoyé ce devis toi-même (autre devis, lien, PDF…) ? La demande quitte la liste ; rien ne change dans Odoo.')) return; url = '/gestion/api/commercial/demandes/' + dem + '/deja-envoye'; }
     b.disabled = true; coEnCours++;
     try {
       const j = await post(url, body);
@@ -1335,7 +1336,7 @@ function plListe(){
   $('rows').innerHTML = rows.length ? rows.map(p => '<tr class="row" data-k="'+esc(p.cle)+'">'
       + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
       + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht)+' TTC':'')+'</div>'+(plUrgente(p)?'<div class="urg">🔥 URGENT / PRIORITAIRE</div>':'')+'</td>'
-      + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS))+'</td>'
+      + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS, false, p.hebdo))+'</td>'
       + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
       + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
       + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || (p.hebdo ? 'FACTURE HEBDO' : ''), null, true)+'</td>'
@@ -1346,12 +1347,12 @@ function plListe(){
 }
 
 // Sélecteur directement dans la ligne (comme une liste déroulante Excel)
-function inlSel(kind, cle, field, options, value, colors, plain){
+function inlSel(kind, cle, field, options, value, colors, plain, vide){
   const v = value || '';
   const opts = [...new Set((v ? [v] : []).concat(options))];
   const c = colors && colors[v];
   return '<select class="inl'+(plain?' plain':'')+'" data-kind="'+kind+'" data-k="'+esc(cle)+'" data-f="'+field+'" data-old="'+esc(v)+'"'+(c?' style="background:'+c[0]+';color:'+c[1]+'"':'')+'>'
-    + (v ? '' : '<option value="">—</option>') + opts.map(o => '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('') + '</select>';
+    + (v && !vide ? '' : '<option value=""'+(v ? '' : ' selected')+'>—</option>') + opts.map(o => '<option'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('') + '</select>';
 }
 const PAIEMENTS = ['NON PAYÉE','PAYÉE','FACTURE HEBDO','ESPECE','CB','VIREMENT'];
 // « urgent » ou « prioritaire » dans les remarques d'une planche

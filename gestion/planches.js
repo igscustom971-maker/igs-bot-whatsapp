@@ -572,7 +572,9 @@ async function modifier(cle, champs, user) {
   }
   if ('statut' in champs) {
     const v = String(champs.statut || '').trim().toUpperCase();
-    if (!v || v.length > 30) throw new Error('Statut invalide');
+    // Statut vide (« — ») : client hebdo sans planche en cours (rien à préparer)
+    if (v.length > 30) throw new Error('Statut invalide');
+    if (!v && !p.hebdo) throw new Error('Choisis un statut (seule une planche hebdo peut rester sans statut)');
     fields.statut = v;
   }
   if ('numero_suivi' in champs) {

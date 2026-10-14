@@ -99,6 +99,12 @@ async function demandes() {
   // Devis envoyé (ou annulé) directement dans Odoo : la demande est classée, elle ne reste pas « à traiter »
   try {
     const etats = await odoo.etatsDevisIds(rows.filter(d => d.devis_id).map(d => d.devis_id));
+    // Brouillon toujours en brouillon, mais un AUTRE devis envoyé / confirmé pour ce client depuis : traité à la main dans Odoo
+    let autres = new Map();
+    try {
+      const odooDate = iso => iso ? new Date(new Date(iso).getTime() - 60e3).toISOString().slice(0, 19).replace('T', ' ') : null;
+      autres = await odoo.devisRemplacants(rows.filter(d => d.devis_id && etats.get(Number(d.devis_id))?.etat === 'draft').map(d => ({ id: Number(d.devis_id), partner_id: etats.get(Number(d.devis_id)).partner_id, depuis: odooDate(d.cree_le) })));
+    } catch (err) { console.error('Commercial : autres devis du client :', err.message); }
     const out = [];
     for (const d of rows) {
       const e = d.devis_id ? etats.get(Number(d.devis_id)) : null;
@@ -106,6 +112,8 @@ async function demandes() {
         await marquerDepuisOdoo(d, e);
         continue;
       }
+      const autre = d.devis_id ? autres.get(Number(d.devis_id)) : null;
+      if (autre) { await marquerDepuisOdoo(d, { ...autre, autre: true, brouillon: e && e.numero }); continue; }
       out.push({ ...d, lien_odoo: d.devis_id ? odoo.lienOdoo('sale.order', d.devis_id) : null });
     }
     return out;
@@ -122,7 +130,7 @@ async function compteDemandes() {
 }
 async function marquerDepuisOdoo(d, e) {
   const statut = e.etat === 'cancel' ? 'annulee' : 'envoye';
-  await supabase.from('gestion_demandes').update({ statut, traite_par: statut === 'envoye' ? 'Odoo (envoyé depuis Odoo)' : 'Odoo (annulé dans Odoo)', traite_le: new Date().toISOString() }).eq('id', d.id);
+  await supabase.from('gestion_demandes').update({ statut, traite_par: statut === 'envoye' ? (e.autre ? `Odoo (devis ${e.numero} envoyé à la place)` : 'Odoo (envoyé depuis Odoo)') : 'Odoo (annulé dans Odoo)', traite_le: new Date().toISOString() }).eq('id', d.id);
   await journal('IGS Dashboard (automatique)', statut === 'envoye' ? 'demande_envoyee_odoo' : 'demande_annulee_odoo', e.numero, { demande: d.id, client: d.nom, etat_odoo: e.etat });
   console.log(`Commercial : demande ${d.id} (${e.numero}) classée « ${statut} » d'après Odoo`);
 }
@@ -199,6 +207,13 @@ async function envoyerDemande(id, user) {
   await journal(user, 'demande_devis_envoye', so.name, { demande: id });
   cache.le = 0;
   return { ok: true, numero: so.name };
+}
+// « Déjà envoyé » : devis envoyé autrement (lien, PDF, autre devis…) -> la demande quitte la liste, rien ne change dans Odoo
+async function dejaEnvoyee(id, user) {
+  await supabase.from('gestion_demandes').update({ statut: 'envoye', traite_par: `${user} (envoyé manuellement)`, traite_le: new Date().toISOString() }).eq('id', id);
+  await journal(user, 'demande_deja_envoyee', String(id), {});
+  cache.le = 0;
+  return { ok: true };
 }
 async function abandonnerDemande(id, user) {
   await supabase.from('gestion_demandes').update({ statut: 'abandonnee', traite_par: user, traite_le: new Date().toISOString() }).eq('id', id);
@@ -578,4 +593,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, compteDemandes, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };
+module.exports = { dejaEnvoyee, clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, compteDemandes, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };
