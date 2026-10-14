@@ -20,16 +20,16 @@ const statutKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').
 const texte = html => String(html || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').trim();
 
 // Consigne d'analyse reprise telle quelle du flux Power Automate
-const SYSTEME = `Tu analyses des mails recus par un imprimeur DTF textile. Reponds uniquement avec un objet JSON, sans texte autour. Champs: type (nouvelle_commande, complement, question, autre), email_client (le vrai client; si l'expediteur est wetransfer ou un service similaire, prends l'email cite dans le texte), format (metre, A3 ou A4), quantite (nombre), lien_sans_pj (true ou false), confiance (haute, moyenne, basse), resume (une phrase). Regles de quantite: 1) si un metrage est ecrit dans le mail (objet ou texte), prends-le; 56x100 cm ou 100 cm = 1 metre. 2) sinon, si un nombre d'exemplaires est ecrit, quantite = exemplaires, 1 metre chacun. 3) sinon, 1 par fichier joint, ou 1 si seulement un lien. 4) si A3 ou A4 est mentionne, format A3 ou A4 et quantite en nombre de planches. Un mail qui contient au moins une piece jointe image ou PDF (ou un lien de telechargement) est une nouvelle_commande, meme si l'objet et le texte sont vides: une piece jointe seule signifie imprimer 1 exemplaire par fichier. Un mail sans piece jointe, sans lien et sans demande d'impression est de type autre. Un mail qui demande une nouvelle planche sans fichier ni lien est nouvelle_commande avec confiance basse. Une reponse a un devis ou a une proposition commerciale (validation, preuve de paiement, virement, question sur le devis) n'est PAS une nouvelle_commande : type question. Une preuve de paiement ou une facture jointe n'est pas un fichier a imprimer. Les champs format et quantite ne doivent jamais etre null: par defaut format = metre et quantite = nombre de fichiers joints (1 minimum).`;
+const SYSTEME = `Tu analyses des mails recus par un imprimeur DTF textile. Reponds uniquement avec un objet JSON, sans texte autour. Champs: type (nouvelle_commande, complement, question, autre), email_client (le vrai client; si l'expediteur est wetransfer ou un service similaire, prends l'email cite dans le texte), format (metre, A3 ou A4), quantite (nombre), lien_sans_pj (true ou false), confiance (haute, moyenne, basse), resume (une phrase). Regles de quantite: 1) si un metrage est ecrit dans le mail (objet ou texte), prends-le; 56x100 cm ou 100 cm = 1 metre. 2) sinon, si un nombre d'exemplaires est ecrit, quantite = exemplaires, 1 metre chacun. 3) sinon, 1 par fichier joint, ou 1 si seulement un lien. 4) si A3 ou A4 est mentionne, format A3 ou A4 et quantite en nombre de planches. Un mail qui contient au moins une piece jointe image ou PDF (ou un lien de telechargement) est une nouvelle_commande, meme si l'objet et le texte sont vides: une piece jointe seule signifie imprimer 1 exemplaire par fichier. Un mail sans piece jointe, sans lien et sans demande d'impression est de type autre. Un mail qui demande une nouvelle planche sans fichier ni lien est nouvelle_commande avec confiance basse. Une reponse a un devis ou a une proposition commerciale (validation, preuve de paiement, virement, question sur le devis) n'est PAS une nouvelle_commande : type question. Une preuve de paiement ou une facture jointe n'est pas un fichier a imprimer. Champ fichiers : une entree par piece jointe listee, dans le meme ordre, {nom: nom exact du fichier, quantite: nombre de metres (ou de planches si A3/A4) pour CE fichier, ou null si le mail ne permet pas de le savoir}. Si le client demande plusieurs exemplaires d'un visuel (ex. le logo en 2 exemplaires, P2 x3, fichier X sur 2 m), mets-le sur ce fichier. Si rien n'est precise par fichier : 1 pour chaque fichier, sauf si un metrage total est donne pour plusieurs fichiers sans detail (alors null). Un seul fichier : sa quantite = la quantite totale. quantite (total) = somme des quantites par fichier quand elles sont toutes connues. Les champs format et quantite ne doivent jamais etre null: par defaut format = metre et quantite = nombre de fichiers joints (1 minimum).`;
 
-async function analyser({ expediteur, sujet, nbPj, corps }) {
+async function analyser({ expediteur, sujet, nbPj, corps, nomsPj = [] }) {
   const key = process.env.CLAUDE_API_KEY;
   if (!key) throw new Error('CLAUDE_API_KEY non configurée');
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({ model: MODELE, max_tokens: 600, system: SYSTEME,
-      messages: [{ role: 'user', content: `Expediteur: ${expediteur}\nObjet: ${sujet}\nNombre de pieces jointes: ${nbPj}\nTexte:\n${String(corps).slice(0, 3000)}` }] }),
+      messages: [{ role: 'user', content: `Expediteur: ${expediteur}\nObjet: ${sujet}\nNombre de pieces jointes: ${nbPj}${nomsPj.length ? `\nPieces jointes (dans l'ordre): ${nomsPj.join(' | ')}` : ''}\nTexte:\n${String(corps).slice(0, 3000)}` }] }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error(`Claude : ${j.error?.message || res.status}`);
@@ -37,6 +37,12 @@ async function analyser({ expediteur, sujet, nbPj, corps }) {
   const a = JSON.parse(t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1));
   a.format = /^a[34]$/i.test(a.format || '') ? String(a.format).toUpperCase() : 'metre';
   a.quantite = Number(a.quantite) > 0 ? Number(a.quantite) : Math.max(1, nbPj);
+  // Quantité par fichier (dans l'ordre des pièces jointes) : nombre, ou null si inconnue
+  const parNom = new Map((Array.isArray(a.fichiers) ? a.fichiers : []).map(f => [String(f.nom || '').trim().toLowerCase(), Number(f.quantite) > 0 ? Number(f.quantite) : null]));
+  let q = nomsPj.map((n, i) => parNom.has(n.trim().toLowerCase()) ? parNom.get(n.trim().toLowerCase()) : (Array.isArray(a.fichiers) && a.fichiers[i] && Number(a.fichiers[i].quantite) > 0 ? Number(a.fichiers[i].quantite) : undefined));
+  if (q.some(x => x === undefined)) q = nomsPj.length === 1 ? [a.quantite] : a.quantite === nomsPj.length ? nomsPj.map(() => 1) : nomsPj.map(() => null);
+  a.quantites = q;
+  if (q.length && q.every(x => x > 0)) a.quantite = Math.round(q.reduce((t, x) => t + x, 0) * 100) / 100;
   return a;
 }
 
@@ -60,8 +66,9 @@ async function setReglage(cle, valeur) {
   if (supabase) await supabase.from('gestion_reglages').upsert({ cle, valeur, updated_at: new Date().toISOString() });
 }
 
-// Dépôt des PJ : « Client - P<n>.ext », n = fichiers du client déjà présents + 1
-async function deposer(client, pjs) {
+// Dépôt des PJ : « Client - P<n> - 2M.ext » (métrage de CE fichier, s'il est connu), n = fichiers du client déjà présents + 1
+const qteNom = (q, format) => !(q > 0) ? '' : format && format !== 'metre' ? ` - ${q}x${format}` : ` - ${String(q).replace('.', ',')}M`;
+async function deposer(client, pjs, quantites = [], format = 'metre') {
   const { root, D } = await planches.dossierPlanches();
   const dossier = (await g.children(root.id, D)).find(i => i.folder && i.name.trim().toUpperCase() === 'PLANCHES A IMPRIMER');
   if (!dossier) throw new Error('Dossier PLANCHES A IMPRIMER introuvable');
@@ -71,7 +78,7 @@ async function deposer(client, pjs) {
     const existants = (await g.children(dossier.id, D)).filter(i => i.file && i.name.includes(nomSur)).length;
     const ext = (pj.name.match(/\.[A-Za-z0-9]+$/) || ['.png'])[0].toLowerCase();
     const buf = pj.buffer || Buffer.from(pj.contentBytes, 'base64');
-    const it = await g.uploadFile(dossier.id, `${nomSur} - P${existants + 1}${ext}`, buf, pj.contentType, D);
+    const it = await g.uploadFile(dossier.id, `${nomSur} - P${existants + 1}${qteNom(quantites[noms.length], format)}${ext}`, buf, pj.contentType, D);
     noms.push(it.name);
   }
   return noms;
@@ -112,17 +119,18 @@ async function traiter(m) {
   const rep = await reponseDevis(m, corpsComplet, pjsAdmin);
   if (rep) return rep;
   // L'analyse ne voit que la partie nouvelle du mail (le devis cité ne doit pas être pris pour une commande)
-  const a = await analyser({ expediteur, sujet: m.subject || '', nbPj: pjs.length, corps: sansCitation(corpsComplet) || corpsComplet });
+  const a = await analyser({ expediteur, sujet: m.subject || '', nbPj: pjs.length, corps: sansCitation(corpsComplet) || corpsComplet, nomsPj: pjs.map(x => x.name || '') });
   if (a.type !== 'nouvelle_commande' && a.type !== 'complement') return `ignoré (${a.type}) : ${m.subject || '(sans objet)'}`;
 
   const emailClient = a.email_client || expediteur;
   let client = emailClient;
   try { const p = await require('./odoo').partnerParEmail(emailClient); if (p) client = p.name; } catch (err) { console.error('Planche mail (Odoo) :', err.message); }
 
-  const fichiers = pjs.length ? await deposer(client, pjs) : [];
+  const fichiers = pjs.length ? await deposer(client, pjs, a.quantites || [], a.format) : [];
   const metres = a.format === 'metre' ? String(a.quantite) : a.format;
   const aAjuster = a.format !== 'metre' && a.quantite > 1;
-  const remarque = `${a.lien_sans_pj ? 'LIEN - fichier à télécharger. ' : ''}${aAjuster ? `${a.format} x${a.quantite} - A AJUSTER. ` : ''}${a.resume || ''}`.trim();
+  const detail = (a.quantites || []).some(q => q > 1) ? `Détail : ${fichiers.map(f => f.replace(/\.[^.]+$/, '')).join(' ; ')}. ` : '';
+  const remarque = `${a.lien_sans_pj ? 'LIEN - fichier à télécharger. ' : ''}${aAjuster ? `${a.format} x${a.quantite} - A AJUSTER. ` : ''}${detail}${a.resume || ''}`.trim();
 
   const statut = a.confiance === 'basse' || aAjuster ? 'A VERIFIER' : 'A PREPARER';
   // Complément : fusion dans la dernière planche du client sans devis (A PREPARER / A VERIFIER), comme le script Excel
