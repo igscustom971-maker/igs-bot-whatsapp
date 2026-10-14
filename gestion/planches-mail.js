@@ -20,7 +20,7 @@ const statutKey = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').
 const texte = html => String(html || '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').trim();
 
 // Consigne d'analyse reprise telle quelle du flux Power Automate
-const SYSTEME = `Tu analyses des mails recus par un imprimeur DTF textile. Reponds uniquement avec un objet JSON, sans texte autour. Champs: type (nouvelle_commande, complement, question, autre), email_client (le vrai client; si l'expediteur est wetransfer ou un service similaire, prends l'email cite dans le texte), format (metre, A3 ou A4), quantite (nombre), lien_sans_pj (true ou false), confiance (haute, moyenne, basse), resume (une phrase). Regles de quantite: 1) si un metrage est ecrit dans le mail (objet ou texte), prends-le; 56x100 cm ou 100 cm = 1 metre. 2) sinon, si un nombre d'exemplaires est ecrit, quantite = exemplaires, 1 metre chacun. 3) sinon, 1 par fichier joint, ou 1 si seulement un lien. 4) si A3 ou A4 est mentionne, format A3 ou A4 et quantite en nombre de planches. Un mail qui contient au moins une piece jointe image ou PDF (ou un lien de telechargement) est une nouvelle_commande, meme si l'objet et le texte sont vides: une piece jointe seule signifie imprimer 1 exemplaire par fichier. Un mail sans piece jointe, sans lien et sans demande d'impression est de type autre. Un mail qui demande une nouvelle planche sans fichier ni lien est nouvelle_commande avec confiance basse. Les champs format et quantite ne doivent jamais etre null: par defaut format = metre et quantite = nombre de fichiers joints (1 minimum).`;
+const SYSTEME = `Tu analyses des mails recus par un imprimeur DTF textile. Reponds uniquement avec un objet JSON, sans texte autour. Champs: type (nouvelle_commande, complement, question, autre), email_client (le vrai client; si l'expediteur est wetransfer ou un service similaire, prends l'email cite dans le texte), format (metre, A3 ou A4), quantite (nombre), lien_sans_pj (true ou false), confiance (haute, moyenne, basse), resume (une phrase). Regles de quantite: 1) si un metrage est ecrit dans le mail (objet ou texte), prends-le; 56x100 cm ou 100 cm = 1 metre. 2) sinon, si un nombre d'exemplaires est ecrit, quantite = exemplaires, 1 metre chacun. 3) sinon, 1 par fichier joint, ou 1 si seulement un lien. 4) si A3 ou A4 est mentionne, format A3 ou A4 et quantite en nombre de planches. Un mail qui contient au moins une piece jointe image ou PDF (ou un lien de telechargement) est une nouvelle_commande, meme si l'objet et le texte sont vides: une piece jointe seule signifie imprimer 1 exemplaire par fichier. Un mail sans piece jointe, sans lien et sans demande d'impression est de type autre. Un mail qui demande une nouvelle planche sans fichier ni lien est nouvelle_commande avec confiance basse. Une reponse a un devis ou a une proposition commerciale (validation, preuve de paiement, virement, question sur le devis) n'est PAS une nouvelle_commande : type question. Une preuve de paiement ou une facture jointe n'est pas un fichier a imprimer. Les champs format et quantite ne doivent jamais etre null: par defaut format = metre et quantite = nombre de fichiers joints (1 minimum).`;
 
 async function analyser({ expediteur, sujet, nbPj, corps }) {
   const key = process.env.CLAUDE_API_KEY;
@@ -77,13 +77,42 @@ async function deposer(client, pjs) {
   return noms;
 }
 
+// Partie nouvelle d'une réponse (sans le message cité : « Le mar. 13 oct. … a écrit : », « De : … », « -----Original »)
+const sansCitation = t => String(t || '').split(/(?:^|\s)(?:Le (?:lun|mar|mer|jeu|ven|sam|dim)?.{3,120}?a écrit ?:|On .{5,120}?wrote:|De ?: ?\S+@|From: ?\S|Envoyé ?: |-{3,} ?(?:Original|Message d'origine|Message transféré)|_{8,})/i)[0].trim();
+// Pièce jointe qui n'est pas un fichier à imprimer (preuve de paiement, facture, RIB…)
+const PJ_ADMIN = /paiement|virement|preuve|re[cç]u|facture|justificatif|rib\b|avis.?d.?op|bon.?de.?commande|devis/i;
+
+// Réponse du client à un de NOS devis (« Re: Votre devis DE2601090… », preuve de paiement, validation, question) :
+// ce n'est pas une nouvelle planche -> remarque sur la planche du devis, jamais de doublon
+async function reponseDevis(m, corps, pjsAdmin) {
+  const sujet = m.subject || '';
+  const tout = `${sujet}\n${corps}`;
+  const numeros = [...new Set((tout.match(/\bDE\d{6,}(?:-R\d+)?\b/gi) || []).map(x => x.toUpperCase()))];
+  const estReponse = /^\s*(re|tr|fw|fwd|réf)\s*:/i.test(sujet) || /a écrit ?:|wrote:|proposition commerciale|accepter (?:&|et) payer le devis/i.test(corps);
+  if (!numeros.length || !estReponse) return null;
+  const { rows } = await planches.listPlanches({ force: true });
+  const p = rows.find(x => numeros.includes(String(x.n_devis || '').toUpperCase()));
+  if (!p) return null;
+  const nouveau = sansCitation(corps).replace(/\s+/g, ' ').slice(0, 160);
+  const quoi = pjsAdmin.length ? `📎 ${pjsAdmin.map(x => x.name).join(', ')} (preuve de paiement ?)` : 'réponse du client';
+  const rq = [`✉️ ${new Date().toLocaleDateString('fr-FR', { timeZone: 'America/Guadeloupe' })} : ${quoi}${nouveau ? ` « ${nouveau} »` : ''} : paiement à vérifier dans Odoo`, p.remarques].filter(Boolean).join(' | ').slice(0, 500);
+  await planches.modifier(p.cle, { remarques: rq }, 'Mail planche');
+  return `réponse au devis ${p.n_devis} (${p.client}) : remarque ajoutée, pas de nouvelle planche`;
+}
+
 // Traitement d'un mail ; renvoie un résumé
 async function traiter(m) {
   const u = `/users/${encodeURIComponent(MAILBOX)}/messages/${encodeURIComponent(m.id)}`;
   const expediteur = m.from?.emailAddress?.address || '';
   const att = (await g.graph(`${u}/attachments?$top=50`)).value || [];
-  const pjs = att.filter(a => a['@odata.type'] === '#microsoft.graph.fileAttachment' && !a.isInline && /\.(png|pdf)$/i.test(a.name || ''));
-  const a = await analyser({ expediteur, sujet: m.subject || '', nbPj: pjs.length, corps: texte(m.body?.content || m.bodyPreview) });
+  const fichiersPj = att.filter(a => a['@odata.type'] === '#microsoft.graph.fileAttachment' && !a.isInline && /\.(png|pdf)$/i.test(a.name || ''));
+  const pjsAdmin = fichiersPj.filter(a => PJ_ADMIN.test(a.name || ''));
+  const pjs = fichiersPj.filter(a => !PJ_ADMIN.test(a.name || ''));
+  const corpsComplet = texte(m.body?.content || m.bodyPreview);
+  const rep = await reponseDevis(m, corpsComplet, pjsAdmin);
+  if (rep) return rep;
+  // L'analyse ne voit que la partie nouvelle du mail (le devis cité ne doit pas être pris pour une commande)
+  const a = await analyser({ expediteur, sujet: m.subject || '', nbPj: pjs.length, corps: sansCitation(corpsComplet) || corpsComplet });
   if (a.type !== 'nouvelle_commande' && a.type !== 'complement') return `ignoré (${a.type}) : ${m.subject || '(sans objet)'}`;
 
   const emailClient = a.email_client || expediteur;
