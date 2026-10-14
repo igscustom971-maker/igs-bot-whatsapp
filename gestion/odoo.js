@@ -580,7 +580,9 @@ async function importerFactureFournisseur({ nom, mimetype, buffer, note, ref }) 
   const att = typeof attId === 'object' ? attId.id : attId;
   let ids = [];
   try {
-    const action = await kw('account.journal', 'create_document_from_attachment', [[journal.id], [att]]);
+    // Même contexte que le bouton « Téléverser » des factures fournisseurs : sans lui, Odoo crée une simple
+    // « écriture » (pas une facture) et ne lance ni la lecture de la facture électronique ni la numérisation (OCR)
+    const action = await kw('account.journal', 'create_document_from_attachment', [[journal.id], [att]], { context: { default_move_type: 'in_invoice', default_journal_id: journal.id, active_model: 'account.journal', active_id: journal.id } });
     if (action && action.res_id) ids = [action.res_id];
     else if (action && Array.isArray(action.domain)) { const d = action.domain.find(x => Array.isArray(x) && x[0] === 'id'); if (d) ids = [].concat(d[2]); }
   } catch (err) { console.error('Odoo : téléversement de facture fournisseur, repli sur une facture brouillon :', err.message); }
@@ -592,6 +594,15 @@ async function importerFactureFournisseur({ nom, mimetype, buffer, note, ref }) 
     ids = [mid];
   }
   const id = ids[0];
+  // Garde-fou : document créé comme écriture -> remis en facture fournisseur ; puis numérisation (OCR) si pas déjà lancée
+  try {
+    const [mv] = await kw('account.move', 'read', [[id]], { fields: ['move_type', 'state', 'line_ids'] });
+    if (mv && mv.move_type === 'entry' && mv.state === 'draft' && !(mv.line_ids || []).length) await kw('account.move', 'write', [[id], { move_type: 'in_invoice' }]);
+  } catch (err) { console.error('Odoo type de la facture fournisseur :', err.message); }
+  try {
+    const [ex] = await kw('account.move', 'read', [[id]], { fields: ['extract_state'] });
+    if (ex && ['no_extract_requested', 'not_enough_credit', 'error_status'].includes(ex.extract_state)) await kw('account.move', 'action_manual_send_for_digitization', [[id]]);
+  } catch (err) { console.error('Odoo numérisation de la facture fournisseur :', err.message); }
   if (ref) { try { await kw('account.move', 'write', [[id], { ref }]); } catch (err) { console.error('Odoo référence facture fournisseur :', err.message); } }
   if (note) { try { await kw('account.move', 'message_post', [[id]], { body: note, message_type: 'comment', subtype_xmlid: 'mail.mt_note' }); } catch (err) { console.error('Odoo note facture fournisseur :', err.message); } }
   const [m] = await kw('account.move', 'read', [[id]], { fields: ['name', 'state', 'partner_id', 'amount_total'] });
