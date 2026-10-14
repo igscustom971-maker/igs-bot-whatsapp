@@ -871,7 +871,20 @@ async function traiterMessageEntrant(message, profil) {
   // Messages sans texte : VOCAUX, images/fichiers, et tout le reste (réactions 👍, stickers, localisation...) = ignoré
   // Image / PDF : regardée par Claude ; vocal : transcrit (si OPENAI_API_KEY) -> le message devient du texte pour Leïla
   if (!text && ['image', 'document', 'audio'].includes(message.type) && !tropDeMessages(`media:${from}`, 15)) {
-    const t = await require('./gestion/medias').enTexte(message, { ismael: !!(RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) });
+    const medias = require('./gestion/medias');
+    let t = await medias.enTexte(message, { ismael: !!(RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) });
+    if (t && t.startsWith(medias.HORS_SUJET)) {
+      // Image sans rapport avec l'activité (vœux, mème, chaîne…) : gardée dans l'historique, aucune réponse, rien au récap.
+      // Avec une légende, Leïla répond seulement à la légende.
+      t = t.slice(medias.HORS_SUJET.length);
+      const legende = message.image?.caption;
+      if (!legende) {
+        try { await db.appendMessage(from, 'user', t); } catch (e) {}
+        console.log(`Image sans rapport ignorée pour ${from}`);
+        return;
+      }
+      t = legende;
+    }
     if (t) { text = t; console.log(`Média ${message.type} de ${from} interprété`); }
   }
   if (!text && message.type && message.type !== 'text') {
