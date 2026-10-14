@@ -55,7 +55,8 @@ async function transcrire(buf, mime) {
 }
 
 // Message WhatsApp (image / document / audio) -> texte pour Leïla, ou null si rien d'exploitable
-async function enTexte(message) {
+async function enTexte(message, { ismael = false } = {}) {
+  const qui = ismael ? 'Ismaël' : 'le client';
   if (process.env.MEDIAS_ANALYSE === 'off') return null;
   try {
     if (message.type === 'image' && message.image?.id) {
@@ -63,7 +64,7 @@ async function enTexte(message) {
       const m = IMAGES.includes(mime) ? mime : (IMAGES.includes(message.image.mime_type) ? message.image.mime_type : null);
       if (!m || buf.length > MAX_IMAGE) return null;
       const d = await decrire(buf, m, message.image.caption);
-      return d ? `[Image envoyée par le client : ${d}]${message.image.caption ? `\n${message.image.caption}` : ''}` : null;
+      return d ? `[Image envoyée par ${qui} : ${d}]${message.image.caption ? `\n${message.image.caption}` : ''}` : null;
     }
     if (message.type === 'document' && message.document?.id) {
       const nom = message.document.filename || 'document';
@@ -73,13 +74,14 @@ async function enTexte(message) {
       const m = mime === 'application/pdf' || IMAGES.includes(mime) ? mime : mt;
       if (buf.length > (m === 'application/pdf' ? MAX_PDF : MAX_IMAGE)) return null;
       const d = await decrire(buf, m, message.document.caption);
-      return d ? `[Fichier « ${nom} » envoyé par le client : ${d}]${message.document.caption ? `\n${message.document.caption}` : ''}` : null;
+      return d ? `[Fichier « ${nom} » envoyé par ${qui} : ${d}]${message.document.caption ? `\n${message.document.caption}` : ''}` : null;
     }
     if (message.type === 'audio' && message.audio?.id && process.env.OPENAI_API_KEY) {
       const { buf, mime } = await telecharger(message.audio.id);
       if (buf.length > MAX_AUDIO) return null;
       const t = await transcrire(buf, mime || message.audio.mime_type);
-      return t ? `[Message vocal du client, transcription automatique : « ${t} »]` : null;
+      // Vocal d'Ismaël à son assistante : le texte tel quel (ses demandes « récap », « devis pour… » marchent à la voix)
+      return t ? (ismael ? t : `[Message vocal du client, transcription automatique : « ${t} »]`) : null;
     }
   } catch (err) {
     console.error(`Médias WhatsApp (${message.type}) :`, err.message);

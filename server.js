@@ -869,7 +869,7 @@ async function traiterMessageEntrant(message, profil) {
   // Messages sans texte : VOCAUX, images/fichiers, et tout le reste (réactions 👍, stickers, localisation...) = ignoré
   // Image / PDF : regardée par Claude ; vocal : transcrit (si OPENAI_API_KEY) -> le message devient du texte pour Leïla
   if (!text && ['image', 'document', 'audio'].includes(message.type) && !tropDeMessages(`media:${from}`, 15)) {
-    const t = await require('./gestion/medias').enTexte(message);
+    const t = await require('./gestion/medias').enTexte(message, { ismael: !!(RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) });
     if (t) { text = t; console.log(`Média ${message.type} de ${from} interprété`); }
   }
   if (!text && message.type && message.type !== 'text') {
