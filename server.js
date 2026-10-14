@@ -140,6 +140,8 @@ let manualOverride = null;
 
 // Mode test : si true, ignore l'attente des horaires ouvrés (réponse immédiate même hors horaires)
 let ignoreBusinessHours = false;
+// « Activer » (forcé actif) ou « Simuler heures d'ouverture » : Leïla répond tout de suite, quels que soient le jour et l'heure
+const horairesIgnores = () => ignoreBusinessHours || manualOverride === true;
 
 // Phrase exacte envoyée quand le bot ne sait pas répondre (déclenche une alerte pour Ismaël)
 const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !";
@@ -936,7 +938,7 @@ async function traiterMessageEntrant(message, profil) {
   try {
     const nowV = getGuadeloupeTime(new Date());
     const leilaGere = !isClosedForBreak(new Date()) && isBotDayActive(nowV.weekday)
-      && (ignoreBusinessHours || (!isHumanHandoffWindow(nowV.weekday, nowV.hour) && isWithinBusinessHours(nowV)))
+      && (horairesIgnores() || (!isHumanHandoffWindow(nowV.weekday, nowV.hour) && isWithinBusinessHours(nowV)))
       && !((lastIsmaelReplyAt[from] || 0) && Date.now() - lastIsmaelReplyAt[from] < REPRISE_EQUIPE_MS);
     if (!leilaGere) require('./gestion/leila').programmerVeillePlanche(from);
   } catch (err) { console.error('Veilleur planches :', err.message); }
@@ -1095,14 +1097,14 @@ async function processMessageNow(from, text, recuLe = Date.now()) {
   if (!isBotDayActive(nowCheck.weekday)) { await mettreEnAttente(from, text, recuLe); return 'attente'; }
 
   // Coupure de l'après-midi (mode auto uniquement) : priorité sur tout le reste
-  if (!ignoreBusinessHours && isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
+  if (!horairesIgnores() && isHumanHandoffWindow(nowCheck.weekday, nowCheck.hour)) {
     await handleAfternoonHandoff(from, text);
     return;
   }
 
   // Hors horaires : mis en attente (enregistrée en base), traité à l'ouverture en une seule réponse,
   // sauf si l'équipe a répondu entre-temps
-  if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) {
+  if (!horairesIgnores() && !isWithinBusinessHours(nowCheck)) {
     console.log(`Hors horaires — message de ${from} mis en attente jusqu'à l'ouverture`);
     await mettreEnAttente(from, text, recuLe);
     return 'attente';
@@ -1349,7 +1351,7 @@ async function flushBacklogIfActive() {
 
   const nowCheck = getGuadeloupeTime(new Date());
   if (!isBotDayActive(nowCheck.weekday)) return; // toujours inactif, rien à faire
-  if (!ignoreBusinessHours && !isWithinBusinessHours(nowCheck)) return; // attend l'ouverture
+  if (!horairesIgnores() && !isWithinBusinessHours(nowCheck)) return; // attend l'ouverture
 
   for (const from of Object.keys(backlogMessages)) {
     if (rattrapageEnCours.has(from)) continue;
@@ -1645,7 +1647,7 @@ app.get('/admin/activer', async (req, res) => {
   manualOverride = true;
   await sauverEtatLeila();
   await flushBacklogIfActive(); // traite les messages en attente depuis la dernière activité
-  res.send('✅ Bot ACTIVÉ manuellement (répond peu importe le jour)');
+  res.send('✅ Leïla ACTIVÉE : elle répond tout de suite, quels que soient le jour et l\'heure (jusqu\'à « Planning automatique » ou « Désactiver »)');
 });
 
 // Force le bot à ne jamais répondre — envoie le récap de la session manuelle en cours
@@ -1694,7 +1696,7 @@ function repondA(date) {
   if (isClosedForBreak(date)) return false;
   const t = getGuadeloupeTime(date);
   if (!isBotDayActive(t.weekday)) return false;
-  if (ignoreBusinessHours) return true;
+  if (horairesIgnores()) return true;
   return isWithinBusinessHours(t) && !isHumanHandoffWindow(t.weekday, t.hour);
 }
 function etatMaintenant() {

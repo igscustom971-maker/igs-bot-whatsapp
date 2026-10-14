@@ -510,7 +510,7 @@ ${view === 'accueil' ? `
         <div class="card"><h3>Statut</h3>
           <div id="lei-statut" class="lei-statut">…</div>
           <div class="btnrow"><button class="btn pink" data-lei="activer">▶ Activer</button><button class="btn" data-lei="desactiver">⏸ Désactiver</button><button class="btn" data-lei="auto">🔄 Planning automatique</button></div>
-          <div class="note" style="margin-top:8px">Automatique : Leïla répond selon son planning. Activer / Désactiver force son état jusqu’au retour en automatique. Les messages reçus quand elle est éteinte sont toujours enregistrés : elle a tout le contexte à son retour.</div>
+          <div class="note" style="margin-top:8px">Automatique : Leïla répond selon son planning. <b>Activer</b> : elle répond tout de suite, à toute heure et tous les jours (pratique pour un test le soir), jusqu’au retour en « Planning automatique ». Désactiver : elle ne répond plus jusqu’au retour en automatique. Les messages reçus quand elle est éteinte sont toujours enregistrés : elle a tout le contexte à son retour.</div>
         </div>
         ${user.role === 'admin' ? `<div class="card"><h3>Fermeture</h3>
           <div class="field"><label>Fermée jusqu’au (inclus)</label><input type="date" id="lei-date"></div>
