@@ -872,7 +872,11 @@ async function traiterMessageEntrant(message, profil) {
 
   // Messages sans texte : VOCAUX, images/fichiers, et tout le reste (réactions 👍, stickers, localisation...) = ignoré
   // Image / PDF : regardée par Claude ; vocal : transcrit (si OPENAI_API_KEY) -> le message devient du texte pour Leïla
-  if (!text && ['image', 'document', 'audio'].includes(message.type) && !tropDeMessages(`media:${from}`, 15)) {
+  // Leïla éteinte / désactivée / hors horaires : seuls les VOCAUX sont transcrits (pour repérer une urgence et prévenir
+  // Ismaël) ; images et PDF ne sont regardés que quand elle répond (ou pour le numéro d'Ismaël)
+  const estIsmael = !!(RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER);
+  const analyserMedia = message.type === 'audio' || estIsmael || repondA(new Date());
+  if (!text && analyserMedia && ['image', 'document', 'audio'].includes(message.type) && !tropDeMessages(`media:${from}`, 15)) {
     const medias = require('./gestion/medias');
     let t = await medias.enTexte(message, { ismael: !!(RECAP_PHONE_NUMBER && from === RECAP_PHONE_NUMBER) });
     if (t && t.startsWith(medias.HORS_SUJET)) {
