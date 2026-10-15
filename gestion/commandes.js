@@ -1167,12 +1167,13 @@ async function ajouterBordereau(cle, file, user) {
   const f = (await findCommandeFolder(row.n_devis)) || await dossierCommande(`${row.n_devis} - ${row.client || ''}`.replace(/[\\"*:<>?/|#%]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120), row.n_devis);
   if (!f) throw new Error(`Dossier « ${row.n_devis} - … » introuvable dans Clients/Commandes`);
   const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0].toLowerCase();
+  const lecture = require('./suivi-bordereau').lireSuivi(file); // n° de suivi lu en parallèle de l'envoi
   const it = await g.uploadFile(f.id, `BORDEREAU${ext}`, file.buffer, file.mimetype);
   const d = await getDossier(row.n_devis); // relit le dossier et met à jour la liste
   await majBordereaux(row.n_devis, d.bordereaux || []);
   if (supabase) await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'bordereau_ajoute', cle, details: { nom: it.name } });
   console.log(`Gestion : bordereau ${it.name} déposé pour ${cle} (${user})`);
-  return { bordereaux: d.bordereaux || [] };
+  return { bordereaux: d.bordereaux || [], suivi: await lecture };
 }
 
 async function supprimerBordereau(cle, itemId, user) {

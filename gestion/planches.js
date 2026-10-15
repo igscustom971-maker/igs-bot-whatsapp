@@ -345,12 +345,13 @@ async function ajouterBordereau(cle, file, user) {
   if (!file) throw new Error('Aucun fichier reçu');
   if (!/\.(pdf|png|jpe?g)$/i.test(file.originalname || '')) throw new Error('Format accepté : PDF, PNG ou JPG');
   const ext = (file.originalname.match(/\.[a-z0-9]+$/i) || ['.pdf'])[0].toLowerCase();
+  const lecture = require('./suivi-bordereau').lireSuivi(file); // n° de suivi lu en parallèle de l'envoi
   const { f, D } = await dossierBordereaux();
   const nom = `${sansInterdits(cle)} - ${sansInterdits(p.client).slice(0, 60)} - BORDEREAU${ext}`;
   const it = await g.uploadFile(f.id, nom, file.buffer, file.mimetype, D, 'rename');
   await journal(user, 'bordereau_ajoute', cle, { nom: it.name });
   console.log(`Gestion : bordereau ${it.name} déposé pour la planche ${cle} (${user})`);
-  return { bordereaux: await bordereaux(cle) };
+  return { bordereaux: await bordereaux(cle), suivi: await lecture };
 }
 async function supprimerBordereau(cle, itemId, user) {
   const liste = await bordereaux(cle);
