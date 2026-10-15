@@ -165,4 +165,4 @@ async function faire(cle, data, user) {
   return { devis: c.n_devis, total, etapes, lien: odooR?.lien || null };
 }
 
-module.exports = { preparer, ajouter, _test: { ajouterTailles, nettoyer, prochainEnvoi } };
+module.exports = { fichierTailles, preparer, ajouter, _test: { ajouterTailles, nettoyer, prochainEnvoi } };

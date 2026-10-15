@@ -205,6 +205,7 @@ function mount(app) {
   app.get('/gestion/apprentissage.js', statique('apprentissage.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/sefi-bdc.js', statique('sefi-bdc.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/depot.js', statique('depot.js', 'text/javascript; charset=utf-8', 300));
+  app.get('/gestion/tailles-edit.js', statique('tailles-edit.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/objectifs.js', statique('objectifs.js', 'text/javascript; charset=utf-8', 300));
   // pdf.js (navigateur) : conversion des logos PDF en image
   for (const f of ['pdf.min.mjs', 'pdf.worker.min.mjs']) app.get(`/gestion/pdfjs/${f}`, (req, res) => res.set({ 'Cache-Control': 'public, max-age=604800', 'Content-Type': 'text/javascript; charset=utf-8' }).sendFile(require.resolve(`pdfjs-dist/build/${f}`)));

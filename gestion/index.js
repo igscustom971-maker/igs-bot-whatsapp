@@ -534,6 +534,17 @@ module.exports = function mountGestion(app) {
     try { res.json(await commandes.setPrioritaire(req.params.cle, !!req.body?.actif, req.user.name || req.user.email)); }
     catch (err) { res.status(400).json({ error: err.message }); }
   });
+  // Tableau des tailles (Tailles.xlsx) modifiable depuis la fiche : stock de vierges pris en priorité, BDC SEFI resynchronisé
+  app.get('/gestion/api/commandes/:cle/tailles', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./tailles-edit').lire(req.params.cle)); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/tailles/apercu', auth.requireUser, async (req, res) => {
+    try { res.json({ apercu: await require('./tailles-edit').apercu(req.body?.lignes) }); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/commandes/:cle/tailles', auth.requireUser, async (req, res) => {
+    try { res.json(await require('./tailles-edit').enregistrer(req.params.cle, req.body || {}, req.user.name || req.user.email)); }
+    catch (err) { console.error('Gestion tailles :', err.message); res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/commandes/:cle/especes', auth.requireUser, async (req, res) => {
     try { res.json({ commande: await commandes.setEspeces(req.params.cle, { actif: !!req.body?.actif, montant: req.body?.montant }, req.user.name || req.user.email) }); }
     catch (err) { res.status(400).json({ error: err.message }); }

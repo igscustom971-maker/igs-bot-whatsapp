@@ -275,6 +275,17 @@ async function uploadFile(parentId, name, buffer, contentType, o, conflit = 'ren
   return last.json();
 }
 
+// Remplace le contenu d'un fichier existant (même élément, même lien, version précédente gardée par SharePoint)
+async function remplacerContenu(itemId, buffer, contentType, o) {
+  if (buffer.length >= 4 * 1024 * 1024) throw new Error('Fichier trop lourd pour être remplacé directement');
+  const res = await fetch(`${GRAPH}${await D(o)}/items/${encodeURIComponent(itemId)}/content`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${await appToken()}`, 'Content-Type': contentType || 'application/octet-stream' }, body: buffer,
+  });
+  if (res.status === 423) throw new Error('Le fichier est ouvert et verrouillé (Excel) : ferme-le puis réessaie');
+  if (!res.ok) throw new Error(`Enregistrement du fichier refusé : ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return res.json();
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
@@ -319,4 +330,4 @@ async function deleteTableRow(itemId, table, index, o) {
   throw new Error(`Suppression de la ligne ${index} du tableau ${table} impossible`);
 }
 
-module.exports = { deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, childrenMiniatures, tableRange, thumbnailUrl, content, norm };
+module.exports = { remplacerContenu, deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, childrenMiniatures, tableRange, thumbnailUrl, content, norm };

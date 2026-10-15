@@ -27,10 +27,20 @@ async function ecrireLignes(buf, lignes, nomTable = 'LignesCommande') {
   const noms = [...tableXml.matchAll(/<tableColumn\b[^>]*\sname="([^"]*)"/g)].map(m => m[1]);
   const idx = {}; noms.forEach((n, i) => { idx[key(n)] = colI(c0) + i; });
   const ordre = [['typedeproduit', 'type'], ['couleur', 'couleur'], ['qte', 'quantite'], ['taille', 'taille'], ['coupe', 'coupe'], ['nomduvisueltexte', 'visuel'], ['remarques', 'remarques']];
-  const cols = ordre.map(([h]) => idx[h]);
-  if (cols.some(c => c === undefined)) throw new Error(`colonnes inattendues (${noms.join(' | ')})`);
-  const premiere = Number(r0) + 1, derniere = Number(r1);
-  if (lignes.length > derniere - premiere + 1) throw new Error(`trop de lignes (${lignes.length}) pour le modèle (${derniere - premiere + 1} max)`);
+  const cols = ordre.map(([h]) => idx[h] ?? (h === 'nomduvisueltexte' ? (idx.nomduvisuel ?? idx.visuel) : h === 'remarques' ? idx.remarque : h === 'qte' ? idx.quantite : undefined));
+  if (cols.slice(0, 4).some(c => c === undefined)) throw new Error(`colonnes inattendues (${noms.join(' | ')})`);
+  const premiere = Number(r0) + 1;
+  let derniere = Number(r1);
+  // Plus de lignes que le tableau n'en a : le tableau est agrandi (plage du tableau et de son filtre)
+  if (lignes.length > derniere - premiere + 1) {
+    if (/totalsRowCount="[1-9]/.test(tableXml)) throw new Error(`trop de lignes (${lignes.length}) pour le modèle (${derniere - premiere + 1} max)`);
+    if (lignes.length > 300) throw new Error('trop de lignes (300 max)');
+    const [, , , c1] = ref.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
+    derniere = premiere + lignes.length - 1;
+    const nouvelle = `${c0}${r0}:${c1}${derniere}`;
+    tableXml = tableXml.replace(/(<table\b[^>]*\sref=")[^"]+"/, `$1${nouvelle}"`).replace(/(<autoFilter\b[^>]*\sref=")[^"]+"/, `$1${nouvelle}"`);
+    zip.file(tablePath, tableXml);
+  }
   // 2. La feuille qui contient ce tableau
   const tableFichier = tablePath.split('/').pop();
   let feuillePath = null;
@@ -49,7 +59,7 @@ async function ecrireLignes(buf, lignes, nomTable = 'LignesCommande') {
   for (let r = premiere; r <= derniere; r++) {
     const l = lignes[r - premiere];
     const valeurs = {};
-    ordre.forEach(([, f], j) => { const v = l ? l[f] : ''; valeurs[cols[j]] = f === 'quantite' && l ? Number(v) || 0 : (v ?? ''); });
+    ordre.forEach(([, f], j) => { if (cols[j] === undefined) return; const v = l ? l[f] : ''; valeurs[cols[j]] = f === 'quantite' && l ? Number(v) || 0 : (v ?? ''); });
     const reRow = new RegExp(`<row\\b[^>]*\\br="${r}"[^>]*?(?:/>|>([\\s\\S]*?)</row>)`);
     const m = xml.match(reRow);
     if (!m) {

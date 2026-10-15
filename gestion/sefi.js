@@ -94,6 +94,124 @@ const lignesFeuille = async (id, sheet) => ((await g.usedRange(id, sheet))?.valu
 let file = Promise.resolve();
 const enFile = fn => { const p = file.then(fn, fn); file = p.catch(() => {}); return p; };
 
+// Une ligne du tableau des tailles -> article SEFI (null : pas commandé chez SEFI ou incomplet)
+function analyser(l) {
+  const produit = txt(l.produit);
+  let couleur = txt(l.couleur);
+  const coupe = txt(l.coupe) || 'Unisexe';
+  const qte = num(l.qte);
+  if (!produit || !couleur || qte <= 0) return null;
+  const pl = produit.toLowerCase();
+  // Pas commandé chez SEFI : textile fourni, « autre », tablier (fournisseur Wordans, ~9 € l'unité)
+  // (Eco cup / gobelets : objets commandés hors SEFI)
+  if (pl === 't-shirt fourni' || pl.startsWith('autre :') || pl.startsWith('autre:') || /^tablier/.test(pl) || /^eco ?cup|gobelet/.test(pl)) return null;
+  if (NORM_COULEUR[couleur]) couleur = NORM_COULEUR[couleur];
+  let taille = txt(l.taille);
+  if (!taille && (produit === 'Casquette' || produit === 'Tote Bag')) taille = 'TU';
+  if (!taille) return null;
+  if (NORM_TAILLE[taille]) taille = NORM_TAILLE[taille];
+  const iTaille = TAILLES.indexOf(maj(taille));
+  if (iTaille < 0) return null;
+  // T-shirt vierge (vendu sans flocage) : même article SEFI qu'un T-shirt
+  const prodSefi = /^t-?shirt vierge/i.test(produit) ? 'T-Shirt' : produit;
+  const refBase = ENFANTS.includes(maj(taille)) && prodSefi === 'T-Shirt' ? 'REGENT KIDS' : (REFS[prodSefi + coupe] || prodSefi.toUpperCase());
+  const code = CODES_MODELE[refBase] ? (CODES_MODELE[refBase][couleur] || '???') : (CODES[couleur] || '???');
+  const refComplete = `${refBase} ${couleur.toUpperCase()} ${code}`;
+  const prix = TARIFS_BLANC_COULEUR[refBase] ? TARIFS_BLANC_COULEUR[refBase][couleur === 'Blanc' ? 0 : 1]
+    : ((GRANDES.includes(maj(taille)) ? TARIFS_3XL[refBase] : TARIFS[refBase]) || 0);
+  return { produit, couleur, coupe, qte, taille, iTaille, refBase, refComplete, prix };
+}
+// Ligne du stock de vierges qui correspond (réf. exacte, sinon réf. qui la contient)
+function ligneStockDe(stock, refBase, couleur, taille) {
+  if (!stock) return null;
+  let exact = null, inclus = null;
+  for (const r of stock) {
+    if (maj(r.couleur) !== maj(couleur) || maj(r.taille).replace(/^2XL$/, 'XXL') !== maj(taille)) continue;
+    const s = maj(r.reference);
+    if (s === maj(refBase)) { exact = r; break; }
+    if (!inclus && s && s.includes(maj(refBase))) inclus = r;
+  }
+  return exact || inclus;
+}
+
+// Aperçu sans rien écrire : pour chaque ligne, ce qui serait pris dans le stock et commandé chez SEFI
+async function apercu(lignes) {
+  let stock = null;
+  try { stock = await require('./stock').vierges(); } catch {}
+  const restant = new Map();
+  return lignes.map(l => {
+    const a = analyser(l);
+    if (!a) return { sefi_article: false };
+    const ls = ligneStockDe(stock, a.refBase, a.couleur, a.taille);
+    const dispo = ls ? (restant.has(ls) ? restant.get(ls) : num(ls.quantite)) : 0;
+    const pris = Math.min(dispo, a.qte);
+    if (ls) restant.set(ls, dispo - pris);
+    return { sefi_article: true, ref: a.refComplete, taille: a.taille, en_stock: ls ? num(ls.quantite) : 0, pris, sefi: a.qte - pris, inconnu: /\?\?\?/.test(a.refComplete) };
+  });
+}
+
+// Le devis est-il dans le bon de commande en cours (pas encore envoyé à SEFI) ?
+async function devisDansBdc(nDevis) {
+  const L = await lireLot(await bdc());
+  const d = maj(nDevis);
+  return { dans: L.devis.some(x => maj(x) === d), lignes: L.detail.filter(l => maj(l.devis) === d && !/\(ajout manuel\)$/.test(l.client)) };
+}
+
+// Retire un devis du bon de commande en cours (avant de le remplir à nouveau avec le tableau modifié) :
+// quantités SEFI enlevées, pièces prises en stock remises dans le stock, lignes DETAIL / DEVIS_EN_COURS retirées.
+// Les ajouts manuels de l'onglet BDC SEFI restent.
+async function retirerDevis(nDevis, par = 'Dashboard') {
+  const d = maj(nDevis);
+  return enFile(async () => {
+    const verrou = await reglage('sefi_verrou', '');
+    if (verrou) throw new Error(`BDC SEFI bloqué (${verrou}) : réessaie après l'envoi ou débloque dans Admin`);
+    const id = await bdc();
+    const zone = (await g.readRange(id, F, 'A17:Q48')).values;
+    const det = await lignesFeuille(id, 'DETAIL_COMMANDE');
+    const aRetirer = det.slice(2).filter(r => maj(r[0]) === d && !/\(ajout manuel\)$/.test(txt(r[1])));
+    const modifs = new Map();
+    let stock = null;
+    try { stock = await require('./stock').vierges(); } catch {}
+    const rendus = new Map(); // ligne de stock -> pièces à remettre
+    for (const r of aRetirer) {
+      const ref = txt(r[2]), couleur = txt(r[3]), taille = maj(r[4]), pris = Math.round(num(r[6])), sefi = Math.round(num(r[7]));
+      const iT = TAILLES.indexOf(NORM_TAILLE[taille] || taille);
+      if (sefi > 0 && iT >= 0) {
+        for (let k = 0; k < 32; k += 2) if (maj(zone[k][0]) === maj(ref)) {
+          const v = Math.max(0, Math.round(num(zone[k][iT + 1])) - sefi);
+          zone[k][iT + 1] = v; modifs.set(`${colLettre(iT + 1)}${17 + k}`, v || '');
+          break;
+        }
+      }
+      if (pris > 0) {
+        const pos = ref.toUpperCase().lastIndexOf(` ${couleur.toUpperCase()} `);
+        const refBase = pos > 0 ? ref.slice(0, pos) : ref;
+        const ls = ligneStockDe(stock, refBase, couleur, taille);
+        if (ls) rendus.set(ls, (rendus.get(ls) || 0) + pris);
+      }
+    }
+    for (const [adr, v] of modifs) await g.patchRange(id, F, adr, [[v]]);
+    for (let k = 0; k < 32; k += 2) if (txt(zone[k][0]) && !zone[k].slice(1, 17).some(x => num(x) > 0)) await g.clearRange(id, F, `A${17 + k}:Q${17 + k}`);
+    // Feuilles de détail réécrites sans ce devis (pas de trou : le remplissage écrit à la première ligne vide)
+    const reecrire = async (nom, lignes, debut, nbCol) => {
+      const garde = lignes.slice(debut).filter(r => txt(r[0]) && !(maj(r[0]) === d && (nom === 'DEVIS_EN_COURS' || !/\(ajout manuel\)$/.test(txt(r[1])))));
+      const total = lignes.slice(debut).filter(r => txt(r[0])).length;
+      if (garde.length === total) return;
+      const vals = [];
+      for (let i = 0; i < total; i++) vals.push(garde[i] ? garde[i].slice(0, nbCol).concat(Array(Math.max(0, nbCol - garde[i].length)).fill('')) : Array(nbCol).fill(''));
+      await g.patchRange(id, nom, `A${debut + 1}:${colLettre(nbCol - 1)}${debut + total}`, vals);
+    };
+    await reecrire('DETAIL_COMMANDE', det, 2, 10);
+    await reecrire('DEVIS_EN_COURS', await lignesFeuille(id, 'DEVIS_EN_COURS'), 1, 4);
+    for (const [ls, n] of rendus) {
+      try { await require('./stock').mouvementExcel('vierges', { row: ls.row, sig: ls.sig, delta: n }, par, `Commande ${nDevis} modifiée : pièces remises en stock`); }
+      catch (err) { console.error(`SEFI : stock ${ls.reference} ${ls.couleur} ${ls.taille} non recrédité`, err.message); }
+    }
+    cacheBdc.le = 0;
+    return { lignes: aRetirer.length, remis_en_stock: [...rendus.values()].reduce((a, b) => a + b, 0) };
+  });
+}
+
 // ---------- Remplissage (réception du formulaire) ----------
 // lignes : [{ produit, couleur, taille, coupe, qte }] lues dans Tailles.xlsx (tableau LignesCommande)
 // ajout = articles ajoutés à une commande déjà commandée (ou déjà dans le BDC) : pas d'anti-doublon, lignes marquées « ajout »
@@ -112,45 +230,15 @@ async function remplir(nDevis, nomClient, lignes, { ajout = false } = {}) {
     let stock = null;
     try { stock = await stockMod.vierges(); } catch (err) { console.error('SEFI : stock illisible (tout part chez SEFI)', err.message); }
     const restant = new Map(); // ligne de stock -> quantité restante
-    const ligneStock = (refBase, couleur, taille) => {
-      if (!stock) return null;
-      let exact = null, inclus = null;
-      for (const r of stock) {
-        if (maj(r.couleur) !== maj(couleur) || maj(r.taille).replace(/^2XL$/, 'XXL') !== maj(taille)) continue;
-        const s = maj(r.reference);
-        if (s === maj(refBase)) { exact = r; break; }
-        if (!inclus && s && s.includes(maj(refBase))) inclus = r;
-      }
-      return exact || inclus;
-    };
+    const ligneStock = (refBase, couleur, taille) => ligneStockDe(stock, refBase, couleur, taille);
 
     const zone = (await g.readRange(id, F, 'A17:Q48')).values; // 32 lignes, une sur deux utilisée
     const modifs = new Map(); // "A17" -> valeur
     const detail = [], mouvements = [];
     for (const l of lignes) {
-      const produit = txt(l.produit);
-      let couleur = txt(l.couleur);
-      const coupe = txt(l.coupe) || 'Unisexe';
-      const qte = num(l.qte);
-      if (!produit || !couleur || qte <= 0) continue;
-      const pl = produit.toLowerCase();
-      // Pas commandé chez SEFI : textile fourni, « autre », tablier (fournisseur Wordans, ~9 € l'unité)
-      // (Eco cup / gobelets : objets commandés hors SEFI)
-      if (pl === 't-shirt fourni' || pl.startsWith('autre :') || pl.startsWith('autre:') || /^tablier/.test(pl) || /^eco ?cup|gobelet/.test(pl)) continue;
-      if (NORM_COULEUR[couleur]) couleur = NORM_COULEUR[couleur];
-      let taille = txt(l.taille);
-      if (!taille && (produit === 'Casquette' || produit === 'Tote Bag')) taille = 'TU';
-      if (!taille) continue;
-      if (NORM_TAILLE[taille]) taille = NORM_TAILLE[taille];
-      const iTaille = TAILLES.indexOf(maj(taille));
-      if (iTaille < 0) continue;
-      // T-shirt vierge (vendu sans flocage) : même article SEFI qu'un T-shirt
-      const prodSefi = /^t-?shirt vierge/i.test(produit) ? 'T-Shirt' : produit;
-      const refBase = ENFANTS.includes(maj(taille)) && prodSefi === 'T-Shirt' ? 'REGENT KIDS' : (REFS[prodSefi + coupe] || prodSefi.toUpperCase());
-      const code = CODES_MODELE[refBase] ? (CODES_MODELE[refBase][couleur] || '???') : (CODES[couleur] || '???');
-      const refComplete = `${refBase} ${couleur.toUpperCase()} ${code}`;
-      const prix = TARIFS_BLANC_COULEUR[refBase] ? TARIFS_BLANC_COULEUR[refBase][couleur === 'Blanc' ? 0 : 1]
-        : ((GRANDES.includes(maj(taille)) ? TARIFS_3XL[refBase] : TARIFS[refBase]) || 0);
+      const a = analyser(l);
+      if (!a) continue;
+      const { couleur, taille, qte, iTaille, refBase, refComplete, prix } = a;
 
       // Stock d'abord
       const ls = ligneStock(refBase, couleur, taille);
@@ -551,4 +639,4 @@ async function supprimerLigne({ ref }, par = 'Dashboard') {
   return r;
 }
 
-module.exports = { remplir, remplirDepuisTailles, envoyer, debloquer, etat, contenuActuel, contenuBdc, convertir, ajouterManuel, fixerQuantite, supprimerLigne, _test: { lireLot, recap, hash, convertir } };
+module.exports = { apercu, devisDansBdc, retirerDevis, remplir, remplirDepuisTailles, envoyer, debloquer, etat, contenuActuel, contenuBdc, convertir, ajouterManuel, fixerQuantite, supprimerLigne, _test: { lireLot, recap, hash, convertir } };

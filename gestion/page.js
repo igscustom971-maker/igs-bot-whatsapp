@@ -427,6 +427,7 @@ a.brand:hover h1{color:#FF1E8E}
 .btn.pink:hover{background:#E6127C}
 </style>
 <script src="/gestion/depot.js" defer></script>
+<script src="/gestion/tailles-edit.js" defer></script>
 </head>
 <body>
 <header><div class="bar">
@@ -2625,7 +2626,7 @@ async function ouvrir(cle){
       ? '<div class="warnbox">⚠️ <b>Incohérence devis / tableau</b> : le devis indique <b>'+d.controle.devis+' pièce(s)</b>, le tableau des tailles du client en contient <b>'+d.controle.tableau+'</b> ('+(d.controle.ecart>0?'+':'')+d.controle.ecart+'). Vérifie avec le client avant de commander les t-shirts.</div>'
       : '<div class="note" style="color:var(--ok);font-weight:600">✅ Tableau des tailles cohérent avec le devis ('+d.controle.devis+' pièces)</div>';
     // Tailles
-    h += '<div class="card"><h3>Tailles'+(d.tailles.total?' · '+d.tailles.total+' pièces':'')+'</h3>';
+    h += '<div class="card" id="tailles-card"><h3 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Tailles'+(d.tailles.total?' · '+d.tailles.total+' pièces':'')+(d.tailles.fichierTrouve && !d.tailles.erreur ? ' <button class="btn" data-tailles-edit="'+esc(c.cle)+'" title="Modifier les lignes du tableau (Tailles.xlsx) : le stock de vierges est pris en priorité avant SEFI">✏️ Modifier le tableau</button>' : '')+'</h3>';
     if (d.tailles.erreur) h += '<div class="warnbox">Tailles.xlsx illisible : '+esc(d.tailles.erreur)+'</div>';
     else if (!d.tailles.fichierTrouve) h += '<div class="note">Aucun fichier Tailles.xlsx dans le dossier.</div>';
     else if (!d.tailles.groupes.length) h += '<div class="note">Tailles.xlsx est vide.</div>';
