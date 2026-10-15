@@ -501,6 +501,11 @@ module.exports = function mountGestion(app) {
     try { res.json(await commandes.creerCommande(req.body || {}, req.user.name || req.user.email)); }
     catch (err) { console.error('Gestion nouvelle commande :', err.message); res.status(400).json({ error: err.message }); }
   });
+  // Adresse d'expédition (Odoo) d'un devis : fiche des commandes À EXPÉDIER / EXPÉDIÉE
+  app.get('/gestion/api/odoo/devis/:numero/adresse', auth.requireUser, async (req, res) => {
+    try { res.json({ adresse: await require('./odoo').adresseLivraison(String(req.params.numero).toUpperCase().trim()) }); }
+    catch (err) { res.status(502).json({ error: err.message }); }
+  });
   app.get('/gestion/api/odoo/devis/:numero/client', auth.requireUser, async (req, res) => {
     try {
       const p = await require('./odoo').clientDuDevis(String(req.params.numero).toUpperCase().trim());

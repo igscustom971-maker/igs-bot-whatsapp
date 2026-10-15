@@ -2539,6 +2539,24 @@ function soldeHtml(c, detail){
   if (c.a_payer_especes) h += '<div class="note">💵 Paiement en espèces prévu à la remise'+(c.montant_especes != null ? ' : '+montantFr(c.montant_especes) : '')+'.</div>';
   return h;
 }
+const aExpedier = c => ['A EXPEDIER','EXPEDIEE'].includes(norm(c.statut || '').trim());
+async function chargerAdresse(c){
+  const cle = c.cle;
+  const rendu = h => { if (panelCle === cle && $('adrbox')) $('adrbox').querySelector('.v').innerHTML = h; };
+  try {
+    const r = await fetch('/gestion/api/odoo/devis/'+encodeURIComponent(c.n_devis)+'/adresse');
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Odoo');
+    const a = j.adresse;
+    if (!a) return rendu('<span class="note">Devis introuvable dans Odoo.</span>');
+    const texte = a.lignes.join('\\n');
+    rendu('<div class="pre" style="font-weight:600;line-height:1.45">'+esc(texte)+'</div>'
+      + (a.telephone ? '<div class="sub">📞 '+esc(a.telephone)+'</div>' : '')
+      + (a.complete ? '' : '<div class="warnbox" style="margin-top:6px">⚠️ Adresse incomplète dans Odoo (rue, code postal ou ville manquant) : à demander au client avant l’envoi.</div>')
+      + '<div class="btnrow" style="margin-top:6px"><button class="btn" id="adr-copier">📋 Copier l’adresse</button>'
+      + (a.lien ? '<a class="btn" href="'+esc(a.lien)+'" target="_blank" rel="noopener">Modifier dans Odoo</a>' : '') + '</div>');
+    if ($('adr-copier')) $('adr-copier').onclick = async e => { try { await navigator.clipboard.writeText(texte); e.target.textContent = '✅ Copiée'; } catch(err){ alert(texte); } };
+  } catch(err){ rendu('<span class="note">Adresse indisponible (Odoo) : '+esc(err.message)+'</span>'); }
+}
 async function ouvrir(cle){
   const c = data.find(x => x.cle === cle) || histo.find(x => x.cle === cle); if(!c) return;
   $('pbody').onclick = null;
@@ -2555,6 +2573,7 @@ async function ouvrir(cle){
     + kv('Contenu', esc(c.infos)) + kv('Zone de flocage', esc(c.zone_flocage)) + kv('Planche', esc(c.planche))
     + kv('Date commande', fdate(c.date_commande)) + '<div class="kv" id="livbox">'+livBox(c)+'</div>'
     + kv('Contact', contact) + kv('N° de suivi', esc(c.numero_suivi))
+    + (aExpedier(c) && c.n_devis ? '<div class="kv" id="adrbox" style="grid-column:1/-1"><div class="k">📦 Adresse d’expédition</div><div class="v"><div class="skel"></div></div></div>' : '')
     + '</div>' + (c.instructions ? '<div class="kv" style="margin-top:10px"><div class="k">Instructions client</div><div class="v pre">'+esc(c.instructions)+'</div></div>' : '')
     + (c.remarque ? '<div class="kv" style="margin-top:10px"><div class="k">Remarque</div><div class="v pre">'+esc(c.remarque)+'</div></div>' : '')
     + '</div>'
@@ -2564,6 +2583,7 @@ async function ouvrir(cle){
     + '<div id="dossier"><div class="card"><h3>Dossier client</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherCmd(c);
   jrCharger(c);
+  if (aExpedier(c) && c.n_devis) chargerAdresse(c);
   const payRendu = () => {
     if (panelCle !== cle || !$('paybox')) return;
     $('paybox').innerHTML = '<h3>💶 Paiement</h3>' + soldeHtml(c, true)

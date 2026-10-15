@@ -271,6 +271,21 @@ async function clientDuDevis(numero) {
   return p || null;
 }
 
+// Adresse de livraison d'un devis (partner_shipping_id, sinon le client) : pour les commandes à expédier
+async function adresseLivraison(numero) {
+  const r = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', numero]]], { fields: ['id', 'partner_id', 'partner_shipping_id'], limit: 1 });
+  if (!r.length) return null;
+  const pid = (r[0].partner_shipping_id || r[0].partner_id || [])[0];
+  if (!pid) return null;
+  const [p] = await kw('res.partner', 'read', [[pid]], { fields: ['name', 'parent_id', 'street', 'street2', 'zip', 'city', 'country_id', 'phone'] });
+  if (!p) return null;
+  const societe = p.parent_id ? p.parent_id[1] : '';
+  const lignes = [societe && societe !== p.name ? societe : '', p.name || '', p.street || '', p.street2 || '', [p.zip, p.city].filter(Boolean).join(' '), p.country_id ? p.country_id[1] : '']
+    .map(x => String(x || '').trim()).filter(Boolean);
+  const complete = !!(p.street && p.zip && p.city);
+  return { lignes, complete, telephone: p.phone || '', specifique: !!(r[0].partner_shipping_id && r[0].partner_id && r[0].partner_shipping_id[0] !== r[0].partner_id[0]), lien: lienOdoo('res.partner', pid) };
+}
+
 // "590690112233" -> "+590 690 11 22 33" ; "33612345678" -> "+33 6 12 34 56 78"
 function formatTel(intl) {
   const d = String(intl || '').replace(/\D/g, '');
@@ -967,5 +982,5 @@ async function telephonesOdoo() {
 module.exports = { ventesParProduit, devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
-  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
+  creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, adresseLivraison, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
 };
