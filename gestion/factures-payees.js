@@ -6,6 +6,8 @@
 //  - seulement les factures passées « payées » APRÈS l'activation de la tâche (pas de rattrapage de l'historique :
 //    une ancienne facture se renvoie à la main si le client la réclame), pas marquées « envoyée » et sans mail au
 //    client dans leur historique ;
+//  - seulement les factures datées de moins de 15 jours (réglage factures_payees_max_jours) : une facture plus
+//    ancienne, payée tard ou rapprochée tard, n'est jamais envoyée automatiquement ;
 //  - de 7 h à 20 h (heure de Guadeloupe), 5 factures au plus par passage ;
 //  - pas d'e-mail sur la fiche client : Ismaël est prévenu une fois, à envoyer à la main ;
 //  - Ismaël reçoit un récap WhatsApp des factures envoyées.
@@ -48,7 +50,9 @@ async function verifier({ maintenant = new Date() } = {}) {
   }
   const h = Number(maintenant.toLocaleString('en-US', { timeZone: 'America/Guadeloupe', hour: 'numeric', hour12: false }));
   if (h < 7 || h >= 20) return 'hors horaires (7 h - 20 h)';
-  const toutes = await odoo.facturesPayeesNonEnvoyees(depuis);
+  // Pas de facture trop ancienne envoyée au client (réglage factures_payees_max_jours, 15 jours par défaut)
+  const maxJours = Math.max(1, Number(await reglage('factures_payees_max_jours', '15')) || 15);
+  const toutes = await odoo.facturesPayeesNonEnvoyees(depuis, { maxJours });
   const vues = await dejaTraitees(toutes.map(f => f.id));
   const aFaire = toutes.filter(f => !vues.has(`move-${f.id}`));
   const envoyees = [], sansEmail = [], erreurs = [];
