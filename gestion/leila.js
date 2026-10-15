@@ -312,6 +312,20 @@ async function renvoyerBat(tel, devis) {
   } catch (err) { console.error(`Gestion Leïla : renvoi du BAT ${devis} impossible`, err.message); }
 }
 
+// RIB d'IGS CUSTOM BAR envoyé au client qui le demande : marqueur ###RIB###
+function extraireRib(texte) {
+  const t = String(texte || '');
+  return { clean: t.replace(/###RIB###/gi, '').trim(), rib: /###RIB###/i.test(t) };
+}
+async function envoyerRib(tel) {
+  try {
+    const be = require('./bat-envoi');
+    const base = process.env.PUBLIC_BASE_URL || 'https://igs-bot-whatsapp.onrender.com';
+    await be.envoyerDocument(tel, be.lienRib(base), 'RIB_IGS_Custom_Bar.pdf', 'Voici notre RIB 📄');
+    console.log(`Gestion Leïla : RIB envoyé à ${tel}`);
+  } catch (err) { console.error(`Gestion Leïla : envoi du RIB à ${tel} impossible`, err.message); }
+}
+
 // ---------- Journal d'une commande ----------
 async function journalCommande(cle) {
   const { rows } = await commandes.listCommandes();
@@ -371,4 +385,4 @@ async function question(cle, q, user) {
   return { reponse };
 }
 
-module.exports = { programmerVeillePlanche, veillePlanche, extraireDevis, enregistrerDemandeDevis, extrairePlanche, creerPlancheWhatsApp, trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, journalCommande, question, statutClair };
+module.exports = { programmerVeillePlanche, veillePlanche, extraireDevis, enregistrerDemandeDevis, extrairePlanche, creerPlancheWhatsApp, trouverPourClient, _test: { mots, correspondNom }, contexteCommandes, extraireBat, renvoyerBat, extraireRib, envoyerRib, journalCommande, question, statutClair };

@@ -111,7 +111,28 @@ async function envoyer(cle, { mail = true, whatsapp = true } = {}, user, baseUrl
 }
 
 // Route publique : fichier du lien signé (uniquement un fichier du dossier Commandes, lien non expiré)
+// RIB d'IGS CUSTOM BAR (SharePoint, chemin fixe côté serveur) : lien signé de courte durée pour WhatsApp
+const RIB_PATH = process.env.RIB_PATH || 'Commun/RIB_IGS_Custom_Bar.pdf';
+function lienRib(baseUrl) {
+  const { sign } = require('./auth');
+  return `${baseUrl}/gestion/public/rib/${sign({ t: 'rib', exp: Date.now() + 2 * 86400e3 })}`;
+}
 function mount(app) {
+  app.get('/gestion/public/rib/:jeton', async (req, res) => {
+    try {
+      const d = require('./auth').verify(req.params.jeton);
+      if (!d || d.t !== 'rib') return res.status(404).send('Lien expiré');
+      const it = await g.itemByPath(RIB_PATH);
+      const r = await g.content(it.id);
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(it.name)}`);
+      res.set('Cache-Control', 'private, max-age=3600');
+      res.send(Buffer.from(await r.arrayBuffer()));
+    } catch (err) {
+      console.error('Gestion lien RIB :', err.message);
+      res.status(502).send('Fichier indisponible');
+    }
+  });
   app.get('/gestion/public/bat/:jeton', async (req, res) => {
     try {
       const d = require('./auth').verify(req.params.jeton);
@@ -130,4 +151,4 @@ function mount(app) {
   });
 }
 
-module.exports = { noterMessagesEntrants, envoyer, envoyerDocument: envoyerWhatsAppDocument, lienSigne, mount, _test: { dernierMessageClient } };
+module.exports = { noterMessagesEntrants, envoyer, envoyerDocument: envoyerWhatsAppDocument, lienSigne, lienRib, mount, _test: { dernierMessageClient } };
