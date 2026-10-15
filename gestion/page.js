@@ -998,7 +998,7 @@ function finAfficher(){
     + L('CA retenu ('+(R.ca_saisi != null ? 'saisi' : 'factures Odoo')+', HT)', R.ca) + (R.ca_saisi != null ? L('CA facturé dans Odoo (HT)', R.ca_odoo) : '')
     + L('Seuil de rentabilité', GR.seuil) + L(R.ca >= GR.seuil ? 'Au-dessus du seuil' : 'Manque pour le seuil', R.ca - GR.seuil, 'tot')
     + '<details style="margin-top:8px"><summary class="note">Résultat estimé avec tes paramètres (pour comparaison)</summary>'
-    + L('Charges variables ('+d.params.taux_variables.toLocaleString('fr-FR')+' %)', GR.charges_variables, 'neg') + (GR.postes_fixes.length ? GR.postes_fixes.map(x => L(esc(x.nom), x.montant, 'neg')).join('') : '') + L('Main d’œuvre', GR.main_oeuvre, 'neg') + L('CCA', GR.cca, 'neg') + L('Résultat estimé', GR.resultat, 'tot') + '</details>'
+    + L('Charges variables ('+d.params.taux_variables.toLocaleString('fr-FR')+' %)', GR.charges_variables, 'neg') + (GR.postes_fixes.length ? GR.postes_fixes.map(x => L(esc(x.nom), x.montant, 'neg')).join('') : '') + L(GR.main_oeuvre_source === 'heures' ? 'Main d’œuvre (heures saisies : '+Object.entries(GR.main_oeuvre_detail.collaborateurs).map(([n, c]) => esc(n.split(' ')[0])+' '+c.duree).join(' · ')+')' : 'Main d’œuvre (paramètres)', GR.main_oeuvre, 'neg') + (GR.main_oeuvre_detail && GR.main_oeuvre_detail.especes > 0 ? '<div class="note" style="margin:-2px 0 6px">+ '+eur2(GR.main_oeuvre_detail.especes)+' payés en espèces (pris dans la caisse, hors CA)</div>' : '') + (GR.main_oeuvre_detail && GR.main_oeuvre_detail.sans_taux.length ? '<div class="note" style="margin:-2px 0 6px;color:#9a3412">⚠️ Pas de taux horaire pour '+esc(GR.main_oeuvre_detail.sans_taux.join(', '))+' (Admin)</div>' : '') + L('CCA', GR.cca, 'neg') + L('Résultat estimé', GR.resultat, 'tot') + '</details>'
     + '</div></div>';
   // Mes charges (toujours visible)
   const P = d.params;
@@ -1530,7 +1530,7 @@ function hrRender(){
     + '</div><div class="msg" id="a-msg"></div></div>';
   if (!d.collaborateurs.length) h += '<div class="card note">Aucune heure saisie cette semaine.</div>';
   d.collaborateurs.forEach(c => {
-    h += '<div class="card"><h3>'+esc(c.collaborateur)+(c.paiement?' <span class="paid">✅ Payé</span>':'')+'</h3>'
+    h += '<div class="card"><h3>'+esc(c.collaborateur)+(c.paiement?' <span class="paid">✅ Payé'+(c.paiement.especes?' en espèces 💵':'')+'</span>':'')+'</h3>'
       + (c.lignes.length ? '<div style="overflow-x:auto"><table class="stk"><thead><tr><th>Jour</th><th>Heures</th><th>Remarque</th><th>Saisi</th><th></th></tr></thead><tbody>'
         + c.lignes.map(l => '<tr><td>'+jourFr(l.jour)+'</td><td><b>'+l.duree+'</b></td><td>'+esc(l.remarque||'')+'</td><td class="sub">'+esc(l.saisi_par||'')+' · '+new Date(l.cree_le).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</td>'
           + '<td style="white-space:nowrap">'+(l.paiement_id ? '' : '<button class="btn" data-hr-edit="'+l.id+'" title="Modifier">✏️</button> <button class="xdel" data-hr-del="'+l.id+'" title="Supprimer">×</button>')+'</td></tr>').join('')
@@ -1544,7 +1544,7 @@ function hrRender(){
   if (d.aPayer.length) h += '<div class="card"><h3>⚠️ Semaines précédentes non payées</h3>' + d.aPayer.map(x =>
     '<div class="cand"><div><b>'+esc(x.collaborateur)+'</b> · semaine '+esc(x.semaine.split('-S')[1])+' ('+jourFr(x.lundi)+')<div class="sub">'+x.duree+(x.montant==null?'':' · '+eur(x.montant))+'</div></div><button class="btn" data-hr-goto="'+x.lundi+'">Voir</button></div>').join('') + '</div>';
   if (d.historique.length) h += '<div class="card"><h3>Derniers paiements</h3><div style="overflow-x:auto"><table class="stk"><thead><tr><th>Payé le</th><th>Collaborateur</th><th>Semaine</th><th>Heures</th><th>Taux</th><th>Montant</th></tr></thead><tbody>'
-    + d.historique.map(p => '<tr><td>'+new Date(p.paye_le).toLocaleDateString('fr-FR')+'</td><td>'+esc(p.collaborateur)+'</td><td>'+esc(p.semaine.split('-S')[1])+' <span class="sub">('+jourFr(p.debut)+')</span></td><td>'+fhm(p.minutes)+'</td><td>'+eur(Number(p.taux))+'</td><td><b>'+eur(Number(p.montant))+'</b></td></tr>').join('')
+    + d.historique.map(p => '<tr><td>'+new Date(p.paye_le).toLocaleDateString('fr-FR')+(p.especes?' 💵':'')+'</td><td>'+esc(p.collaborateur)+'</td><td>'+esc(p.semaine.split('-S')[1])+' <span class="sub">('+jourFr(p.debut)+')</span></td><td>'+fhm(p.minutes)+'</td><td>'+eur(Number(p.taux))+'</td><td><b>'+eur(Number(p.montant))+'</b></td></tr>').join('')
     + '</tbody></table></div></div>';
   $('hr-admin').innerHTML = h;
 }
@@ -1627,7 +1627,8 @@ function hrEvents(){
       if (ds.hrPay) {
         const c = hrData.collaborateurs.find(x => x.collaborateur === ds.hrPay);
         if (!confirm('Marquer payée la semaine '+hrData.numero+' de '+ds.hrPay+(c && c.montant != null ? ' ('+eur(c.montant)+')' : '')+' ?')) return;
-        await post('/gestion/api/heures/payer', { collaborateur: ds.hrPay, lundi: hrData.lundi }); return hrCharger();
+        const especes = confirm('Payé en ESPÈCES ?' + String.fromCharCode(10, 10) + 'OK = espèces : le montant sort de la caisse (onglet Espèces) et ne compte pas dans le CA.' + String.fromCharCode(10) + 'Annuler = virement / autre moyen.');
+        await post('/gestion/api/heures/payer', { collaborateur: ds.hrPay, lundi: hrData.lundi, especes }); return hrCharger();
       }
       if (ds.hrUnpay) { e.preventDefault(); if (!confirm('Annuler ce paiement ? Les heures redeviennent « à payer ».')) return; await post('/gestion/api/heures/paiements/'+ds.hrUnpay+'/annuler'); return hrCharger(); }
     } catch(err){ alert(err.message); t.disabled = false; }

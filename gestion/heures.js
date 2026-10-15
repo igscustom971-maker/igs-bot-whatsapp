@@ -174,6 +174,8 @@ async function semaine(lundiDemande) {
   ]);
   if (error) throw new Error(`Supabase : ${error.message}`);
   const taux = new Map(collabs.map(c => [c.affichage, c.taux_horaire == null ? null : Number(c.taux_horaire)]));
+  const enEspeces = new Set((await paiementsEspeces()).map(x => x.paiement_id));
+  for (const p of [...(paiements || []), ...(historique || [])]) p.especes = enEspeces.has(p.id);
 
   const noms = [...new Set(collabs.filter(c => c.actif).map(c => c.affichage).concat(lignes.map(l => l.collaborateur)))];
   const parCollab = noms.map(nom => {
@@ -213,7 +215,11 @@ async function semaine(lundiDemande) {
   };
 }
 
-async function payer(collaborateur, lundiDemande, user) {
+// Paiements faits en ESPÈCES (pris dans la caisse) : [{ paiement_id, caisse_id }] — exclus de la main d'œuvre du CA
+async function paiementsEspeces() {
+  try { const v = JSON.parse((await getReglage('heures_paiements_especes', '[]')) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+async function payer(collaborateur, lundiDemande, user, { especes = false } = {}) {
   needDb();
   const lundi = lundiDe(lundiDemande);
   const { data: ls, error } = await supabase.from('gestion_heures').select('*')
@@ -231,8 +237,16 @@ async function payer(collaborateur, lundiDemande, user) {
   if (e2) throw new Error(`Supabase : ${e2.message}`);
   const { error: e3 } = await supabase.from('gestion_heures').update({ paiement_id: p.id }).in('id', ls.map(l => l.id));
   if (e3) throw new Error(`Supabase : ${e3.message}`);
-  console.log(`Gestion heures : ${collaborateur} ${codeSemaine(lundi)} payé ${eur(montant)} (${user})`);
-  return { paiement: p };
+  // Payé en espèces : sortie de caisse (onglet Espèces), et paiement marqué pour ne pas compter dans le CA
+  if (especes) {
+    let caisseId = null;
+    try { caisseId = (await require('./caisse').decaisser({ montant, note: `Paiement ${collaborateur} : heures semaine ${semaineIso(lundi).semaine} (${fh(minutes)})` }, user)).id; }
+    catch (err) { console.error('Heures : sortie de caisse non enregistrée', err.message); }
+    const l = await paiementsEspeces(); l.push({ paiement_id: p.id, caisse_id: caisseId });
+    await setReglage('heures_paiements_especes', JSON.stringify(l.slice(-500)));
+  }
+  console.log(`Gestion heures : ${collaborateur} ${codeSemaine(lundi)} payé ${eur(montant)}${especes ? ' en espèces' : ''} (${user})`);
+  return { paiement: { ...p, especes: !!especes } };
 }
 
 async function annulerPaiement(id, user) {
@@ -240,10 +254,43 @@ async function annulerPaiement(id, user) {
   const { data: p } = await supabase.from('gestion_heures_paiements').select('*').eq('id', id).single();
   if (!p) throw new Error('Paiement introuvable');
   await supabase.from('gestion_heures').update({ paiement_id: null }).eq('paiement_id', id);
+  // Paiement en espèces annulé : la sortie de caisse est retirée aussi
+  const esp = await paiementsEspeces(), e = esp.find(x => x.paiement_id === Number(id));
+  if (e) {
+    if (e.caisse_id) await require('./caisse').supprimer(e.caisse_id, user).catch(err => console.error('Heures : sortie de caisse non retirée', err.message));
+    await setReglage('heures_paiements_especes', JSON.stringify(esp.filter(x => x.paiement_id !== Number(id))));
+  }
   const { error } = await supabase.from('gestion_heures_paiements').delete().eq('id', id);
   if (error) throw new Error(`Supabase : ${error.message}`);
   await supabase.from('gestion_actions').insert({ utilisateur: user, action: 'heures_paiement_annule', cle: String(id), details: p });
   return { ok: true };
+}
+
+// ---------- Main d'œuvre par mois (onglet Chiffre d'affaires) ----------
+// Heures saisies dans le mois (date du jour travaillé) × taux horaire : total, part payée en espèces (hors CA),
+// part banque (payée autrement + pas encore payée). Map 'AAAA-MM' -> { total, especes, banque, minutes, collaborateurs }
+async function mainOeuvreParMois(annee) {
+  if (!supabase) return {};
+  const [collabs, { data, error }] = await Promise.all([equipe(true), supabase.from('gestion_heures').select('collaborateur, jour, minutes, paiement_id').gte('jour', `${annee - 1}-01-01`).lte('jour', `${annee}-12-31`).limit(20000)]);
+  if (error) throw new Error(`Supabase : ${error.message}`);
+  const taux = new Map(collabs.map(c => [c.affichage, c.taux_horaire == null ? null : Number(c.taux_horaire)]));
+  const enEspeces = new Set((await paiementsEspeces()).map(x => x.paiement_id));
+  const out = {};
+  for (const l of data || []) {
+    const k = String(l.jour).slice(0, 7);
+    const m = out[k] || (out[k] = { total: 0, especes: 0, banque: 0, minutes: 0, sans_taux: [], collaborateurs: {} });
+    const t = taux.get(l.collaborateur);
+    m.minutes += l.minutes;
+    if (t == null) { if (!m.sans_taux.includes(l.collaborateur)) m.sans_taux.push(l.collaborateur); continue; }
+    const v = l.minutes / 60 * t;
+    m.total += v;
+    if (l.paiement_id && enEspeces.has(l.paiement_id)) m.especes += v; else m.banque += v;
+    const c = m.collaborateurs[l.collaborateur] || (m.collaborateurs[l.collaborateur] = { minutes: 0, montant: 0, especes: 0 });
+    c.minutes += l.minutes; c.montant += v; if (l.paiement_id && enEspeces.has(l.paiement_id)) c.especes += v;
+  }
+  const r = n => Math.round(n * 100) / 100;
+  for (const m of Object.values(out)) { m.total = r(m.total); m.especes = r(m.especes); m.banque = r(m.banque); for (const c of Object.values(m.collaborateurs)) { c.montant = r(c.montant); c.especes = r(c.especes); c.duree = fh(c.minutes); } }
+  return out;
 }
 
 // ---------- Récap du dimanche (mail à l'admin) ----------
@@ -361,4 +408,4 @@ async function deposerFacture({ collaborateur, lundi: lundiDemande, fichiers }, 
   return { ...r, collaborateur: collab, semaine: num, ref, heures: fh(total) };
 }
 
-module.exports = { deposerFacture, mesHeures, saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };
+module.exports = { mainOeuvreParMois, deposerFacture, mesHeures, saisir, supprimer, modifier, semaine, payer, annulerPaiement, envoyerRecap, recapSiDu, importerExcel, setReglage, startRecap, _test: { parseDuree, lundiDe, codeSemaine } };

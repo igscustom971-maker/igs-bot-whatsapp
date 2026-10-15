@@ -196,14 +196,20 @@ const enVigueur = (liste, mois) => { const l = (liste || []).slice().sort((a, b)
 // Postes de charges fixes actifs ce mois-là (ils s'additionnent)
 const postesDuMois = (liste, mois) => (liste || []).filter(x => (!x.depuis || x.depuis <= mois) && (!x.jusqua || x.jusqua >= mois)).map(x => ({ nom: x.nom || 'Charges fixes', montant: Number(x.montant) || 0 }));
 const phaseDe = (phases, mois) => (phases || []).slice().sort((a, b) => a.jusqua.localeCompare(b.jusqua)).find(ph => mois <= ph.jusqua) || (phases || [])[phases.length - 1] || null;
-function gestionDuMois(params, mois, ca) {
+function gestionDuMois(params, mois, ca, heures = null) {
   const taux = (Number(params.taux_variables) || 0) / 100;
   const postes = postesDuMois(params.charges_fixes, mois);
-  const fixes = postes.reduce((x, y) => x + y.montant, 0), mo = enVigueur(params.main_oeuvre, mois), cca = enVigueur(params.cca, mois);
+  // Main d'œuvre : heures saisies dans le dashboard (× taux), sans la part payée en espèces (gérée dans la caisse, hors CA) ;
+  // sans heures saisies ce mois-là : le montant des paramètres
+  const parHeures = !!(heures && heures.minutes > 0);
+  const mo = parHeures ? heures.banque : enVigueur(params.main_oeuvre, mois);
+  const fixes = postes.reduce((x, y) => x + y.montant, 0), cca = enVigueur(params.cca, mois);
   const couts = fixes + mo + cca;
   const ph = phaseDe(params.phases, mois);
   return {
-    charges_fixes: r2(fixes), postes_fixes: postes, main_oeuvre: mo, cca, charges_variables: r2(ca * taux),
+    charges_fixes: r2(fixes), postes_fixes: postes, main_oeuvre: r2(mo), cca, charges_variables: r2(ca * taux),
+    main_oeuvre_source: parHeures ? 'heures' : 'parametres',
+    main_oeuvre_detail: parHeures ? { total: heures.total, especes: heures.especes, collaborateurs: heures.collaborateurs, sans_taux: heures.sans_taux } : null,
     seuil: taux < 1 ? Math.round(couts / (1 - taux)) : null,
     resultat: r2(ca * (1 - taux) - couts),
     phase: ph ? { nom: ph.nom, cible: ph.cible, minimum: ph.minimum || null, recommande: ph.recommande || null } : null,
@@ -224,11 +230,13 @@ async function synthese(annee = new Date().getFullYear(), { force = false } = {}
   for (const f of achats) { const m = mois[cle(f.invoice_date)] || (mois[cle(f.invoice_date)] = { ca: 0, achats: 0, factures: 0 }); m.achats += (f.move_type === 'in_refund' ? -1 : 1) * (f.amount_untaxed || 0); }
   const { params, caSaisi, produits } = await parametres();
   const treso = await tresorerie(annee, banque, params.banque_exclure);
+  let mo = {};
+  try { mo = await require('./heures').mainOeuvreParMois(annee); } catch (err) { console.error('Finances : heures de l\'équipe', err.message); }
   const ligne = (a, i) => {
     const k = `${a}-${String(i + 1).padStart(2, '0')}`; const m = mois[k] || { ca: 0, achats: 0, factures: 0 };
     const saisi = caSaisi[k] != null ? Number(caSaisi[k]) : null;
     const ca = params.ca_source === 'saisie' && saisi != null ? saisi : r2(m.ca);
-    return { mois: k, libelle: `${MOIS[i]} ${a}`, ca, ca_odoo: r2(m.ca), ca_saisi: saisi, achats: r2(m.achats), marge: r2(ca - m.achats), factures: m.factures, tresorerie: treso[k] || null, gestion: gestionDuMois(params, k, ca) };
+    return { mois: k, libelle: `${MOIS[i]} ${a}`, ca, ca_odoo: r2(m.ca), ca_saisi: saisi, achats: r2(m.achats), marge: r2(ca - m.achats), factures: m.factures, tresorerie: treso[k] || null, gestion: gestionDuMois(params, k, ca, mo[k]) };
   };
   const annees = { [annee]: MOIS.map((_, i) => ligne(annee, i)), [annee - 1]: MOIS.map((_, i) => ligne(annee - 1, i)) };
   const auj = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guadeloupe' })), moisCourant = auj.getFullYear() === annee ? auj.getMonth() : 11;
