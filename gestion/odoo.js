@@ -938,6 +938,25 @@ async function financesMensuelles(annee) {
   return { ventes, achats, banque };
 }
 
+// Ventes d'un mois par article (factures et avoirs validés, société IGS) : quantités et CA HT signés, + factures du mois
+async function ventesParProduit(mois) {
+  const [a, m] = String(mois).split('-').map(Number);
+  const debut = `${mois}-01`, fin = new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
+  const lignes = await kw('account.move.line', 'search_read', [[...(await igsSeulement()), ['parent_state', '=', 'posted'], ['move_id.move_type', 'in', ['out_invoice', 'out_refund']], ['move_id.invoice_date', '>=', debut], ['move_id.invoice_date', '<=', fin], ['display_type', '=', 'product']]],
+    { fields: ['product_id', 'name', 'quantity', 'balance', 'move_id'], limit: 20000 });
+  const pids = [...new Set(lignes.map(l => l.product_id && l.product_id[0]).filter(Boolean))];
+  const prods = pids.length ? await kw('product.product', 'read', [pids], { fields: ['id', 'default_code', 'name', 'uom_id'] }) : [];
+  const P = new Map(prods.map(p => [p.id, p]));
+  const factures = await kw('account.move', 'search_read', [[...(await igsSeulement()), ['state', '=', 'posted'], ['move_type', '=', 'out_invoice'], ['invoice_date', '>=', debut], ['invoice_date', '<=', fin]]], { fields: ['partner_id', 'amount_untaxed'], limit: 5000 });
+  return {
+    lignes: lignes.map(l => {
+      const p = l.product_id ? P.get(l.product_id[0]) : null;
+      const ht = -(Number(l.balance) || 0);
+      return { produit_id: p ? p.id : null, ref: p ? p.default_code || '' : '', produit: p ? p.name : String(l.name || '').split('\n')[0], libelle: String(l.name || '').split('\n')[0], unite: p && p.uom_id ? p.uom_id[1] : '', qte: (ht < 0 ? -1 : 1) * Math.abs(Number(l.quantity) || 0), ht };
+    }),
+    factures: factures.map(f => ({ client: f.partner_id ? f.partner_id[1] : '', ht: f.amount_untaxed || 0 })),
+  };
+}
 
 // Tous les numéros de téléphone déjà présents dans Odoo (fiches IGS ou partagées) : Map numéro -> client
 async function telephonesOdoo() {
@@ -945,7 +964,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { ventesParProduit, devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,

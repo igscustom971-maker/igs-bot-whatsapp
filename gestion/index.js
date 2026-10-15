@@ -97,6 +97,9 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/api/commercial/origines', auth.requireUser, com, actCom(() => commercial.origines().then(o => ({ origines: o }))));
   // Chiffre d'affaires et résultats : administrateur uniquement
   const finances = require('./finances');
+  // Objectifs de vente par article (admin)
+  app.get('/gestion/api/finances/objectifs', auth.requireUser, auth.requireAdmin, actCom(req => require('./objectifs').bilan(String(req.query.mois || ''))));
+  app.post('/gestion/api/finances/objectifs', auth.requireUser, auth.requireAdmin, actCom(req => require('./objectifs').enregistrer(req.body || {})));
   app.get('/gestion/api/finances', auth.requireUser, auth.requireAdmin, actCom(req => finances.synthese(Number(req.query.annee) || undefined, { force: req.query.force === '1' })));
   app.post('/gestion/api/finances/parametres', auth.requireUser, auth.requireAdmin, actCom(req => finances.enregistrerParametres(req.body || {})));
   app.post('/gestion/api/finances/objectif', auth.requireUser, auth.requireAdmin, actCom(req => finances.setObjectif(req.body?.montant).then(() => ({ ok: true }))));
