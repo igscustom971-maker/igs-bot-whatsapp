@@ -140,8 +140,19 @@ let manualOverride = null;
 
 // Mode test : si true, ignore l'attente des horaires ouvrés (réponse immédiate même hors horaires)
 let ignoreBusinessHours = false;
+// Garde-fou : la simulation s'arrête toute seule au bout de 2 h (si on oublie « Fin de simulation »)
+const SIMULATION_DUREE = Number(process.env.SIMULATION_DUREE_MIN || 120) * 60e3;
+let simulationJusqua = null;
+function simulationExpiree() {
+  if (!ignoreBusinessHours || !simulationJusqua || Date.now() < simulationJusqua) return false;
+  ignoreBusinessHours = false; simulationJusqua = null;
+  console.log('Leïla : simulation des heures d\'ouverture arrêtée automatiquement (2 h écoulées)');
+  sauverEtatLeila();
+  return true;
+}
+setInterval(simulationExpiree, 60e3).unref?.();
 // « Activer » (forcé actif) ou « Simuler heures d'ouverture » : Leïla répond tout de suite, quels que soient le jour et l'heure
-const horairesIgnores = () => ignoreBusinessHours || manualOverride === true;
+const horairesIgnores = () => { simulationExpiree(); return ignoreBusinessHours || manualOverride === true; };
 
 // Phrase exacte envoyée quand le bot ne sait pas répondre (déclenche une alerte pour Ismaël)
 const FALLBACK_PHRASE = "Ok, je regarde de mon côté et je reviens vers vous !";
@@ -274,7 +285,7 @@ let closureOverrideUntil = null;
 // État de Leïla enregistré dans Supabase (bot_settings « leila_etat ») : survit aux redémarrages et mises en ligne
 async function sauverEtatLeila() {
   if (!etatCharge) { console.error('Leïla : état pas encore relu, sauvegarde ignorée'); return; }
-  try { await db.setSetting('leila_etat', JSON.stringify({ manualOverride, closureOverrideUntil, ignoreBusinessHours })); }
+  try { await db.setSetting('leila_etat', JSON.stringify({ manualOverride, closureOverrideUntil, ignoreBusinessHours, simulationJusqua })); }
   catch (e) { console.error('Leïla état (sauvegarde) :', e.message); }
 }
 let etatCharge = false;
@@ -289,7 +300,7 @@ async function chargerEtatLeila1() {
   {
     const [etat, plan, attente] = await Promise.all([db.getSettingStrict('leila_etat'), db.getSettingStrict('leila_planning'), db.getSettingStrict('leila_attente')]);
     try { const r = JSON.parse((await db.getSetting('leila_reponses_equipe')) || '{}') || {}; for (const [k, t] of Object.entries(r)) if (Number(t) > (lastIsmaelReplyAt[k] || 0)) lastIsmaelReplyAt[k] = Number(t); } catch {}
-    if (etat) { const e = JSON.parse(etat); manualOverride = e.manualOverride ?? null; closureOverrideUntil = e.closureOverrideUntil || null; ignoreBusinessHours = !!e.ignoreBusinessHours; }
+    if (etat) { const e = JSON.parse(etat); manualOverride = e.manualOverride ?? null; closureOverrideUntil = e.closureOverrideUntil || null; ignoreBusinessHours = !!e.ignoreBusinessHours; simulationJusqua = e.simulationJusqua || (ignoreBusinessHours ? Date.now() + SIMULATION_DUREE : null); }
     if (plan) planning = { ...PLANNING_DEFAUT, ...JSON.parse(plan) };
     if (attente) { const a = JSON.parse(attente) || {}; for (const [k, v] of Object.entries(a)) if (Array.isArray(v) && v.length) backlogMessages[k] = [...v, ...(backlogMessages[k] || [])]; }
     console.log(`Leïla : état restauré (mode ${manualOverride === null ? 'auto' : manualOverride ? 'forcé actif' : 'forcé inactif'}${closureOverrideUntil ? ', fermée jusqu\'au ' + closureOverrideUntil : ''}, ${Object.keys(backlogMessages).length} conversation(s) en attente)`);
@@ -1706,7 +1717,7 @@ app.get('/admin/statut', (req, res) => {
     `En attente : ${enAttente ? `${enAttente} message(s) de ${Object.keys(backlogMessages).length} client(s)` : 'aucun message'}`,
     `Dernière réponse de Leïla : ${derniereReponseLeila ? new Date(derniereReponseLeila).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'aucune depuis le dernier redémarrage'}`,
   ];
-  if (ignoreBusinessHours) lignes.push('🧪 Simulation des heures d\'ouverture en cours');
+  if (!simulationExpiree() && ignoreBusinessHours) lignes.push(`🧪 Simulation des heures d'ouverture en cours${simulationJusqua ? ` (arrêt automatique à ${new Date(simulationJusqua).toLocaleTimeString('fr-FR', { timeZone: 'America/Guadeloupe', hour: '2-digit', minute: '2-digit' })})` : ''}`);
   res.send(lignes.join('\n'));
 });
 
@@ -1754,14 +1765,15 @@ app.get('/admin/lever-fermeture', async (req, res) => {
 app.get('/admin/test-horaires-on', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
   ignoreBusinessHours = true;
+  simulationJusqua = Date.now() + SIMULATION_DUREE;
   await sauverEtatLeila();
-  res.send('🧪 Mode test activé : le bot répond immédiatement peu importe l\'heure');
+  res.send(`🧪 Mode test activé : le bot répond immédiatement peu importe l'heure. Arrêt automatique à ${new Date(simulationJusqua).toLocaleTimeString('fr-FR', { timeZone: 'America/Guadeloupe', hour: '2-digit', minute: '2-digit' })} si tu oublies « Fin de simulation ».`);
 });
 
 // Remet la vérification normale des horaires ouvrés
 app.get('/admin/test-horaires-off', async (req, res) => {
   if (req.query.token !== ADMIN_TOKEN) return res.status(403).send('Token invalide');
-  ignoreBusinessHours = false;
+  ignoreBusinessHours = false; simulationJusqua = null;
   await sauverEtatLeila();
   res.send(`✅ Mode test désactivé : le bot respecte à nouveau les horaires (${planning.ouverture.replace(':', 'h')}-${planning.fermeture.replace(':', 'h')})`);
 });

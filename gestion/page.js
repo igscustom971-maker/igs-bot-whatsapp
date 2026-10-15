@@ -521,7 +521,7 @@ ${view === 'accueil' ? `
           <div class="field"><label>Arrêt l’après-midi (l’équipe prend le relais) : ces jours-là</label><div class="lei-jours" id="lei-cjours"></div></div>
           <div class="field"><label>… à partir de (heure, vide = pas d’arrêt)</label><input type="number" id="lei-ch" min="0" max="23" style="max-width:120px"></div>
           <div class="btnrow"><button class="btn primary" data-lei="planning">Enregistrer le planning</button></div></div>
-        <div class="card"><h3>Tests</h3><div class="btnrow" style="margin-top:0"><button class="btn" data-lei="test-recap">Récap de test</button><button class="btn" data-lei="backlog">Messages en attente</button><button class="btn" data-lei="test-horaires-on">Simuler heures d’ouverture</button><button class="btn" data-lei="test-horaires-off">Fin de simulation</button></div></div>` : ''}
+        <div class="card"><h3>Tests</h3><div class="btnrow" style="margin-top:0"><button class="btn" data-lei="test-recap">Récap de test</button><button class="btn" data-lei="backlog">Messages en attente</button><button class="btn" data-lei="test-horaires-on">Simuler heures d’ouverture</button><button class="btn" data-lei="test-horaires-off">Fin de simulation</button></div><div class="note" style="margin-top:6px">La simulation s’arrête toute seule au bout de 2 h si on oublie « Fin de simulation ».</div></div>` : ''}
         <div class="card"><h3>Réponse</h3><div id="lei-out" class="note pre" style="min-height:40px">—</div></div>
       </div>
       ${user.role === 'admin' ? `<div class="stack">
