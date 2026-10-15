@@ -301,6 +301,12 @@ async function chargerPrioritaires(force = false) {
 // « Rien à payer » (commande interne, reprise / refaite) : liste de clés dans gestion_reglages ; les reprises -R1, -R2… le sont d'office
 let sansPaiement = { set: new Set(), le: 0 };
 // Commande marquée « Rien à payer » (case de la fiche) ou reprise interne (-R1, -R2…) : jamais de facture ni de relance
+// Commande cochée « à payer en espèces » (lu en base, pas dans le cache Excel)
+async function estEspeces(cle) {
+  if (!supabase) return !!overridesMem.get(cle)?.a_payer_especes;
+  const { data } = await supabase.from('gestion_commandes').select('a_payer_especes').eq('cle', cle).maybeSingle();
+  return !!data?.a_payer_especes;
+}
 async function estSansPaiement(nDevis) {
   const n = String(nDevis || '').trim().toUpperCase();
   if (!n) return false;
@@ -370,6 +376,8 @@ async function setEspeces(cle, { actif, montant }, user) {
     overridesMem.set(cle, { ...(overridesMem.get(cle) || { cle }), ...o });
   }
   console.log(`Gestion : ${cle} ${actif ? `à payer en espèces${m ? ` (${m} €)` : ''}` : 'paiement espèces retiré'} (${user})`);
+  // Cochée sur une commande déjà terminée : la commande Odoo est annulée (plus « à facturer »)
+  if (actif && row.n_devis) require('./commercial').annulerSiEspeces({ ...row, a_payer_especes: true }, row.statut, user).catch(() => {});
   const ov = await loadOverrides();
   return applyOverride(row, ov.get(cle));
 }
@@ -908,6 +916,22 @@ function startSync() {
   // BAT : dossiers des commandes PAYÉE relus au démarrage puis toutes les 10 min
   setTimeout(scannerBat, 30e3);
   setInterval(scannerBat, 10 * 60e3);
+  // Espèces : commandes passées terminées directement dans l'Excel -> commande Odoo annulée (toutes les 15 min)
+  setTimeout(verifierEspeces, 90e3);
+  setInterval(verifierEspeces, 15 * 60e3);
+}
+const especesTraitees = new Set();
+async function verifierEspeces() {
+  if (!supabase || !cache.rows?.length) return;
+  try {
+    const { data } = await supabase.from('gestion_commandes').select('cle').eq('a_payer_especes', true);
+    const cles = new Set((data || []).map(r => r.cle));
+    for (const row of cache.rows) {
+      if (!cles.has(row.cle) || !row.n_devis || especesTraitees.has(row.n_devis)) continue;
+      const r = await require('./commercial').annulerSiEspeces({ ...row, a_payer_especes: true }, row.statut, 'Contrôle automatique');
+      if (r && r.statut !== 'erreur') especesTraitees.add(row.n_devis);
+    }
+  } catch (err) { console.error('Gestion contrôle espèces :', err.message); }
 }
 
 // ============================================
@@ -1174,4 +1198,4 @@ const aScannerBat = statut => avantBat(statut) || key(statut || '') === 'validee
 // Statut actuel de la commande d'un devis (cache), null si aucune ligne
 function statutDuDevis(devis) { const c = String(devis || '').trim().toUpperCase(); const r = cache && cache.rows.find(x => String(x.n_devis || '').trim().toUpperCase() === c); return r ? r.statut || '' : null; }
 
-module.exports = { oublierDossier, estSansPaiement, remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };
+module.exports = { estEspeces, oublierDossier, estSansPaiement, remplirTableau, creerDossier, contactFormulaireConnu, findCommandeFolder, statutDuDevis, supprimerDevisOdoo, retirerLivrees, majFormulaire, dossierCommande, ecrireDrapeau, creerCommande, validerBat, avantBat, marquerBatAuto, deposerVisuel, deposerBat, statutEst, trouverBat, scannerBat, setBatEnvoye, ajouterBordereau, supprimerBordereau, supprimer, setEspeces, setPrioritaire, setSansPaiement, getDossierControle, listArchives, modifier, syncNow, listCommandes, setLivraison, getDossier, fichierAutorise, startSync, normalizePhone, _test: { rowsFromRange, parseContenuMail, excelDate } };

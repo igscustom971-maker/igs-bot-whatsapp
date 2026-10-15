@@ -495,9 +495,35 @@ async function facturerSolde(numero, user, { auto = false } = {}) {
   return { ...r, libelle: LIB_SOLDE[r.statut] || null };
 }
 
+// Commande payée en espèces + terminée (ou plus loin) : commande Odoo annulée, pour ne plus rester « à facturer »
+const ST_FINI = ['TERMINEE', 'AEXPEDIER', 'EXPEDIEE', 'LIVREE'];
+const stCle = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
+async function annulerSiEspeces(c, statut, par) {
+  if (!c?.n_devis || !ST_FINI.includes(stCle(statut)) || !odoo.configured()) return null;
+  if (!c.a_payer_especes && !(await require('./commandes').estEspeces(c.cle).catch(() => false))) return null;
+  if (await require('./commandes').estSansPaiement(c.n_devis).catch(() => false)) return null;
+  try {
+    const r = await odoo.annulerCommandeEspeces(c.n_devis, par);
+    if (r.statut === 'annulee') {
+      await journal(par, 'commande_especes_annulee_odoo', r.numero, { client: c.client || null, etait: r.etait });
+      console.log(`Commercial : ${r.numero} annulée dans Odoo (payée en espèces)`);
+      cache.le = 0;
+    } else if (r.statut === 'facture' && par !== 'Contrôle automatique') {
+      await g.sendMail(MAILBOX, { to: MAILBOX, subject: `Espèces : commande Odoo non annulée - ${c.n_devis} - ${c.client || ''}`, html: `<p>La commande ${esc(c.n_devis)} (${esc(c.client || '')}) est payée en espèces et ${esc(statut)}, mais elle n'a pas été annulée dans Odoo car une facture est déjà validée (${esc(r.factures.join(', '))}).</p><p>À régler à la main dans Odoo (avoir ou paiement en espèces sur la facture).</p>` }).catch(() => {});
+    }
+    return r;
+  } catch (err) {
+    console.error(`Commercial : annulation espèces ${c.n_devis} :`, err.message);
+    g.sendMail(MAILBOX, { to: MAILBOX, subject: `Espèces : annulation Odoo en erreur - ${c.n_devis}`, html: `<p>La commande ${esc(c.n_devis)} est payée en espèces et terminée, mais son annulation dans Odoo a échoué : ${esc(err.message)}</p>` }).catch(() => {});
+    return { statut: 'erreur', erreur: err.message };
+  }
+}
+
 // Appelé quand une commande change de statut (atelier) : TERMINÉE / À EXPÉDIER -> facture du solde si acompte
 async function surStatutCommande(c, nouveauStatut, par) {
   try {
+    // Payée en espèces : pas de facture du solde, la commande Odoo est annulée
+    if (await annulerSiEspeces(c, nouveauStatut, par)) return;
     const st = String(nouveauStatut || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z]/g, '');
     if (!['TERMINEE', 'AEXPEDIER'].includes(st) || !c?.n_devis || !odoo.configured()) return;
     if ((await require('./notifications').reglage('tache_facture_solde', 'off')) !== 'on') return;
@@ -593,4 +619,4 @@ async function origines() {
   return Object.values(groupes).map(x => ({ ...x, ca_signe_ht: Math.round(x.ca_signe_ht), taux: x.devis ? Math.round(x.signes / x.devis * 100) : null })).sort((a, b) => b.devis - a.devis);
 }
 
-module.exports = { dejaEnvoyee, clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, compteDemandes, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };
+module.exports = { dejaEnvoyee, clientsAReactiver, relancerClient, rechercherClients, ficheClient, origines, tableauDeBord, demandes, nouvelleDemande, preparerBrouillon, envoyerDemande, abandonnerDemande, compteDemandes, annulerDevis, annulerDemande, depuisConversation, relancer, facturerSolde, surStatutCommande, annulerSiEspeces, impayes, relancerClientImpayes, prevenirDevisWhatsApp, devisEnvoyesWhatsapp, RELANCE_JOURS };

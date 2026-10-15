@@ -477,6 +477,23 @@ async function annulerDevisOdoo({ id, numero }, motif, par) {
   await noteDevis(so.id, `Devis annulé depuis le dashboard IGS par ${e(par || '?')}${motif ? ' : ' + e(motif) : ''}.`);
   return { numero: so.name, client: so.partner_id ? so.partner_id[1] : null };
 }
+// Commande payée en ESPÈCES et terminée : la commande Odoo est annulée pour ne plus rester « à facturer »
+// (l'argent passe par la caisse, pas par une facture). Jamais si une facture est déjà validée (acompte…) : à voir à la main.
+async function annulerCommandeEspeces(numero, par) {
+  const [so] = await kw('sale.order', 'search_read', [[...(await igsSeulement()), ['name', '=', String(numero || '').trim().toUpperCase()]]], { fields: ['id', 'name', 'state', 'invoice_ids', 'locked'], limit: 1 });
+  if (!so) return { statut: 'introuvable' };
+  if (so.state === 'cancel') return { statut: 'deja', numero: so.name };
+  if (so.invoice_ids?.length) {
+    const fs = await kw('account.move', 'read', [so.invoice_ids], { fields: ['name', 'state'] });
+    const validees = fs.filter(f => f.state === 'posted');
+    if (validees.length) return { statut: 'facture', numero: so.name, factures: validees.map(f => f.name) };
+  }
+  if (so.locked) await kw('sale.order', 'action_unlock', [[so.id]]);
+  await kw('sale.order', 'action_cancel', [[so.id]], { context: { disable_cancel_warning: true } });
+  const e = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  await noteDevis(so.id, `Commande annulée automatiquement depuis le dashboard IGS : payée en espèces à la remise (encaissée en caisse, pas de facture). Cochée par ${e(par || '?')}.`);
+  return { statut: 'annulee', numero: so.name, etait: so.state };
+}
 async function envoyerDevisOdoo(id) {
   // Pas d'e-mail sur la fiche client : on s'arrête avant (sinon Odoo marque le devis « envoyé » sans rien envoyer)
   const [d] = await kw('sale.order', 'read', [[id]], { fields: ['partner_id'] });
@@ -979,7 +996,7 @@ async function telephonesOdoo() {
   return r;
 }
 
-module.exports = { ventesParProduit, devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, etatsDevisIds, envoyerFactureReglee,
+module.exports = { ventesParProduit, devisRemplacants, soldesDevis, devisOdooClient, confirmerDevis, catalogueProduits, prixProduit, facturesPayeesNonEnvoyees, annulerDevisOdoo, annulerCommandeEspeces, etatsDevisIds, envoyerFactureReglee,
   lignesDevis, ajouterLigneDevis, infosDevis, liensPaiement, importerFactureFournisseur, reglementComptoir,
   supprimerDevis, commandesPayeesRecentes, partnerParEmail, etatDevis, configured, findPartner, readPartner, searchPartners, createPartner, getAlias, setAlias, isMartinique, remise,
   creerEtEnvoyerDevis, creerEtEnvoyerFacture, devisRecent, lienDevis, copierDevis, clientDuDevis, adresseLivraison, completerTelephone, formatTel, partnerParTelephone, ecrirePartner, devisCommerciaux, lienPortailDevis, noteDevis, devisParNumero, envoyerDevisOdoo, facturerSolde, devisEnvoyesDepuis, facturesImpayees, factureRelance, pdfFacture, noteFacture, lienOdoo, produitPourDemande, brouillonDemande, clientsAReactiver, ficheClientOdoo, financesMensuelles, telephonesOdoo,
