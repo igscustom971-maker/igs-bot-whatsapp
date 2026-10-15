@@ -1726,7 +1726,7 @@ function brancherBordereau(c, type){
       if (j.suivi && champ && String(champ.value).toUpperCase().replace(/\\s/g, '') !== j.suivi) {
         champ.value = j.suivi; champ.style.outline = '3px solid #FF1E8E'; champ.style.background = '#fff0f7';
         champ.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        m('✅ Bordereau déposé. N° de suivi lu : <b>'+esc(j.suivi)+'</b>, reporté dans le champ « N° de suivi La Poste » : vérifie-le puis clique <b>Enregistrer</b> au moment de l\\'envoi (le client reçoit alors le mail / WhatsApp « expédiée »).', 'ok');
+        m('✅ Bordereau déposé. N° de suivi lu : <b>'+esc(j.suivi)+'</b>, reporté dans le champ « N° de suivi La Poste » : vérifie-le puis clique <b>Enregistrer</b>. Le client ne reçoit le message « expédiée » qu\\'au passage en <b>EXPÉDIÉE</b>.', 'ok');
       } else m('✅ Bordereau déposé : l\\'équipe peut l\\'imprimer'+(j.suivi ? ' (n° de suivi '+esc(j.suivi)+' déjà renseigné)' : ' (n° de suivi non trouvé sur le bordereau : à saisir à la main)'), 'ok');
     } catch(err){ m('❌ ' + esc(err.message), 'err'); }
   };

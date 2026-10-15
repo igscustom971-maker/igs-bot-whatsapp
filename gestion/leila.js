@@ -18,7 +18,7 @@ function statutClair(c) {
   const st = norm(c.statut), bi = c.bat_info || {}, rep = c.bat_reponse;
   if (st === 'LIVREE') return 'commande livrée / récupérée';
   if (st === 'EXPEDIEE') return 'commande expédiée';
-  if (st === 'AEXPEDIER') return c.numero_suivi ? 'commande expédiée' : 'commande prête, en cours d\'expédition';
+  if (st === 'AEXPEDIER') return 'commande prête, en cours d\'expédition (pas encore partie)';
   if (st === 'TERMINEE') return 'commande PRÊTE à être récupérée (du lundi au vendredi de 14h30 à 17h30)';
   if (st === 'ENPRODUCTION' || st === 'ENFLOCAGE') return 'commande en cours de production';
   if (st === 'ENCOMMANDE') return rep && rep.verdict === 'valide' ? 'BAT validé, les textiles sont commandés, la production suivra' : (c.bat_envoye_le ? `textiles commandés ; BAT envoyé le ${fdate(c.bat_envoye_le)}, en attente de la validation du client` : 'textiles commandés, le BAT est en préparation');

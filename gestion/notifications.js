@@ -2,7 +2,8 @@
 // IGS GESTION - MESSAGES AUTOMATIQUES AUX CLIENTS (remplace les mails Power Automate)
 // Toutes les 3 minutes :
 //  - Commande « prête » au passage en TERMINÉE
-//  - Commande « expédiée » dès que le N° de suivi est saisi
+//  - Commande « expédiée » au passage en EXPÉDIÉE avec un N° de suivi (jamais en A EXPEDIER : le bordereau et le
+//    N° peuvent être prêts avant que le colis parte)
 //  - « Avis » le lendemain à 10 h du passage en LIVRÉE (si le lien Google est renseigné dans Admin)
 //  - Planche « prête » (A RECUPERER) et « expédiée » (EXPÉDIÉE + N° de suivi)
 // Mail générique depuis contact@ + WhatsApp personnalisé (tutoiement si le client tutoie) si la fenêtre de 24 h
@@ -250,7 +251,7 @@ async function aEnvoyer() {
     const st = statutKey(c.statut);
     const base = { cle: c.cle, devis: c.n_devis, nom: c.client, email: c.email, tel: c.telephone, especes: c.a_payer_especes ? (c.montant_especes != null && !isNaN(Number(c.montant_especes)) ? Number(c.montant_especes).toFixed(2).replace('.', ',') + ' €' : 'le montant') : null };
     if (st === 'TERMINEE') cands.push({ item: { ...base, type: 'prete' }, alias: [] });
-    if (c.numero_suivi) cands.push({ item: { ...base, type: 'expedition', suivi: c.numero_suivi }, alias: [] });
+    if (c.numero_suivi && st === 'EXPEDIEE') cands.push({ item: { ...base, type: 'expedition', suivi: c.numero_suivi }, alias: [] });
   }
   // Avis : le lendemain à 10 h du passage en LIVRÉE (date relevée par le dashboard, après l'activation)
   const lienAvis = await reglage('notif_avis_lien', LIEN_AVIS_DEFAUT);
