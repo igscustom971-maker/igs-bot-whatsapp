@@ -665,6 +665,11 @@ async function modifier(cle, champs, user) {
   }
   await writeCells(cle, fields);
   await journal(user, 'planche_modifiee', cle, { client: p.client, ...fields, ...('metres' in fields ? { metres_avant: p.metres ?? p.format ?? null } : {}) });
+  // Rouleau de film DTF : mètres décomptés quand la planche passe imprimée
+  if ('statut' in fields || 'metres' in fields) {
+    const apres = trouveApres(p) || { ...p, ...fields };
+    require('./rouleau').surPlanche(apres, fields.statut ?? apres.statut).catch(err => console.error('Rouleau DTF :', err.message));
+  }
   return trouveApres(p);
 }
 

@@ -663,6 +663,12 @@ module.exports = function mountGestion(app) {
   // Onglet « BDC SEFI » : contenu en temps réel, conversion, ajout manuel, ajustement (toute l'équipe)
   const quiS2 = req => req.user.name || req.user.email;
   const actS = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { console.error('BDC SEFI :', err.message); res.status(/Graph|SharePoint|fetch/i.test(err.message) ? 502 : 400).json({ error: err.message }); } };
+  // ---------- Rouleau de film DTF (100 m) : décompte par les planches imprimées, alerte à 20 m ----------
+  const rouleau = require('./rouleau');
+  app.get('/gestion/api/rouleau', auth.requireUser, tech, actS(() => rouleau.etat()));
+  app.post('/gestion/api/rouleau/nouveau', auth.requireUser, tech, actS(req => rouleau.nouveauRouleau(req.body || {}, quiS2(req))));
+  app.post('/gestion/api/rouleau/corriger', auth.requireUser, tech, actS(req => rouleau.corriger(req.body || {}, quiS2(req))));
+  app.post('/gestion/api/rouleau/seuils', auth.requireUser, auth.requireAdmin, actS(req => rouleau.reglerSeuils(req.body || {})));
   // ---------- Mes tâches (Ismaël, admin) : aussi alimentées par Leïla sur WhatsApp ----------
   const todo = require('./todo');
   app.get('/gestion/taches', auth.requireUser, auth.requireAdmin, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'todo')));

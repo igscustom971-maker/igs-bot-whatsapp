@@ -679,6 +679,7 @@ ${view === 'accueil' ? `
       <button id="refresh" class="btn primary">↻ Actualiser</button>
       <span id="sync" class="sync"></span>
     </div>
+    <div id="rl-card"></div><script src="/gestion/rouleau.js" defer></script>
     <div class="cols">
       <div class="stack">
         <div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center">Articles vierges <button class="btn" id="add-vierge">＋ Article</button></h3><div id="st-vierges"><div class="skel"></div><div class="skel"></div></div></div>
@@ -698,6 +699,7 @@ ${view === 'accueil' ? `
     <span id="sync" class="sync"></span>
   </div>
   <div class="kpis" id="plkpis"></div>
+  <div id="rl-card"></div><script src="/gestion/rouleau.js" defer></script>
   ${user.role === 'admin' ? '<div class="card autobox" id="autobox"></div>' : ''}
   <div id="chips" class="chips"></div>
   <div class="tablewrap">
