@@ -18,7 +18,7 @@ function render(user, view = 'accueil') {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', factures: 'Factures fournisseurs', admin: 'Admin', leila: 'Leïla', bat: 'BAT', sefi: 'BDC SEFI' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
+<title>IGS Dashboard · ${({ commercial: 'Commercial', commandes: 'Commandes', planches: 'Planches DTF', stock: 'Stock', caisse: 'Espèces', heures: 'Heures', factures: 'Factures fournisseurs', admin: 'Admin', leila: 'Leïla', bat: 'BAT', sefi: 'BDC SEFI', todo: 'Mes tâches' })[batSeul ? 'bat' : view] || 'Accueil'}</title>
 <link rel="icon" href="/gestion/favicon.ico" sizes="any"><link rel="icon" href="/gestion/icon-192.png" type="image/png">
 <link rel="manifest" href="/gestion/manifest.webmanifest"><meta name="theme-color" content="#1E1E4B">
 <link rel="apple-touch-icon" href="/gestion/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="IGS"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -445,6 +445,7 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
     ${TECH || COM ? `<a class="${view === 'factures' ? 'on' : ''}" href="/gestion/factures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg><span class="lb" data-m="Factures">Factures</span></a>` : ''}
     ${TECH ? `<a class="${view === 'leila' ? 'on' : ''}" href="/gestion/leila"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><span class="lb" data-m="Leïla">Leïla</span><span class="nn" id="nav-leila"></span></a>` : ''}
+    ${user.role === 'admin' ? `<a class="${view === 'todo' ? 'on' : ''}" href="/gestion/taches"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg><span class="lb" data-m="Tâches">Mes tâches</span><span class="nn o" id="nav-n-todo"></span></a>` : ''}
     ${user.role === 'admin' ? `<a class="${view === 'admin' ? 'on' : ''}" href="/gestion/admin"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="lb" data-m="Admin">Admin</span></a>` : ''}
   </nav>
   <div class="who"><span class="me"><span class="av">${esc((prenom === 'l\'équipe' ? 'IGS' : prenom).slice(0, 2).toUpperCase())}</span><span class="nm"><b>${esc(prenom === 'l\'équipe' ? 'Équipe IGS' : prenom)}</b><small>${user.role === 'admin' ? 'Admin' : [TECH && 'Technique', COM && 'Commercial'].filter(Boolean).join(' · ') || 'Équipe'}</small></span></span>${String(user.email || '').startsWith('local:') ? '<a href="/gestion/auth/mot-de-passe">Mot de passe</a>' : ''}<a href="#" id="pwa-installer" hidden>📲 Installer l'app</a><a href="/gestion/auth/logout">Déconnexion</a></div>
@@ -644,7 +645,18 @@ ${view === 'accueil' ? `
     <div id="pr-tabs"></div>
     <div id="pr-liste"><div class="card"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div></div>
   </section>
-  <script src="/gestion/produits.js" defer></script>` : view === 'sefi' ? `
+  <script src="/gestion/produits.js" defer></script>` : view === 'todo' ? `
+  <section id="v-todo">
+    <div class="hello"><div><h2>Mes tâches</h2><div class="sub">Ta liste perso. Tu peux aussi demander à Leïla sur WhatsApp : « mets-moi une tâche… », « qu’est-ce que j’ai à faire ? », « c’est fait pour… ». Rappel chaque matin à 7 h 30.</div></div></div>
+    <div class="card" style="margin-bottom:14px"><h3>＋ Nouvelle tâche</h3>
+      <div class="td-form"><div class="field" style="flex:3 1 280px"><label>Tâche</label><input id="td-texte" autocomplete="off" placeholder="ex. Appeler SEFI pour les polos"></div>
+        <div class="field" style="flex:0 1 160px"><label>Pour le</label><input id="td-date" type="date"></div>
+        <div class="field" style="flex:0 1 130px"><label>Priorité</label><select id="td-prio"><option value="normale">Normale</option><option value="haute">🔥 Haute</option><option value="basse">Basse</option></select></div>
+        <div class="field" style="flex:0 0 auto;align-self:flex-end"><button id="td-ajouter" class="btn primary">Ajouter</button></div></div>
+      <div class="msg" id="td-msg"></div></div>
+    <div id="td-liste"><div class="card"><div class="skel"></div><div class="skel"></div></div></div>
+  </section>
+  <script src="/gestion/todo.js" defer></script>` : view === 'sefi' ? `
   <section id="v-sefi">
     <div class="hello"><div><h2>Bon de commande SEFI</h2><div class="sub">Ce qui partira au prochain envoi (9 h, 11 h, 17 h ou à la demande), mis à jour en direct.</div></div>
       <div class="tools" style="margin:0"><span id="sf-sync" class="sync"></span><button id="sf-envoyer" class="btn pink">📨 Envoyer maintenant</button></div></div>
@@ -1289,6 +1301,13 @@ async function navDemandes(){
   try { const r = await fetch('/gestion/api/commercial/demandes-compte'); if (!r.ok) return; const j = await r.json(); $('nav-n-com').textContent = j.n || ''; $('nav-n-com').title = j.n ? j.n + ' demande(s) de devis à traiter' : ''; } catch(e){}
 }
 if (document.getElementById('nav-n-com')) { navDemandes(); setInterval(() => { if (!document.hidden) navDemandes(); }, 120000); }
+// Mes tâches : nombre de tâches du jour ou en retard dans le menu
+async function navTodo(){
+  if (!$('nav-n-todo')) return;
+  try { const r = await fetch('/gestion/api/todo'); if (!r.ok) return; const j = await r.json(); const n = (j.taches || []).filter(t => t.en_retard || t.aujourdhui).length; $('nav-n-todo').textContent = n || ''; $('nav-n-todo').title = n ? n + ' tâche(s) pour aujourd’hui ou en retard' : ''; } catch(e){}
+}
+window.navTodo = navTodo;
+if (document.getElementById('nav-n-todo')) { navTodo(); setInterval(() => { if (!document.hidden) navTodo(); }, 300000); }
 function afficher(){ navCompteurs(); if (VIEW === 'commandes' && modeBat) return batRender(); if (VIEW === 'commandes' && modeHisto) return; if (VIEW === 'accueil') { accueil(); plHome(); hrHome(); } else if (VIEW === 'planches') plListe(); else if (VIEW === 'stock') stRender(); else if (VIEW === 'caisse') csRender(); else if (VIEW === 'commandes') liste(); }
 
 // ---------- Planches DTF ----------
@@ -3293,7 +3312,7 @@ if (${TECH ? 'true' : 'false'} && !['accueil','commandes','planches'].includes(V
 // Actualisation automatique (pas sur Admin ni Heures : elle effacerait une saisie en cours)
 // Actualisation auto toutes les 2 min (onglet visible seulement) ; au retour sur l'onglet, tout de suite si c'est ancien.
 // Pas sur les pages de réglages (Admin, Leïla, Heures) : une saisie en cours serait effacée.
-if (!['admin', 'heures', 'leila', 'factures', 'sefi'].includes(VIEW)) {
+if (!['admin', 'heures', 'leila', 'factures', 'sefi', 'todo'].includes(VIEW)) {
   let dernierAuto = Date.now();
   const tick = () => { if (document.hidden) return; dernierAuto = Date.now(); charger(false, true); };
   setInterval(tick, 120000);

@@ -256,6 +256,16 @@ const TACHES = [
     // Le 8 du mois (rattrapage les jours suivants si le serveur était arrêté) ; jamais dès l'activation de la tâche
     quand: (h, d) => h.getDate() >= 8 && h.getDate() <= 15 && h.getHours() >= 10 && (d ? (heureGP(d).getMonth() !== h.getMonth() && Date.now() - d > 20 * 86400e3) : h.getDate() === 8) },  { id: 'leila_apprentissage', nom: 'Apprentissage de Leïla (compare ses réponses à celles de l’équipe, en tire des leçons ; bilan le lundi)', flux: '(nouveau)', rythme: 'chaque soir (20 h)', fn: () => require('./apprentissage').tache(), defaut: 'on',
     quand: (h, d) => h.getHours() >= 20 && autreJour(h, d) },
+  { id: 'rappel_taches', nom: 'Rappel du matin des tâches d\'Ismaël (du jour, en retard) par WhatsApp', flux: '(nouveau, Leïla)', rythme: 'chaque jour à 7 h 30', defaut: 'on',
+    fn: async () => {
+      const texte = await require('./todo').rappelDuJour();
+      if (!texte) return 'rien pour aujourd\'hui';
+      const fn = require('./sefi-mails').fournisseurs.envoyerAIsmael;
+      if (!fn) return 'WhatsApp vers Ismaël indisponible';
+      await fn(texte, 'Tâches du jour');
+      return 'rappel envoyé';
+    },
+    quand: (h, d) => (h.getHours() > 7 || (h.getHours() === 7 && h.getMinutes() >= 30)) && h.getHours() < 12 && autreJour(h, d) },
 ];
 
 const etatMemoire = new Map(); // id -> { le, ok, resultat }

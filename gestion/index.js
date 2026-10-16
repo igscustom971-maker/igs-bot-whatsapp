@@ -658,6 +658,13 @@ module.exports = function mountGestion(app) {
   // Onglet « BDC SEFI » : contenu en temps réel, conversion, ajout manuel, ajustement (toute l'équipe)
   const quiS2 = req => req.user.name || req.user.email;
   const actS = fn => async (req, res) => { try { res.json(await fn(req)); } catch (err) { console.error('BDC SEFI :', err.message); res.status(/Graph|SharePoint|fetch/i.test(err.message) ? 502 : 400).json({ error: err.message }); } };
+  // ---------- Mes tâches (Ismaël, admin) : aussi alimentées par Leïla sur WhatsApp ----------
+  const todo = require('./todo');
+  app.get('/gestion/taches', auth.requireUser, auth.requireAdmin, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'todo')));
+  app.get('/gestion/api/todo', auth.requireUser, auth.requireAdmin, actS(() => todo.liste().then(taches => ({ taches }))));
+  app.post('/gestion/api/todo', auth.requireUser, auth.requireAdmin, actS(req => todo.ajouter(req.body || {}, quiS2(req))));
+  app.post('/gestion/api/todo/:id', auth.requireUser, auth.requireAdmin, actS(req => todo.modifier(req.params.id, req.body || {}, quiS2(req))));
+  app.post('/gestion/api/todo/:id/supprimer', auth.requireUser, auth.requireAdmin, actS(req => todo.supprimer(req.params.id)));
   app.get('/gestion/sefi', auth.requireUser, tech, (req, res) => res.set('Cache-Control', 'no-store').send(page.render(req.user, 'sefi')));
   app.get('/gestion/api/sefi/bdc', auth.requireUser, actS(req => sefi.contenuBdc({ force: req.query.force === '1' }).then(c => ({ ...c, admin: req.user.role === 'admin' }))));
   app.get('/gestion/api/sefi/convertir', auth.requireUser, actS(async req => { const c = sefi.convertir(req.query.texte, req.query.taille); if (req.user.role !== 'admin') delete c.prix; return c; }));
