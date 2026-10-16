@@ -56,7 +56,7 @@ function scoreSpam({ message, telephone, entreprise, page, formulaire }) {
 
 const SYSTEME = `Tu tries les mails reçus par IGS CUSTOM BAR, atelier de personnalisation textile et d'impression DTF en Guadeloupe.
 Réponds uniquement avec un objet JSON, sans texte autour.
-Champs : spam (true pour un message automatique, générique ou suspect sans besoin concret : « je souhaite plus d'informations, contactez-moi par mail », prospection SEO/marketing, lien douteux, texte qui reprend juste le nom de l'atelier ; false pour un vrai client, même bref, qui décrit ce qu'il veut), demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom et prénom de la personne, sinon ""), entreprise (nom de la société, association, club, mairie, école… pour laquelle la personne écrit, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion).`;
+Champs : spam (true pour un message automatique, générique ou suspect sans besoin concret : « je souhaite plus d'informations, contactez-moi par mail », prospection SEO/marketing, lien douteux, texte qui reprend juste le nom de l'atelier ; false pour un vrai client, même bref, qui décrit ce qu'il veut), demande_devis (true seulement si l'expéditeur demande un prix, un devis ou veut commander des articles personnalisés ou des planches DTF ; false pour une réclamation, une facture, une prospection commerciale, une candidature, une publicité, un suivi de commande en cours, un remerciement), nom (nom et prénom de la personne, sinon ""), entreprise (nom de la société, association, club, mairie, école… pour laquelle la personne écrit, sinon ""), email (adresse du client ; si le mail est transféré, celle du vrai client), telephone (numéro tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Planche DTF", sinon ""), quantite (nombre, sinon 0), zone (zone de marquage, sinon ""), details (résumé de la demande en une ou deux phrases : couleurs, délai, occasion), articles (seulement si la demande porte sur PLUSIEURS articles différents (produits, modèles, tailles adulte/enfant ou zones différentes) : liste [{"produit": "...", "quantite": nombre, "zone": "..."}], un objet par article ; sinon []).`;
 
 async function reglage(cle, defaut = null) {
   if (!supabase) return defaut;
@@ -73,7 +73,7 @@ async function analyser({ expediteur, sujet, corps }) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: MODELE, max_tokens: 500, system: SYSTEME,
+    body: JSON.stringify({ model: MODELE, max_tokens: 900, system: SYSTEME,
       messages: [{ role: 'user', content: `Expéditeur : ${expediteur}\nObjet : ${sujet}\nTexte :\n${String(corps).slice(0, 3000)}` }] }),
   });
   const j = await res.json();
@@ -147,6 +147,7 @@ async function relever() {
       const d = await commercial.nouvelleDemande({
         source: 'mail', email, nom, entreprise, telephone: normTel(a.telephone || (f && f.telephone)),
         produit: String(a.produit || '').trim(), quantite: Number(a.quantite) || null, zone: String(a.zone || '').trim(),
+        articles: commercial.normArticles(a.articles),
         details: [String(a.details || '').trim(), f ? `(formulaire du site, ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')})` : `(mail du ${new Date(m.receivedDateTime).toLocaleDateString('fr-FR')} : « ${sujet.slice(0, 80)} »)`].filter(Boolean).join(' '),
       }, 'Leïla (mail)');
       if (d) crees++;

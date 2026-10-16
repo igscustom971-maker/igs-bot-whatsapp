@@ -171,12 +171,26 @@ function extraireDevis(texte) {
   const m = t.match(/###DEVIS:([\s\S]*?)###\s*$/im) || t.match(/###DEVIS:([^\n]*?)###/i);
   const clean = t.replace(/###DEVIS:[\s\S]*?###\s*$/gim, '').replace(/###DEVIS:[^\n]*?###/gi, '').trim();
   if (!m) return { clean, devis: null };
-  const o = {};
+  const o = {}, articles = [];
   for (const part of m[1].split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) o[part.slice(0, i).trim().toLowerCase()] = part.slice(i + 1).trim();
+    if (i <= 0) continue;
+    const k = part.slice(0, i).trim().toLowerCase(), v = part.slice(i + 1).trim();
+    // Plusieurs articles : article=T-shirt|6|avant (une clé « article » par article)
+    if (k === 'article') {
+      const [produit, qte, zone] = v.split('|').map(x => x.trim());
+      if (produit) articles.push({ produit: produit.slice(0, 80), quantite: Number(String(qte || '').replace(',', '.')) || null, zone: zone || null });
+    } else o[k] = v;
   }
-  const devis = { produit: o.produit || null, quantite: Number(String(o.qte || o.quantite || '').replace(',', '.')) || null, zone: o.zone || null, nom: o.nom || null, email: (o.email || '').toLowerCase() || null, details: o.details || null };
+  if (!articles.length && o.produit) articles.push({ produit: o.produit, quantite: Number(String(o.qte || o.quantite || '').replace(',', '.')) || null, zone: o.zone || null });
+  const a0 = articles[0] || {};
+  const devis = {
+    produit: articles.length > 1 ? articles.map(a => a.produit).join(' + ').slice(0, 120) : (a0.produit || null),
+    quantite: articles.length > 1 ? articles.reduce((t, a) => t + (a.quantite || 0), 0) || null : (a0.quantite || Number(String(o.qte || '').replace(',', '.')) || null),
+    zone: articles.length > 1 ? null : (a0.zone || o.zone || null),
+    articles: articles.length > 1 ? articles : null,
+    nom: o.nom || null, entreprise: o.entreprise || null, email: (o.email || '').toLowerCase() || null, details: o.details || null,
+  };
   return { clean, devis: devis.produit || devis.quantite ? devis : null };
 }
 // Demande de devis prise par Leïla : notée dans le module Commercial avec un brouillon Odoo pré-fait

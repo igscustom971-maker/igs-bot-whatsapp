@@ -908,11 +908,26 @@ async function brouillonDemande(d) {
     partner = { id: typeof id === 'object' ? id.id : id, name: d.nom };
     cree = true;
   }
-  const prod = await produitPourDemande(d.produit, d.zone).catch(() => null);
-  const note = `Demande ${d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : d.source === 'mail' ? 'reçue par mail (Leïla)' : d.source === 'ismael' ? 'demandée par Ismaël (WhatsApp)' : 'commerciale'} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
+  const origine = d.source === 'whatsapp' ? 'WhatsApp (Leïla)' : d.source === 'mail' ? 'reçue par mail (Leïla)' : d.source === 'ismael' ? 'demandée par Ismaël (WhatsApp)' : 'commerciale';
   const lines = [];
-  if (prod) lines.push([0, 0, { product_id: prod.id, product_uom_qty: Number(d.quantite) > 0 ? Number(d.quantite) : 1 }]);
-  lines.push([0, 0, { display_type: 'line_note', name: note + (prod ? '' : ' (produit à choisir)') }]);
+  let prod = null;
+  if (Array.isArray(d.articles) && d.articles.length > 1) {
+    // Plusieurs articles : une ligne de devis par article (produit retrouvé dans Odoo), sinon une note « à choisir »
+    const trouves = [];
+    for (const a of d.articles) {
+      const p = await produitPourDemande(a.produit, a.zone).catch(() => null);
+      if (p) { lines.push([0, 0, { product_id: p.id, product_uom_qty: Number(a.quantite) > 0 ? Number(a.quantite) : 1 }]); trouves.push(p.name); }
+      else lines.push([0, 0, { display_type: 'line_note', name: `À chiffrer : ${a.quantite ? a.quantite + ' x ' : ''}${a.produit}${a.zone ? ' (' + a.zone + ')' : ''} (produit à choisir)` }]);
+    }
+    prod = trouves.length ? { name: trouves.join(' + ') } : null;
+    const reste = String(d.details || '').replace(/\s*·?\s*Articles : .+$/, '').trim();
+    lines.push([0, 0, { display_type: 'line_note', name: `Demande ${origine} : ${d.articles.length} articles${reste ? ' · ' + reste : ''}`.slice(0, 500) }]);
+  } else {
+    prod = await produitPourDemande(d.produit, d.zone).catch(() => null);
+    const note = `Demande ${origine} : ${[d.quantite ? d.quantite + ' x' : '', d.produit, d.zone ? '· zone ' + d.zone : '', d.details ? '· ' + d.details : ''].filter(Boolean).join(' ')}`.slice(0, 500);
+    if (prod) lines.push([0, 0, { product_id: prod.id, product_uom_qty: Number(d.quantite) > 0 ? Number(d.quantite) : 1 }]);
+    lines.push([0, 0, { display_type: 'line_note', name: note + (prod ? '' : ' (produit à choisir)') }]);
+  }
   const id = await kw('sale.order', 'create', [{ partner_id: partner.id, company_id: companyId, order_line: lines }]);
   const [so] = await kw('sale.order', 'read', [[id]], { fields: ['name', 'amount_untaxed', 'amount_total'] });
   return { id, numero: so.name, montant_ht: so.amount_untaxed, client: partner.name, client_cree: cree, produit: prod ? prod.name : null, lien: lienOdoo('sale.order', id) };

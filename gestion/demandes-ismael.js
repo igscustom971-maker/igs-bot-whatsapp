@@ -15,7 +15,7 @@ const estDemande = texte => RACCOURCI.test(String(texte || ''));
 
 const SYSTEME = `Ismaël, gérant d'IGS CUSTOM BAR (personnalisation textile et impression DTF en Guadeloupe), transmet une demande de devis d'un client en quelques mots.
 Réponds uniquement avec un objet JSON, sans texte autour.
-Champs : nom (client : entreprise, association ou personne, tel qu'écrit, sinon ""), email (sinon ""), telephone (tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Casquette", "Planche DTF", sinon ""), quantite (nombre total, sinon 0), zone (zone(s) de marquage et technique, ex. "flocage avant + arrière", sinon ""), details (le reste utile en une ou deux phrases : couleurs, tailles, délai, remarques ; sinon "").`;
+Champs : nom (client : entreprise, association ou personne, tel qu'écrit, sinon ""), email (sinon ""), telephone (tel qu'écrit, sinon ""), produit (ex. "T-shirt", "Polo", "Sweat", "Casquette", "Planche DTF", sinon ""), quantite (nombre total, sinon 0), zone (zone(s) de marquage et technique, ex. "flocage avant + arrière", sinon ""), details (le reste utile en une ou deux phrases : couleurs, tailles, délai, remarques ; sinon ""), articles (seulement si la demande porte sur PLUSIEURS articles différents (produits, modèles, tailles adulte/enfant ou zones différentes) : liste [{"produit": "...", "quantite": nombre, "zone": "..."}], un objet par article ; sinon []).`;
 
 async function analyser(texte) {
   const key = process.env.CLAUDE_API_KEY;
@@ -23,7 +23,7 @@ async function analyser(texte) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model: MODELE, max_tokens: 400, system: SYSTEME, messages: [{ role: 'user', content: String(texte).slice(0, 2000) }] }),
+    body: JSON.stringify({ model: MODELE, max_tokens: 800, system: SYSTEME, messages: [{ role: 'user', content: String(texte).slice(0, 2000) }] }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error(`Claude : ${j.error?.message || res.status}`);
@@ -53,6 +53,7 @@ async function traiter(texte) {
   const d = await require('./commercial').nouvelleDemande({
     source: 'ismael', nom: String(a.nom || '').trim(), email, telephone,
     produit: String(a.produit || '').trim(), quantite: Number(a.quantite) || null, zone: String(a.zone || '').trim(), details,
+    articles: require('./commercial').normArticles(a.articles),
   }, 'Ismaël (WhatsApp)');
   if (!d) return '⚠️ Je n\'ai pas pu enregistrer la demande (base indisponible). Réessaie dans une minute.';
 
