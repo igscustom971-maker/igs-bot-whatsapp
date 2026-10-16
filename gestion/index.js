@@ -323,7 +323,12 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req), { fichiers: req.body?.fichiers, devis: !!req.body?.devis })));
   app.post('/gestion/api/planches/ajouter', auth.requireUser, async (req, res) => {
     // Doublon possible sur un compteur hebdo : 409 pour que le dashboard demande confirmation
-    try { res.json(await planches.ajouter(req.body || {}, qui(req))); }
+    try {
+      const r = await planches.ajouter(req.body || {}, qui(req));
+      // Planche ponctuelle ajoutée à la main : devis Odoo envoyé tout de suite (comme la tâche « Devis planche auto »)
+      if (r && r.planche && !r.compteur) r.devis = await require('./taches').devisPlancheAjoutee(r.planche).catch(err => ({ statut: 'erreur', erreur: err.message }));
+      res.json(r);
+    }
     catch (err) { if (err.doublon) return res.status(409).json({ error: err.message, doublon: true }); console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   });
   app.get('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.clientPlanche(req.params.cle)));

@@ -118,10 +118,17 @@ async function expirerPlanchesEnAttente() {
   return faits.length ? faits.join(' ; ') : 'rien d\'expiré (planches et commandes en attente)';
 }
 
-// « Devis planche auto » : planches A PREPARER avec métrage, sans devis, hors clients hebdo -> devis Odoo envoyé
+// « Devis planche auto » : planches en cours avec métrage, sans devis, pas payées, hors clients hebdo -> devis Odoo envoyé
+// (A VÉRIFIER exclue : l'équipe doit regarder avant ; payée au comptoir (espèces, CB…) : pas de devis)
+const ST_DEVIS = ['APREPARER', 'AIMPRIMER', 'ENATTENTE', 'ARECUPERER', 'AEXPEDIER'];
+// Statuts ajoutés (à imprimer, prête…) : seulement les planches récentes (3 jours), pour ne jamais deviser d'anciennes planches
+const recente = p => { const d = Date.parse(p.date_commande || ''); return !isNaN(d) && Date.now() - d < 3 * 86400e3; };
+const aDeviser = p => ST_DEVIS.includes(statutKey(p.statut)) && !p.n_devis && !p.hebdo && p.client && (p.format || p.metres > 0)
+  && (!String(p.paiement || '').trim() || /NON/i.test(p.paiement))
+  && (['APREPARER', 'ENATTENTE'].includes(statutKey(p.statut)) || recente(p));
 async function devisPlanches() {
   const { rows } = await planches.listPlanches({ force: true });
-  const aFaire = rows.filter(p => ['APREPARER', 'ENATTENTE'].includes(statutKey(p.statut)) && !p.n_devis && !p.hebdo && p.client && (p.format || p.metres > 0));
+  const aFaire = rows.filter(aDeviser);
   const res = [];
   for (const p of aFaire) {
     try {
@@ -315,4 +322,14 @@ function start() {
   setInterval(() => tour().catch(() => {}), 60e3);
 }
 
-module.exports = { start, etat, activer, lancerMaintenant, _test: { TACHES, heureGP } };
+// Planche ajoutée à la main : devis tout de suite (si la tâche « Devis planche auto » est active), sans attendre 30 min
+async function devisPlancheAjoutee(p) {
+  if (!p || !aDeviser(p)) return null;
+  if ((await reglage('tache_devis_planches', 'off')) !== 'on') return { statut: 'tache_off' };
+  try {
+    const r = await planches.devis(p.cle, 'Devis automatique');
+    if (r.ok) return { statut: 'envoye', numero: r.devis.numero, envoye: r.devis.envoye };
+    return { statut: r.doublon ? 'doublon' : 'client', doublon: r.doublon || null };
+  } catch (err) { return { statut: 'erreur', erreur: err.message }; }
+}
+module.exports = { devisPlancheAjoutee, start, etat, activer, lancerMaintenant, _test: { TACHES, heureGP } };

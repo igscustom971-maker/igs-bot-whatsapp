@@ -2167,7 +2167,9 @@ function nouvellePlanche(){
         if (!confirm('⚠️ ' + e.message + '\\n\\nAjouter quand même ces mètres (ce n\\'est pas un doublon) ?')) { msg('Rien ajouté : vérifie le suivi du compteur dans la fiche du client.', 'info'); $('n-ok').disabled = false; return; }
         j = await post('/gestion/api/planches/ajouter', { ...body, forcer: true });
       }
-      const texte = j.compteur ? '✅ Compteur hebdo : '+String(j.compteur.avant).replace('.',',')+' + '+String(j.compteur.ajout).replace('.',',')+' = '+String(j.compteur.total).replace('.',',')+' m' : '✅ Planche ajoutée';
+      const dv = j.devis;
+      const texte = j.compteur ? '✅ Compteur hebdo : '+String(j.compteur.avant).replace('.',',')+' + '+String(j.compteur.ajout).replace('.',',')+' = '+String(j.compteur.total).replace('.',',')+' m'
+        : '✅ Planche ajoutée' + (!dv ? '' : dv.statut === 'envoye' ? ' · devis '+dv.numero+(dv.envoye === false ? ' préparé (non envoyé)' : ' envoyé au client') : dv.statut === 'tache_off' ? ' · ⚠️ devis non envoyé : la tâche « Devis planche auto » est désactivée (Admin), clique « Créer le devis » dans la fiche' : dv.statut === 'doublon' ? ' · ⚠️ devis non créé : un devis récent existe déjà ('+dv.doublon+')' : dv.statut === 'client' ? ' · ⚠️ devis non créé : client à préciser dans la fiche' : ' · ⚠️ devis non créé : '+(dv.erreur||'erreur'));
       await apresAction(j.planche, texte);
       if (!j.planche) msg(texte, 'ok');
     } catch(e){ msg('❌ ' + esc(e.message), 'err'); $('n-ok').disabled = false; }
