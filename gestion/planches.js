@@ -352,10 +352,10 @@ async function getFichiers(cle) {
 async function importerVisuels(cle, fichiers, note, user) {
   const p = cache.rows.find(r => r.cle === cle);
   if (!p) throw new Error('Planche introuvable');
-  const ok = (fichiers || []).filter(f => f && f.buffer && f.buffer.length);
+  const ok = (fichiers || []).filter(f => f && ((f.buffer && f.buffer.length) || (f.path && f.size)));
   if (!ok.length) throw new Error('Choisis le fichier du visuel');
   for (const f of ok) if (!/\.(png|pdf|jpe?g|tiff?)$/i.test(f.originalname || '')) throw new Error(`Format non accepté : ${f.originalname} (PNG, PDF, JPG ou TIFF)`);
-  const noms = await require('./planches-mail').deposer(p.client, ok.map(f => ({ name: f.originalname, buffer: f.buffer, contentType: f.mimetype })));
+  const noms = await require('./planches-mail').deposer(p.client, ok.map(f => ({ name: f.originalname, buffer: f.buffer, path: f.path, contentType: f.mimetype })));
   dossiers.at = 0; // liste des fichiers relue
   const info = String(note || '').trim().slice(0, 300);
   if (info) {

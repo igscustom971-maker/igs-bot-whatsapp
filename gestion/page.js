@@ -2442,7 +2442,7 @@ async function ouvrirPlanche(cle){
           const src = '/gestion/api/planches/fichier/'+encodeURIComponent(f.id);
           const isPdf = /[.]pdf$/i.test(f.nom);
           return '<div><a class="file" href="'+src+'" target="_blank" rel="noopener"><div class="th">'
-            + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
+            + (isPdf && !f.miniature ? '<span class="pdf">📄</span>' : (!f.miniature && f.taille > 3e6) ? '<span class="pdf">🖼</span>' : '<img loading="lazy" src="'+esc(f.miniature || src)+'" alt="">')
             + '</div><div class="nm">'+esc(f.nom)+'</div><div class="ds">'+(f.archive?'🗄 Archives':'🖨 '+esc(f.dossier))+' · '+(f.taille?Math.round(f.taille/1024/1024*10)/10+' Mo':'')+'</div></a>'
             + '<div style="display:flex;gap:4px;margin-top:4px"><a class="btn" style="flex:1;text-align:center;font-size:12px;padding:5px" href="'+src+'?dl=1">⬇ Télécharger</a><button class="btn" data-pl-fsuppr="'+esc(f.id)+'" data-nom="'+esc(f.nom)+'" title="Supprimer ce fichier (aussi dans SharePoint)" style="font-size:12px;padding:5px 9px;color:#b91c1c">🗑</button></div></div>';
         }).join('') + '</div>'

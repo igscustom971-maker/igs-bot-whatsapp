@@ -77,7 +77,10 @@ async function deposer(client, pjs, quantites = [], format = 'metre') {
   for (const pj of pjs) {
     const existants = (await g.children(dossier.id, D)).filter(i => i.file && i.name.includes(nomSur)).length;
     const ext = (pj.name.match(/\.[A-Za-z0-9]+$/) || ['.png'])[0].toLowerCase();
-    const buf = pj.buffer || Buffer.from(pj.contentBytes, 'base64');
+    // Un fichier à la fois en mémoire : lu sur le disque (import) ou téléchargé seul depuis le mail
+    const buf = pj.buffer || (pj.path ? await require('fs').promises.readFile(pj.path)
+      : pj.contentBytes ? Buffer.from(pj.contentBytes, 'base64')
+      : Buffer.from(await (await g.graph(`${pj._msg}/attachments/${encodeURIComponent(pj.id)}/$value`, { raw: true })).arrayBuffer()));
     const it = await g.uploadFile(dossier.id, `${nomSur} - P${existants + 1}${qteNom(quantites[noms.length], format)}${ext}`, buf, pj.contentType, D);
     noms.push(it.name);
   }
@@ -111,8 +114,9 @@ async function reponseDevis(m, corps, pjsAdmin) {
 async function traiter(m) {
   const u = `/users/${encodeURIComponent(MAILBOX)}/messages/${encodeURIComponent(m.id)}`;
   const expediteur = m.from?.emailAddress?.address || '';
-  const att = (await g.graph(`${u}/attachments?$top=50`)).value || [];
-  const fichiersPj = att.filter(a => a['@odata.type'] === '#microsoft.graph.fileAttachment' && !a.isInline && /\.(png|pdf)$/i.test(a.name || ''));
+  // Liste des pièces jointes SANS leur contenu (une planche peut peser 60 Mo) : chacune est téléchargée seule au dépôt
+  const att = ((await g.graph(`${u}/attachments?$select=id,name,contentType,size,isInline&$top=50`)).value || []).map(a => ({ ...a, _msg: u }));
+  const fichiersPj = att.filter(a => (!a['@odata.type'] || a['@odata.type'] === '#microsoft.graph.fileAttachment') && !a.isInline && /\.(png|pdf)$/i.test(a.name || ''));
   const pjsAdmin = fichiersPj.filter(a => PJ_ADMIN.test(a.name || ''));
   const pjs = fichiersPj.filter(a => !PJ_ADMIN.test(a.name || ''));
   const corpsComplet = texte(m.body?.content || m.bodyPreview);

@@ -112,9 +112,9 @@ function mount(app) {
         n++;
       }
       if (!n) throw new Error('Aucun visuel dans le dossier');
-      const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
       const nom = `Visuels ${c.n_devis} - ${c.client}.zip`.replace(/[\\/:*?"<>|]/g, '');
-      res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(nom)}` }).send(buf);
+      res.set({ 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(nom)}` });
+      zip.generateNodeStream({ type: 'nodebuffer', compression: 'STORE', streamFiles: true }).pipe(res); // pas de 2e copie en mémoire
     } catch (err) { console.error('Gestion zip visuels :', err.message); res.status(400).send(err.message); }
   });
 

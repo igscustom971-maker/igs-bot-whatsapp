@@ -364,10 +364,10 @@ module.exports = function mountGestion(app) {
       res.set('Content-Type', it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream');
       res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
       res.set('Cache-Control', 'private, max-age=300');
-      res.send(Buffer.from(await r.arrayBuffer()));
+      await require('./graph').streamer(r, res); // planches de plusieurs dizaines de Mo : jamais en mémoire
     } catch (err) {
       console.error('Gestion fichier planche :', err.message);
-      res.status(502).send('Fichier indisponible');
+      if (!res.headersSent) res.status(502).send('Fichier indisponible'); else res.end();
     }
   });
 
@@ -439,13 +439,15 @@ module.exports = function mountGestion(app) {
     catch (err) { res.status(400).json({ error: err.message }); }
   });
   // Visuel d'une planche importé depuis le dashboard (« Client - P1.png » dans PLANCHES A IMPRIMER)
-  const uploadVisuelPlanche = require('multer')({ storage: require('multer').memoryStorage(), limits: { fileSize: 80 * 1024 * 1024, files: 5 } }).array('fichiers', 5);
+  // Sur disque (pas en mémoire) : 5 planches de 80 Mo saturaient la RAM du serveur
+  const uploadVisuelPlanche = require('multer')({ storage: require('multer').diskStorage({ destination: require('os').tmpdir() }), limits: { fileSize: 80 * 1024 * 1024, files: 5 } }).array('fichiers', 5);
   app.post('/gestion/api/planches/:cle/visuel', auth.requireUser, (req, res, next) => uploadVisuelPlanche(req, res, err => {
     if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Fichier trop lourd (80 Mo max)' : err.code === 'LIMIT_FILE_COUNT' ? '5 fichiers maximum à la fois' : err.message });
     next();
   }), async (req, res) => {
     try { res.json(await planches.importerVisuels(req.params.cle, req.files, req.body?.note, req.user.name || req.user.email)); }
     catch (err) { console.error('Gestion visuel planche :', err.message); res.status(400).json({ error: err.message }); }
+    finally { for (const f of req.files || []) if (f.path) require('fs').promises.unlink(f.path).catch(() => {}); }
   });
   // Planches : même chose (dossier Technique/Planches/BORDEREAUX), à tout moment
   app.post('/gestion/api/planches/:cle/remise', auth.requireUser, async (req, res) => {
@@ -573,24 +575,40 @@ module.exports = function mountGestion(app) {
   });
 
   const cacheFichiers = new Map(); // id -> { le, it, buf, type }
+  // Surveillance mémoire (Render redémarre le service au-delà de sa limite) : relevé dans les logs, caches vidés si ça monte
+  const SEUIL_MO = Number(process.env.MEMOIRE_ALERTE_MO || 400);
+  setInterval(() => {
+    const m = process.memoryUsage(), mo = n => Math.round(n / 1048576);
+    const fichiersMo = mo([...cacheFichiers.values()].reduce((t, v) => t + v.buf.length, 0));
+    if (mo(m.rss) >= SEUIL_MO) {
+      cacheFichiers.clear(); commandes.oublierDossier();
+      console.warn(`Mémoire haute : ${mo(m.rss)} Mo (tas ${mo(m.heapUsed)} Mo, buffers ${mo(m.arrayBuffers)} Mo) : caches vidés`);
+    } else console.log(`Mémoire : ${mo(m.rss)} Mo (tas ${mo(m.heapUsed)} Mo, buffers ${mo(m.arrayBuffers)} Mo, cache fichiers ${fichiersMo} Mo)`);
+  }, 10 * 60e3).unref?.();
   // Proxy de fichier (BAT PDF, visuels) : affichage dans le navigateur sans exposer SharePoint
   app.get('/gestion/api/fichier/:id', auth.requireUser, async (req, res) => {
     try {
       // Fichiers gardés 10 min en mémoire (visuels rouverts par la fiche puis le générateur de BAT)
+      for (const [k, v] of cacheFichiers) if (Date.now() - v.le >= 10 * 60e3) cacheFichiers.delete(k); // périmés libérés
       const c = cacheFichiers.get(req.params.id);
       let it, buf, type;
-      if (c && Date.now() - c.le < 10 * 60e3) ({ it, buf, type } = c);
+      if (c) ({ it, buf, type } = c);
       else {
         it = await commandes.fichierAutorise(req.params.id);
         if (!it) return res.status(403).send('Fichier non autorisé');
         const r = await require('./graph').content(it.id);
         type = it.file.mimeType || r.headers.get('content-type') || 'application/octet-stream';
-        buf = Buffer.from(await r.arrayBuffer());
-        if (buf.length <= 8e6 && /^image\//i.test(type)) { // images seulement : un BAT (PDF) remplacé est toujours relu
-          cacheFichiers.set(req.params.id, { le: Date.now(), it, buf, type });
-          let total = 0; for (const v of cacheFichiers.values()) total += v.buf.length;
-          while (total > 80e6 && cacheFichiers.size) { const k = cacheFichiers.keys().next().value; total -= cacheFichiers.get(k).buf.length; cacheFichiers.delete(k); }
+        // Gros fichier ou pas une image (BAT PDF, archive…) : envoyé au fil de l'eau, jamais gardé en mémoire
+        if (!/^image\//i.test(type) || !(it.size <= 5e6)) {
+          res.set('Content-Type', type);
+          res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
+          res.set('Cache-Control', 'private, max-age=600');
+          return await require('./graph').streamer(r, res);
         }
+        buf = Buffer.from(await r.arrayBuffer());
+        cacheFichiers.set(req.params.id, { le: Date.now(), it, buf, type });
+        let total = 0; for (const v of cacheFichiers.values()) total += v.buf.length;
+        while (total > 30e6 && cacheFichiers.size) { const k = cacheFichiers.keys().next().value; total -= cacheFichiers.get(k).buf.length; cacheFichiers.delete(k); }
       }
       res.set('Content-Type', type);
       res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(it.name)}`);
@@ -598,7 +616,7 @@ module.exports = function mountGestion(app) {
       res.send(buf);
     } catch (err) {
       console.error('Gestion fichier :', err.message);
-      res.status(502).send('Fichier indisponible');
+      if (!res.headersSent) res.status(502).send('Fichier indisponible'); else res.end();
     }
   });
 

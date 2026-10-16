@@ -286,6 +286,18 @@ async function remplacerContenu(itemId, buffer, contentType, o) {
   return res.json();
 }
 
+// Envoie la réponse d'un fetch vers le navigateur au fil de l'eau (sans tout charger en mémoire : planches de 60 Mo…)
+async function streamer(r, res) {
+  const { Readable } = require('stream');
+  const len = r.headers.get('content-length');
+  if (len) res.set('Content-Length', len);
+  await new Promise((ok, ko) => {
+    const s = Readable.fromWeb(r.body);
+    s.on('error', ko); res.on('close', () => { s.destroy(); ok(); }); res.on('finish', ok);
+    s.pipe(res);
+  });
+}
+
 // Contenu brut d'un fichier (Response fetch, à streamer vers le navigateur)
 async function content(itemId, o) {
   return graph(`${await D(o)}/items/${encodeURIComponent(itemId)}/content`, { raw: true });
@@ -330,4 +342,4 @@ async function deleteTableRow(itemId, table, index, o) {
   throw new Error(`Suppression de la ligne ${index} du tableau ${table} impossible`);
 }
 
-module.exports = { remplacerContenu, deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, childrenMiniatures, tableRange, thumbnailUrl, content, norm };
+module.exports = { streamer, remplacerContenu, deleteTableRow, readRange, usedRange, clearRange, worksheets, deleteWorksheet, pdf, gPost, moveItem, deleteItem, uploadFile, sendMail, graph, patchRange, addTableRow, createFolder, copyItem, itemByPath, item, children, childrenMiniatures, tableRange, thumbnailUrl, content, norm };

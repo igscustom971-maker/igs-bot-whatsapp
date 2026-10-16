@@ -9,6 +9,7 @@
 // ============================================
 
 const sharp = require('sharp');
+sharp.concurrency(1); sharp.cache(false); // mémoire limitée sur Render
 const { supabase } = require('./db');
 
 const MAILBOX = (process.env.FORM_MAILBOX || 'contact@igscustom.fr').toLowerCase();
