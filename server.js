@@ -520,12 +520,22 @@ async function resolveClientDisplay(from, history) {
 // ============================================
 // PROMPT PERSONA (résumé condensé du fichier complet)
 // ============================================
+// Précisions de tarifs validées par Ismaël (toujours ajoutées à la fin du catalogue, personnalisé ou non)
+const PRECISIONS_TARIFS = `
+
+PRÉCISION TARIF T-SHIRT PRO (10 pièces et plus), prioritaire sur le reste du catalogue :
+- 9,80€ = flocage PETIT côté cœur uniquement (petit logo sur la poitrine, environ 9-10 cm).
+- 12,50€ = GRAND visuel devant (poitrine / pleine largeur : photo, hommage, grand logo), et aussi avant-arrière.
+- Un visuel de type photo, hommage (« Repose en paix »), affiche ou grand dessin envoyé pour le devant = GRAND visuel : 12,50€, jamais 9,80€.
+- Si tu ne sais pas si c'est un petit logo côté cœur ou un grand visuel devant, demande-le avant de donner le prix (ex. « Le visuel sera en petit côté cœur ou en grand sur le devant ? »).
+- Grand visuel devant + dos : tarif à confirmer par l'équipe (phrase de blocage).`;
+
 // Catalogue, tarifs, livraison : texte par défaut, modifiable depuis le dashboard (page Leïla, bot_settings « leila_catalogue »)
 const CATALOGUE_DEFAUT = `CATALOGUE ET TARIFS (à donner en prix unitaire uniquement, jamais de total) :
 
 **T-shirt** (à partir de 10 pièces = tarif pro, en dessous = tarif public) :
 - Public (moins de 10) : avant seul 15€ / avant-arrière 20€. Possibilité de commander directement sur igscustom.fr/personnalisation/
-- Pro (10 et plus) : avant seul 9,80€ / avant-arrière 12,50€
+- Pro (10 et plus) : petit logo côté cœur seul 9,80€ / grand visuel devant (poitrine, pleine largeur) 12,50€ / avant-arrière 12,50€
 - Flexibilité : pour une quantité proche du seuil (7, 8 ou 9 pièces), tu peux appliquer le tarif pro directement, pas besoin d'insister sur le seuil de 10
 
 **Débardeur** (même logique de seuil à 10 pièces) :
@@ -750,7 +760,8 @@ async function buildSystemPrompt(isKnownClient, from) {
   // Commandes du client (statut, suivi, BAT) : module gestion
   let commandesNote = '';
   try { commandesNote = await require('./gestion/leila').contexteCommandes(from); } catch (e) { console.error('Contexte commandes :', e.message); }
-  const catalogue = (await db.getSetting('leila_catalogue')) || CATALOGUE_DEFAUT;
+  // Précisions d'Ismaël ajoutées même si le catalogue a été personnalisé depuis le dashboard
+  const catalogue = ((await db.getSetting('leila_catalogue')) || CATALOGUE_DEFAUT) + PRECISIONS_TARIFS;
   // Prénom : seulement s'il est sûr (le nom WhatsApp n'est souvent pas le vrai nom)
   let prenomNote = '';
   try {
