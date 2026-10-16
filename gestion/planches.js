@@ -723,6 +723,33 @@ async function devis(cle, user, { partnerId, force } = {}) {
   return { ok: true, devis: d, planche: trouveApres(p) };
 }
 
+// ---------- Historique : les 10 dernières planches livrées ----------
+// Ponctuelles livrées (dans la liste ou déjà archivées à minuit) + semaines facturées des clients hebdo
+async function historique({ limite = 10 } = {}) {
+  const out = [];
+  const livree = s => /^LIVR/i.test(String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+  for (const p of cache.rows) if (!p.hebdo && livree(p.statut)) out.push({ type: 'planche', le: p.statut_le || p.date_commande, client: p.client, metres: p.metres, format: p.format, montant_ht: p.montant_ht, paiement: p.paiement, n_devis: p.n_devis, remarques: p.remarques, archivee: false, cle: p.cle });
+  if (supabase) {
+    const champs = sansStatutLe ? CHAMPS_PL.filter(c => c !== 'statut_le') : CHAMPS_PL;
+    const { data, error } = await supabase.from('gestion_planches').select([...champs, 'synced_at'].join(',')).eq('present', false).ilike('statut', 'LIVR%').order('synced_at', { ascending: false }).limit(limite * 2);
+    if (error) console.error('Historique planches :', error.message);
+    for (const o of data || []) {
+      if (o.hebdo || /hebdo/i.test(o.frequence || '')) continue;
+      const m = o.metres === null ? null : Number(o.metres);
+      out.push({ type: 'planche', le: o.statut_le || o.synced_at, client: o.client, metres: m, format: o.format, montant_ht: montantDe(m, o.format), paiement: o.paiement, n_devis: o.n_devis, remarques: o.remarques, archivee: true });
+    }
+    const { data: fs } = await supabase.from('gestion_actions').select('cle, details, cree_le').eq('action', 'facture_hebdo').order('cree_le', { ascending: false }).limit(limite);
+    for (const f of fs || []) {
+      const d = f.details || {};
+      const m = isNaN(Number(d.metres)) ? null : Number(d.metres);
+      out.push({ type: 'hebdo', le: f.cree_le, client: d.client, metres: m, format: m == null ? d.metres : null, montant_ht: d.montant_ht ?? null, paiement: 'FACTURE HEBDO', n_devis: f.cle, remarques: d.titre || null, archivee: true });
+    }
+  }
+  const vus = new Set();
+  return out.filter(x => { const k = `${x.client}|${x.n_devis}|${x.le}`; if (vus.has(k)) return false; vus.add(k); return true; })
+    .sort((a, b) => String(b.le || '').localeCompare(String(a.le || ''))).slice(0, limite);
+}
+
 // ---------- Suivi du compteur d'un client hebdo ----------
 // Qui a ajouté combien de mètres, quand, depuis la dernière facture du lundi ; doublons possibles signalés
 // (même métrage ajouté deux fois en moins de 3 jours).
@@ -900,4 +927,4 @@ async function marquerPayee(cle) {
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { setRemise, suiviHebdo, setPrioritaire, supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate, cache: () => cache } };
+module.exports = { historique, setRemise, suiviHebdo, setPrioritaire, supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate, cache: () => cache } };

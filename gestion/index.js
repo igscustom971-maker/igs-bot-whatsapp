@@ -451,6 +451,9 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/planches/:cle/remise', auth.requireUser, async (req, res) => {
     try { res.json({ planche: await planches.setRemise(req.params.cle, req.body?.remise ?? null, qui(req)) }); } catch (err) { res.status(400).json({ error: err.message }); }
   });
+  app.get('/gestion/api/planches-historique', auth.requireUser, async (req, res) => {
+    try { res.json({ planches: await planches.historique({ limite: 10 }) }); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.get('/gestion/api/planches/:cle/suivi', auth.requireUser, async (req, res) => {
     try { res.json(await planches.suiviHebdo(req.params.cle)); } catch (err) { res.status(400).json({ error: err.message }); }
   });

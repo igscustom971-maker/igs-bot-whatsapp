@@ -1327,7 +1327,8 @@ function plListe(){
   const chips = [['ACTIFS','En cours',st.act.length],['TOUS','Toutes',planches.length],['NONPAYEES','Non payées',st.nonPay.length],['HEBDO','Hebdo',st.hebdo.length]]
     .concat(PL_STATUTS.map(s=>[s,s,counts[s]||0]))
     .concat(Object.keys(counts).filter(s => !PL_STATUTS.includes(s)).map(s=>[s,s,counts[s]]));
-  $('chips').innerHTML = '<label class="filtre">Afficher <select id="f-sel">'+chips.map(([k,l,n]) => '<option value="'+esc(k)+'"'+(filtre===k?' selected':'')+'>'+esc(l.charAt(0)+l.slice(1).toLowerCase())+' ('+n+')</option>').join('')+'</select></label>';
+  $('chips').innerHTML = '<label class="filtre">Afficher <select id="f-sel">'+chips.map(([k,l,n]) => '<option value="'+esc(k)+'"'+(filtre===k?' selected':'')+'>'+esc(l.charAt(0)+l.slice(1).toLowerCase())+' ('+n+')</option>').join('')+'<option value="HISTO"'+(filtre==='HISTO'?' selected':'')+'>📜 Historique (10 dernières livrées)</option></select></label>';
+  if (filtre === 'HISTO') return plHistorique();
 
   const q = norm(recherche);
   let rows = planches.filter(p => filtre==='TOUS' || (filtre==='ACTIFS' ? plActive(p) : filtre==='NONPAYEES' ? nonPayee(p) : filtre==='HEBDO' ? p.hebdo
@@ -1347,6 +1348,30 @@ function plListe(){
       + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td>'
       + '<td class="c-x"><button class="xdel" data-del="1" title="Supprimer la ligne">×</button></td>'
       + '</tr>').join('') : '<tr><td colspan="9" class="empty">Aucune planche '+(q?'pour cette recherche':'dans ce filtre')+'</td></tr>';
+}
+
+// Historique : les 10 dernières planches livrées (ponctuelles archivées + semaines facturées des clients hebdo)
+let plHisto = null, plHistoLe = 0;
+async function plHistorique(){
+  const rendu = () => {
+    if (filtre !== 'HISTO') return;
+    const q = norm(recherche);
+    const l = (plHisto || []).filter(p => !q || norm([p.n_devis,p.client,p.remarques].join(' ')).includes(q));
+    $('rows').innerHTML = l.length ? l.map(p => '<tr style="opacity:.92">'
+      + '<td class="c-hide num">'+(p.le ? new Date(p.le).toLocaleDateString('fr-FR') : '—')+'</td>'
+      + '<td><b>'+esc(p.client||'')+'</b>'+(p.type === 'hebdo' ? '<span class="tag">HEBDO</span>' : '')+'<div class="sub">'+esc(p.format || (p.metres != null ? String(p.metres).replace('.', ',')+' m' : ''))+'</div></td>'
+      + '<td class="c-statut"><span class="sub">'+(p.type === 'hebdo' ? '🧾 Semaine facturée' : '✅ Livrée'+(p.archivee ? ' (archivée)' : ''))+'</span></td>'
+      + '<td class="c-hide num"><b>'+esc(p.format || (p.metres != null ? String(p.metres).replace('.', ',')+' m' : '—'))+'</b></td>'
+      + '<td class="c-hide num">'+(p.montant_ht != null ? eur(p.montant_ht) : '')+'</td>'
+      + '<td class="c-hide"><span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span></td>'
+      + '<td class="c-hide devis">'+esc(p.n_devis||'—')+'</td>'
+      + '<td class="c-zone"><div class="sub clip">'+esc(p.remarques||'')+'</div></td><td class="c-x"></td></tr>').join('')
+      : '<tr><td colspan="9" class="empty">Aucune planche livrée dans l\\'historique'+(q ? ' pour cette recherche' : '')+'</td></tr>';
+  };
+  if (plHisto && Date.now() - plHistoLe < 60000) return rendu();
+  $('rows').innerHTML = '<tr><td colspan="9"><div class="skel"></div><div class="skel"></div></td></tr>';
+  try { const r = await fetch('/gestion/api/planches-historique'); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); plHisto = j.planches || []; plHistoLe = Date.now(); rendu(); }
+  catch(e){ if (filtre === 'HISTO') $('rows').innerHTML = '<tr><td colspan="9" class="empty">Historique indisponible : '+esc(e.message)+'</td></tr>'; }
 }
 
 // Sélecteur directement dans la ligne (comme une liste déroulante Excel)
