@@ -441,6 +441,7 @@ a.brand:hover h1{color:#FF1E8E}
     <a class="${view === 'stock' ? 'on' : ''}" href="/gestion/stock"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13"/><path d="M8 21v-7h8v7"/></svg><span class="lb" data-m="Stock">Stock</span></a>
     <a class="${view === 'produits' ? 'on' : ''}" href="/gestion/produits"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg><span class="lb" data-m="Produits">Produits</span></a>
     <a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
+    ${COM && !TECH ? `<a class="${view === 'caisse' ? 'on' : ''}" href="/gestion/caisse"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg><span class="lb" data-m="Espèces">Espèces</span></a>` : ''}
     ${COM ? `<a class="${view === 'commercial' ? 'on' : ''}" href="/gestion/commercial"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 13h18"/></svg><span class="lb" data-m="Commercial">Commercial</span><span class="nn o" id="nav-n-com"></span></a>` : ''}
     <a class="${view === 'heures' ? 'on' : ''}" href="/gestion/heures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="lb" data-m="Heures">Heures</span></a>
     ${TECH || COM ? `<a class="${view === 'factures' ? 'on' : ''}" href="/gestion/factures"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg><span class="lb" data-m="Factures">Factures</span></a>` : ''}
@@ -625,7 +626,7 @@ ${view === 'accueil' ? `
     </div>
   </section>` : view === 'caisse' ? `
   <section id="v-caisse">
-    <div class="tools"><div style="flex:1"></div><button id="cs-enc" class="btn">＋ Encaisser</button><button id="cs-dec" class="btn">－ Décaisser</button>${user.role === 'admin' ? '<button id="cs-rel" class="btn pink">💰 Récupérer les espèces</button>' : ''}<button id="refresh" class="btn primary">↻ Actualiser</button><span id="sync" class="sync"></span></div>
+    <div class="tools"><div style="flex:1"></div><button id="cs-enc" class="btn">＋ Encaisser</button><button id="cs-dec" class="btn">－ Décaisser</button>${user.role === 'admin' || COM ? '<button id="cs-rel" class="btn pink">💰 Récupérer les espèces</button>' : ''}<button id="refresh" class="btn primary">↻ Actualiser</button><span id="sync" class="sync"></span></div>
     <div class="cols"${user.role === 'admin' ? '' : ' style="grid-template-columns:1fr"'}>
       <div class="stack">
         <div class="card"><h3>Dans la caisse (théorique)</h3><div id="cs-solde"><div class="skel"></div></div></div>
@@ -1694,13 +1695,32 @@ function csEvents(){
     try { await post('/gestion/api/caisse/decaisser', { montant, note }); } catch(e){ alert(e.message); }
     charger(false);
   };
-  if ($('cs-rel')) $('cs-rel').onclick = async () => {
+  // Récupérer les espèces : petit formulaire (utilisable au téléphone) au lieu de 3 fenêtres
+  if ($('cs-rel')) $('cs-rel').onclick = () => {
     const th = caisseData ? caisseData.solde : 0;
-    const compte = prompt('Montant compté dans la caisse (théorique : '+eur(th)+') :', String(th).replace('.',',')); if (compte === null) return;
-    const recup = prompt('Montant récupéré (par défaut : tout) :', compte); if (recup === null) return;
-    const note = prompt('Note (facultatif, ex. remis à Ismaël) :', '') || '';
-    try { await post('/gestion/api/caisse/relever', { compte, recupere: recup, note }); } catch(e){ alert(e.message); }
-    charger(false);
+    let box = $('cs-relbox');
+    if (box) { box.remove(); return; }
+    $('v-caisse').querySelector('.tools').insertAdjacentHTML('afterend', '<div class="card" id="cs-relbox" style="margin-bottom:14px;border:2px solid #FF1E8E"><h3>💰 Récupérer les espèces</h3>'
+      + '<div class="note" style="margin-bottom:8px">Théorique dans la caisse : <b>'+eur(th)+'</b>. Compte les espèces puis indique ce que tu prends.</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">'
+      + '<div class="field"><label>Montant compté</label><input id="cs-r-compte" inputmode="decimal" value="'+String(th).replace('.',',')+'" style="font-size:18px"></div>'
+      + '<div class="field"><label>Montant récupéré</label><input id="cs-r-recup" inputmode="decimal" placeholder="tout" style="font-size:18px"></div>'
+      + '<div class="field" style="grid-column:1/-1"><label>Note (facultatif)</label><input id="cs-r-note" placeholder="ex. remis à Ismaël, dépôt banque"></div></div>'
+      + '<div class="note" id="cs-r-ecart" style="margin-top:6px"></div>'
+      + '<div class="btnrow" style="margin-top:10px"><button class="btn pink" id="cs-r-ok" style="flex:1;min-height:44px">Valider</button><button class="btn" id="cs-r-annuler" style="min-height:44px">Annuler</button></div><div class="msg" id="cs-r-msg"></div></div>');
+    const n = v => Number(String(v || '').replace(/\s|€/g, '').replace(',', '.'));
+    const ecart = () => { const c = n($('cs-r-compte').value); const e = Math.round((c - th) * 100) / 100; $('cs-r-ecart').innerHTML = isNaN(c) ? '' : Math.abs(e) < 0.01 ? '✅ Le compte tombe juste' : 'Écart avec le théorique : <b style="color:'+(e < 0 ? '#b91c1c' : '#15803d')+'">'+(e > 0 ? '+' : '')+eur(e)+'</b>'; };
+    $('cs-r-compte').oninput = ecart; ecart();
+    $('cs-r-compte').focus(); $('cs-r-compte').select();
+    $('cs-r-annuler').onclick = () => $('cs-relbox').remove();
+    $('cs-r-ok').onclick = async () => {
+      const compte = $('cs-r-compte').value.trim(), recup = $('cs-r-recup').value.trim() || compte;
+      if (!(n(compte) >= 0)) { $('cs-r-msg').className = 'msg on err'; $('cs-r-msg').textContent = '❌ Montant compté invalide'; return; }
+      if (!confirm('Récupérer '+eur(n(recup))+' (compté : '+eur(n(compte))+') ?')) return;
+      $('cs-r-ok').disabled = true;
+      try { await post('/gestion/api/caisse/relever', { compte, recupere: recup, note: $('cs-r-note').value.trim() }); $('cs-relbox').remove(); charger(false); }
+      catch(e){ $('cs-r-msg').className = 'msg on err'; $('cs-r-msg').textContent = '❌ ' + e.message; $('cs-r-ok').disabled = false; }
+    };
   };
   $('v-caisse').addEventListener('click', async e => {
     const b = e.target.closest('[data-cs-del]'); if (!b) return;

@@ -61,6 +61,8 @@ module.exports = function mountGestion(app) {
   app.use('/gestion/api', (req, res, next) => {
     const seg = req.path.split('/')[1] || '';
     if (!API_TECH.has(seg)) return next();
+    // Espèces : aussi les commerciaux (ils encaissent et récupèrent les espèces)
+    if (seg === 'caisse') return auth.requireUser(req, res, () => (auth.aProfil(req.user, 'technique') || auth.aProfil(req.user, 'commercial') ? next() : res.status(403).json({ error: 'Accès réservé' })));
     auth.requireUser(req, res, () => tech(req, res, next));
   });
   app.get('/gestion', auth.requireUser, (req, res) => {
@@ -201,7 +203,8 @@ module.exports = function mountGestion(app) {
   app.post('/gestion/api/admin/collaborateurs/:id/acces/retirer', auth.requireUser, auth.requireAdmin, actA(req => require('./comptes').retirerAcces(Number(req.params.id))));
   app.post('/gestion/api/admin/collaborateurs/:id/supprimer', auth.requireUser, auth.requireAdmin, actA(req => admin.supprimerCollaborateur(Number(req.params.id))));
 
-  app.get('/gestion/caisse', auth.requireUser, tech, (req, res) => {
+  const techOuCom = (req, res, next) => (auth.aProfil(req.user, 'technique') || auth.aProfil(req.user, 'commercial') ? next() : res.redirect('/gestion'));
+  app.get('/gestion/caisse', auth.requireUser, techOuCom, (req, res) => {
     res.set('Cache-Control', 'no-store').send(page.render(req.user, 'caisse'));
   });
   // ---------- Espèces ----------
@@ -213,7 +216,9 @@ module.exports = function mountGestion(app) {
   app.get('/gestion/api/caisse', auth.requireUser, actC(req => caisse.etat(req.user.role)));
   app.post('/gestion/api/caisse/encaisser', auth.requireUser, actC(req => caisse.encaisser(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/decaisser', auth.requireUser, actC(req => caisse.decaisser(req.body || {}, quiC(req))));
-  app.post('/gestion/api/caisse/relever', auth.requireUser, auth.requireAdmin, actC(req => caisse.relever(req.body || {}, quiC(req))));
+  // Récupérer les espèces : Ismaël et les commerciaux
+  const adminOuCom = (req, res, next) => (req.user.role === 'admin' || auth.aProfil(req.user, 'commercial') ? next() : res.status(403).json({ error: 'Réservé à Ismaël et aux commerciaux' }));
+  app.post('/gestion/api/caisse/relever', auth.requireUser, adminOuCom, actC(req => caisse.relever(req.body || {}, quiC(req))));
   app.post('/gestion/api/caisse/:id/supprimer', auth.requireUser, auth.requireAdmin, actC(req => caisse.supprimer(Number(req.params.id), quiC(req))));
 
   // ---------- Factures fournisseurs (photo ou PDF -> Odoo) : profils technique, commercial et admin ----------
