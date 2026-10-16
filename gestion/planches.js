@@ -173,6 +173,51 @@ async function nettoyerBase() {
 
 // ---------- Synchro ----------
 let cache = { rows: [], syncedAt: null, error: null };
+
+// ---------- Réduction choisie à la main (exception : -25 %, -30 %…) ----------
+// Remplace la réduction par défaut (-15 % dès 10 m, -20 % dès 20 m) pour une planche : affichage, devis et facture.
+// Client hebdo : valable pour la semaine en cours (retirée après la facture du lundi).
+const CLE_REMISES = 'planches_remises_manuelles';
+async function lireRemises() {
+  if (!supabase) return remisesMem;
+  const { data } = await supabase.from('gestion_reglages').select('valeur').eq('cle', CLE_REMISES).maybeSingle();
+  try { return (data && JSON.parse(data.valeur)) || {}; } catch { return {}; }
+}
+let remisesMem = {};
+async function ecrireRemises(m) {
+  if (!supabase) { remisesMem = m; return; }
+  const { error } = await supabase.from('gestion_reglages').upsert({ cle: CLE_REMISES, valeur: JSON.stringify(m), updated_at: new Date().toISOString() });
+  if (error) throw new Error(`Supabase : ${error.message}`);
+}
+async function appliquerRemises(rows) {
+  let m = {};
+  try { m = await lireRemises(); } catch { return; }
+  for (const r of rows) {
+    const o = m[r.cle];
+    if (!o) continue;
+    r.remise_manuelle = o.pct; r.remise_par = o.par || null;
+    r.reduction = -o.pct / 100;
+    const base = r.format === 'A3' ? 13 : r.format === 'A4' ? 10 : r.metres > 0 ? r.metres * 25 : null;
+    r.montant_ht = base == null ? null : Math.round(base * (1 - o.pct / 100) * 100) / 100;
+  }
+}
+async function setRemise(cle, pct, user) {
+  const p = trouve(cle);
+  const m = await lireRemises();
+  if (pct === null || pct === '' || pct === undefined) delete m[p.cle];
+  else {
+    const v = Math.round(Number(String(pct).replace(',', '.').replace('%', '').replace('-', '')) * 100) / 100;
+    if (!(v >= 0 && v <= 90)) throw new Error('Réduction invalide (entre 0 et 90 %)');
+    m[p.cle] = { pct: v, par: user, le: new Date().toISOString() };
+  }
+  await ecrireRemises(m);
+  await journal(user, 'planche_remise', p.cle, { client: p.client, remise: m[p.cle] ? m[p.cle].pct : 'par défaut' });
+  await syncNow();
+  return trouveApres(p);
+}
+async function retirerRemise(cle) {
+  try { const m = await lireRemises(); if (m[cle]) { delete m[cle]; await ecrireRemises(m); } } catch (err) { console.error('Planches : réduction manuelle non retirée', err.message); }
+}
 let excelItemId = null;
 let running = null;
 
@@ -184,6 +229,7 @@ async function syncNow() {
       if (!source.etat().charge) await source.charger(); // jamais de synchro Excel avant de connaître la source
       if (source.estBase() && supabase) {
         cache = { rows: await lireBase(), syncedAt: new Date().toISOString(), error: null };
+        await appliquerRemises(cache.rows);
         return cache;
       }
       if (!excelItemId) excelItemId = (await g.itemByPath(cfg.EXCEL_PATH)).id;
@@ -202,6 +248,7 @@ async function syncNow() {
         if (e2) console.error('Gestion sync planches : marquage absents', e2.message);
       }
       cache = { rows: unique, syncedAt: now, error: null };
+      await appliquerRemises(cache.rows);
     } catch (err) {
       console.error('Gestion sync planches :', err.message);
       if (err.status === 404) excelItemId = null;
@@ -488,6 +535,16 @@ async function ajouter(data, user) {
     const ligne = t.rows.find(r => r.hebdo && key(r.client) === key(client));
     if (ligne) {
       if (format || ligne.format) throw new Error('Client hebdo : le compteur se fait en mètres (pas en A3/A4)');
+      // Ajout depuis le dashboard : même métrage déjà ajouté depuis la dernière facture ? On demande confirmation
+      if (data.verifierDoublon && !data.forcer) {
+        const s = await suiviHebdo(ligne.cle).catch(() => null);
+        const deja = s && s.evenements.find(e => e.type === 'ajout' && e.ajout === metres);
+        if (deja) {
+          const quand = new Date(deja.le).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+          const err = new Error(`${String(metres).replace('.', ',')} m ont déjà été ajoutés au compteur de ${ligne.client} ${quand} par ${deja.par}${deja.info ? ` (${deja.info})` : ''}. Compteur actuel : ${String(ligne.metres || 0).replace('.', ',')} m.`);
+          err.doublon = true; throw err;
+        }
+      }
       const total = Math.round(((ligne.metres || 0) + metres) * 100) / 100;
       const maj = { metres: total };
       // Nouvelle demande sur la ligne hebdo : repasse « À préparer » si la ligne n'est pas déjà en cours (vide, prête, livrée…)
@@ -501,7 +558,7 @@ async function ajouter(data, user) {
       if (source.estBase()) await ecrireBase(ligne.cle, maj);
       else await ecrireLigne(t, ligne._row, maj);
       await syncNow();
-      await journal(user, 'compteur_hebdo_ajoute', ligne.cle, { client: ligne.client, ajout: metres, total });
+      await journal(user, 'compteur_hebdo_ajoute', ligne.cle, { client: ligne.client, avant: ligne.metres || 0, ajout: metres, total, info: String(data.remarques || '').trim().slice(0, 160) || null });
       return { planche: cache.rows.find(r => r._row === ligne._row) || null, compteur: { avant: ligne.metres || 0, ajout: metres, total } };
     }
   }
@@ -607,7 +664,7 @@ async function modifier(cle, champs, user) {
     if (a) await odoo.setAlias(fields.client, a.partner_id, a.partner_name, user);
   }
   await writeCells(cle, fields);
-  await journal(user, 'planche_modifiee', cle, { client: p.client, ...fields });
+  await journal(user, 'planche_modifiee', cle, { client: p.client, ...fields, ...('metres' in fields ? { metres_avant: p.metres ?? p.format ?? null } : {}) });
   return trouveApres(p);
 }
 
@@ -655,10 +712,54 @@ async function devis(cle, user, { partnerId, force } = {}) {
   const titre = `PLANCHE DTF - ${p.format || String(p.metres).replace('.', ',') + ' m'}`;
   // Planche "A VERIFIER" : devis préparé dans Odoo mais PAS envoyé (Ismaël l'ajuste puis l'envoie depuis Odoo)
   const envoyer = key(p.statut) !== 'averifier'; // insensible aux accents (A VÉRIFIER)
-  const d = await odoo.creerEtEnvoyerDevis({ partner: c.partner, metres: p.metres, format: p.format, titre, envoyer });
+  const d = await odoo.creerEtEnvoyerDevis({ partner: c.partner, metres: p.metres, format: p.format, titre, envoyer, remise: p.remise_manuelle ?? null });
   await writeCells(cle, { n_devis: d.numero });
+  // La clé de la planche devient le n° de devis : la réduction manuelle suit
+  if (p.remise_manuelle != null) {
+    const n = trouveApres(p);
+    if (n && n.cle !== p.cle) { try { const m = await lireRemises(); if (m[p.cle]) { m[n.cle] = m[p.cle]; delete m[p.cle]; await ecrireRemises(m); await syncNow(); } } catch {} }
+  }
   await journal(user, envoyer ? 'devis_envoye' : 'devis_prepare', d.numero, { client: p.client, partenaire: c.partner.name, ...d });
   return { ok: true, devis: d, planche: trouveApres(p) };
+}
+
+// ---------- Suivi du compteur d'un client hebdo ----------
+// Qui a ajouté combien de mètres, quand, depuis la dernière facture du lundi ; doublons possibles signalés
+// (même métrage ajouté deux fois en moins de 3 jours).
+async function suiviHebdo(cle) {
+  const p = trouve(cle);
+  if (!supabase) return { evenements: [], metres: p.metres || 0 };
+  const depuis = new Date(Date.now() - 45 * 86400e3).toISOString();
+  const [{ data: acts }, { data: facts }] = await Promise.all([
+    supabase.from('gestion_actions').select('utilisateur, action, details, cree_le').eq('cle', p.cle).in('action', ['compteur_hebdo_ajoute', 'planche_modifiee', 'planche_ajoutee']).gte('cree_le', depuis).order('cree_le', { ascending: true }).limit(300),
+    supabase.from('gestion_actions').select('utilisateur, cle, details, cree_le').eq('action', 'facture_hebdo').eq('details->>client', p.client).gte('cree_le', depuis).order('cree_le', { ascending: false }).limit(5),
+  ]);
+  const derniere = (facts || [])[0] || null;
+  const apres = (acts || []).filter(a => !derniere || a.cree_le > derniere.cree_le);
+  const num = v => (v === '' || v == null || isNaN(Number(v)) ? null : Number(v));
+  const evts = [];
+  for (const a of apres) {
+    const d = a.details || {};
+    if (a.action === 'compteur_hebdo_ajoute') evts.push({ le: a.cree_le, par: a.utilisateur, type: 'ajout', ajout: num(d.ajout), avant: num(d.avant), total: num(d.total), info: d.info || null });
+    else if (a.action === 'planche_ajoutee' && num(d.metres) != null) evts.push({ le: a.cree_le, par: a.utilisateur, type: 'ajout', ajout: num(d.metres), avant: 0, total: num(d.metres), info: d.remarques || null });
+    else if (a.action === 'planche_modifiee' && 'metres' in d) {
+      const total = num(d.metres) ?? 0, avant = num(d.metres_avant);
+      evts.push({ le: a.cree_le, par: a.utilisateur, type: 'correction', total, avant, ajout: avant != null ? Math.round((total - avant) * 100) / 100 : null });
+    }
+  }
+  // Doublon possible : même métrage ajouté deux fois en moins de 3 jours
+  const ajouts = evts.filter(e => e.type === 'ajout');
+  for (const e of ajouts) {
+    const autre = ajouts.find(x => x !== e && x.le < e.le && x.ajout === e.ajout && new Date(e.le) - new Date(x.le) < 3 * 86400e3);
+    if (autre) e.doublon = autre.le;
+  }
+  const somme = Math.round(evts.reduce((t, e) => t + (e.type === 'ajout' ? (e.ajout || 0) : 0), 0) * 100) / 100;
+  return {
+    client: p.client, metres: p.metres || 0, evenements: evts.reverse(),
+    derniere_facture: derniere ? { le: derniere.cree_le, numero: derniere.cle, metres: derniere.details?.metres ?? null } : null,
+    somme_ajouts: somme, corrections: evts.some(e => e.type === 'correction'),
+    net: Math.round(evts.reduce((t, e) => t + (e.ajout || 0), 0) * 100) / 100,
+  };
 }
 
 // ---------- Facturation hebdo ----------
@@ -685,8 +786,9 @@ async function facturer(cle, user, { partnerId, titre } = {}) {
   const c = await clientOdoo(p, partnerId, user);
   if (!c.partner) return { besoinClient: true, candidats: c.candidats };
   const t = (titre || titreParDefaut()).trim().slice(0, 120);
-  const f = await odoo.creerEtEnvoyerFacture({ partner: c.partner, metres: p.metres, format: p.format, titre: t });
-  // Remise à zéro du compteur (seulement après envoi réussi)
+  const f = await odoo.creerEtEnvoyerFacture({ partner: c.partner, metres: p.metres, format: p.format, titre: t, remise: p.remise_manuelle ?? null });
+  // Remise à zéro du compteur (seulement après envoi réussi) ; réduction exceptionnelle de la semaine retirée
+  if (p.remise_manuelle != null) await retirerRemise(p.cle);
   await writeCells(cle, { metres: '' });
   await journal(user, 'facture_hebdo', f.numero, { client: p.client, partenaire: c.partner.name, metres: p.metres || p.format, titre: t, ...f });
   return { ok: true, facture: f, planche: trouveApres(p) };
@@ -798,4 +900,4 @@ async function marquerPayee(cle) {
 // Dossier Technique/Planches et bibliothèque où il se trouve (tâches de rangement des fichiers)
 async function dossierPlanches() { const root = await planchesRoot(); return { root, D: { drive: planchesDrive } }; }
 
-module.exports = { setPrioritaire, supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate } };
+module.exports = { setRemise, suiviHebdo, setPrioritaire, supprimerFichier, importerVisuels, bordereaux, ajouterBordereau, supprimerBordereau, nettoyerBase, marquerPayee, dossierPlanches, ecrireDrapeau, supprimer, clientPlanche, choisirClient, ajouter, modifier, devis, facturer, setReglage, etatFacturationAuto, facturationAutoSiDue, drive, syncNow, listPlanches, getFichiers, fichierAutorise, startSync, _test: { rowsFromRange, excelDate, cache: () => cache } };

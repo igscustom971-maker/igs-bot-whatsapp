@@ -1340,7 +1340,7 @@ function plListe(){
       + '<td class="c-hide num">'+fdate(p.date_commande)+'</td>'
       + '<td><a href="#" class="open client">'+esc(p.client)+'</a>'+(p.hebdo?'<span class="tag">HEBDO</span>':'')+'<div class="sub">'+esc(metrage(p))+(p.montant_ht!=null?' · '+eur(p.montant_ht)+' TTC':'')+'</div>'+(plUrgente(p)?'<div class="urg">🔥 URGENT / PRIORITAIRE</div>':'')+'</td>'
       + '<td class="c-statut">'+(p.hebdo && !p.statut ? '<span class="sub">—</span>' : inlSel('pl', p.cle, 'statut', PL_STATUTS, p.statut ? plKey(p.statut) : '', PL_COULEURS, false, p.hebdo))+'</td>'
-      + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %)</span>':'')+'</td>'
+      + '<td class="c-hide num"><b>'+esc(metrage(p))+'</b>'+(p.reduction?' <span class="sub">('+Math.round(p.reduction*100)+' %'+(p.remise_manuelle != null ? ' ✋' : '')+')</span>':'')+'</td>'
       + '<td class="c-hide num">'+eur(p.montant_ht)+'</td>'
       + '<td class="c-hide">'+inlSel('pl', p.cle, 'paiement', PAIEMENTS, p.paiement || (p.hebdo ? 'FACTURE HEBDO' : ''), null, true)+'</td>'
       + '<td class="c-hide devis"><a href="#" class="open">'+esc(p.n_devis||'—')+'</a></td>'
@@ -2135,7 +2135,13 @@ function nouvellePlanche(){
     const body = { partnerId: choisi.id, client: choisi.name, metres: $('n-metres').value, date: $('n-date').value, statut: $('n-statut').value, remarques: $('n-rem').value, hebdo: $('n-hebdo').checked };
     $('n-ok').disabled = true; msg('Enregistrement…', 'info');
     try {
-      const j = await post('/gestion/api/planches/ajouter', body);
+      let j;
+      try { j = await post('/gestion/api/planches/ajouter', { ...body, verifierDoublon: true }); }
+      catch(e){
+        if (!/déjà été ajoutés au compteur/.test(e.message)) throw e;
+        if (!confirm('⚠️ ' + e.message + '\\n\\nAjouter quand même ces mètres (ce n\\'est pas un doublon) ?')) { msg('Rien ajouté : vérifie le suivi du compteur dans la fiche du client.', 'info'); $('n-ok').disabled = false; return; }
+        j = await post('/gestion/api/planches/ajouter', { ...body, forcer: true });
+      }
       const texte = j.compteur ? '✅ Compteur hebdo : '+String(j.compteur.avant).replace('.',',')+' + '+String(j.compteur.ajout).replace('.',',')+' = '+String(j.compteur.total).replace('.',',')+' m' : '✅ Planche ajoutée';
       await apresAction(j.planche, texte);
       if (!j.planche) msg(texte, 'ok');
@@ -2305,6 +2311,29 @@ async function chargerAuto(){
     try { await post('/gestion/api/planches/facturation-auto', { active: on }); chargerAuto(); } catch(e){ alert(e.message); }
   };
 }
+async function chargerSuiviHebdo(p){
+  const cle = p.cle, box = () => $('pl-suivi');
+  const m = n => (n == null ? '?' : String(Math.round(n * 100) / 100).replace('.', ',')) + ' m';
+  const quand = d => new Date(d).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  try {
+    const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/suivi'); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
+    if (panelCle !== cle || !box()) return;
+    let h = '<h3>📈 Suivi du compteur'+(j.derniere_facture ? ' depuis la facture du '+new Date(j.derniere_facture.le).toLocaleDateString('fr-FR')+(j.derniere_facture.numero ? ' ('+esc(j.derniere_facture.numero)+')' : '') : '')+'</h3>';
+    if (!j.evenements.length) h += '<div class="note">Aucun ajout enregistré depuis la dernière facture. Compteur actuel : <b>'+m(j.metres)+'</b>.</div>';
+    else {
+      h += '<table class="lines"><thead><tr><th>Quand</th><th>Ajout</th><th>Compteur</th><th>Par</th><th>Détail</th></tr></thead><tbody>'
+        + j.evenements.map(e => '<tr'+(e.doublon ? ' style="background:#fff7ed"' : '')+'><td>'+quand(e.le)+'</td>'
+          + '<td><b>'+(e.type === 'correction' ? '✏️ '+(e.ajout != null ? (e.ajout >= 0 ? '+' : '')+m(e.ajout) : 'corrigé') : '+'+m(e.ajout))+'</b></td>'
+          + '<td>'+(e.avant != null ? m(e.avant)+' → ' : '')+'<b>'+m(e.total)+'</b></td><td>'+esc(e.par || '')+'</td>'
+          + '<td class="sub">'+(e.doublon ? '⚠️ <b>Même métrage déjà ajouté le '+quand(e.doublon)+'</b> : vérifier que ce n\\'est pas un doublon. ' : '')+esc(e.type === 'correction' ? 'Métrage modifié à la main' : (e.info || ''))+'</td></tr>').join('')
+        + '</tbody></table>';
+      const ecart = Math.round(((j.metres || 0) - (j.net ?? j.somme_ajouts)) * 100) / 100;
+      h += '<div class="note" style="margin-top:8px">Total des ajouts : <b>'+m(j.somme_ajouts)+'</b> · compteur actuel : <b>'+m(j.metres)+'</b>'
+        + (Math.abs(ecart) < 0.01 ? ' ✅ tout est expliqué'+(j.corrections ? ' (avec les corrections à la main)' : '') : (' ⚠️ écart de '+m(ecart)+' (ajout fait avant ce suivi, ou modifié directement dans l\\'Excel)'))+'</div>';
+    }
+    box().innerHTML = h;
+  } catch(e){ if (box()) box().innerHTML = '<h3>📈 Suivi du compteur</h3><div class="note">Suivi indisponible : '+esc(e.message)+'</div>'; }
+}
 async function ouvrirPlanche(cle){
   const p = planches.find(x => x.cle === cle); if (!p) return;
   $('pbody').onclick = null;
@@ -2312,11 +2341,16 @@ async function ouvrirPlanche(cle){
   $('psub').textContent = p.hebdo ? 'Client hebdomadaire · facturé le lundi' : (p.n_devis || 'Pas encore de devis');
   $('pbody').innerHTML = '<div class="card"><h3>Planche</h3><div class="grid">'
     + kv('Date', fdate(p.date_commande)) + kv('Métrage', esc(metrage(p)))
-    + kv('Réduction', p.reduction ? Math.round(p.reduction*100)+' %' : '') + kv('Montant TTC', eur(p.montant_ht))
+    + '<div class="kv"><div class="k">Réduction</div><div class="v">'+(p.reduction ? Math.round(p.reduction*100)+' %' : 'aucune')+(p.remise_manuelle != null ? ' <span class="tag" title="Choisie à la main'+(p.remise_par ? ' par '+esc(p.remise_par) : '')+'">✋ manuelle</span>' : ' <span class="sub">(par défaut)</span>')
+      + '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap"><input id="pl-rem-v" inputmode="decimal" placeholder="ex. 25" value="'+(p.remise_manuelle != null ? esc(String(p.remise_manuelle)) : '')+'" style="width:70px;padding:5px 7px;border:1px solid var(--line);border-radius:8px"> %'
+      + '<button class="btn" id="pl-rem-ok" style="padding:5px 10px">Appliquer</button>'+(p.remise_manuelle != null ? '<button class="btn" id="pl-rem-def" style="padding:5px 10px" title="Revenir à -15 % dès 10 m, -20 % dès 20 m">Par défaut</button>' : '')+'</div>'
+      + '<div class="sub" style="margin-top:4px">'+(p.hebdo ? 'Exception pour la semaine : reprise sur la facture du lundi, puis retour à la réduction par défaut.' : 'Reprise sur le devis Odoo (à faire avant de créer le devis).')+'</div></div></div>'
+    + kv('Montant TTC', eur(p.montant_ht))
     + kv('Paiement', '<span class="pay '+payClass(p.paiement)+'">'+esc(p.paiement||'—')+'</span>') + kv('Fréquence', esc(p.frequence))
     + kv('N° de suivi', esc(p.numero_suivi))
     + '</div>' + (p.remarques ? '<div class="kv" style="margin-top:10px"><div class="k">Remarques</div><div class="v pre">'+esc(p.remarques)+'</div></div>' : '')
     + '<div class="note" style="margin-top:10px">Mails : accusé/devis '+(p.mail_envoye?'✅':'—')+' · expédition '+(p.mail_expedition_envoye?'✅':'—')+'</div></div>'
+    + (p.hebdo ? '<div class="card" id="pl-suivi"><h3>📈 Suivi du compteur (depuis la dernière facture)</h3><div class="skel"></div></div>' : '')
     + '<label class="espbox" style="cursor:pointer;background:#fef2f2;border-color:#fecaca"><input type="checkbox" id="pl-prio"'+(p.prioritaire?' checked':'')+' style="width:18px;height:18px"><b>🔥 Prioritaire</b><span class="sub">la planche passe en haut de la liste avec la mention</span></label>'
     + '<div class="card"><h3>Client Odoo</h3><div id="cliobox"><div class="skel"></div></div></div>'
     + plActionsHtml(p)
@@ -2328,6 +2362,12 @@ async function ouvrirPlanche(cle){
     + '<div id="pl-bd"></div>'
     + '<div id="dossier"><div class="card"><h3>Fichiers</h3><div class="skel"></div><div class="skel"></div></div></div>';
   brancherActions(p);
+  const remise = async v => {
+    try { await post('/gestion/api/planches/'+encodeURIComponent(cle)+'/remise', { remise: v }); await charger(false); const n = planches.find(x => x.cle === cle) || planches.find(x => x.client === p.client && x.hebdo === p.hebdo); if (panelCle === cle && n) await ouvrirPlanche(n.cle); }
+    catch(err){ alert('❌ ' + err.message); }
+  };
+  $('pl-rem-ok').onclick = () => { const v = $('pl-rem-v').value.trim(); if (!v) return remise(null); remise(v); };
+  if ($('pl-rem-def')) $('pl-rem-def').onclick = () => remise(null);
   $('pl-prio').onchange = async e => {
     const actif = e.target.checked; e.target.disabled = true;
     try {
@@ -2365,6 +2405,7 @@ async function ouvrirPlanche(cle){
     brancherBordereau(p, 'planche');
   }).catch(() => {});
   chargerClientOdoo(p);
+  if (p.hebdo) chargerSuiviHebdo(p);
   $('overlay').classList.add('on'); $('panel').classList.add('on'); $('panel').setAttribute('aria-hidden','false');
   try{
     const r = await fetch('/gestion/api/planches/'+encodeURIComponent(cle)+'/fichiers');

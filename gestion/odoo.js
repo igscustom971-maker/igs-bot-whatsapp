@@ -188,13 +188,15 @@ async function product(code) {
 const remise = m => (m >= 20 ? 20 : m >= 10 ? 15 : 0);
 
 // metres (nombre) ou format 'A3' / 'A4'
-async function lignes({ metres, format }, partner) {
+// remiseManuelle : réduction choisie à la main sur la planche (%), à la place de la réduction par défaut
+async function lignes({ metres, format, remise: remiseManuelle = null }, partner) {
   const out = [];
+  const manuelle = remiseManuelle != null && Number(remiseManuelle) >= 0 ? Number(remiseManuelle) : null;
   if (format) {
-    out.push({ product_id: (await product(format === 'A3' ? PRODUITS.A3 : PRODUITS.A4)).id, qty: 1, discount: 0 });
+    out.push({ product_id: (await product(format === 'A3' ? PRODUITS.A3 : PRODUITS.A4)).id, qty: 1, discount: manuelle ?? 0 });
   } else {
     if (!(metres > 0)) throw new Error('Métrage manquant');
-    out.push({ product_id: (await product(PRODUITS.METRE)).id, qty: metres, discount: remise(metres) });
+    out.push({ product_id: (await product(PRODUITS.METRE)).id, qty: metres, discount: manuelle ?? remise(metres) });
   }
   // Martinique : livraison facturée sous 4 m ou en A3/A4, offerte à partir de 4 m. Guadeloupe : jamais.
   if (isMartinique(partner) && (format || metres < 4)) {
@@ -220,8 +222,8 @@ async function getInvoiceTemplateId() {
 }
 
 // ---------- Devis (planche ponctuelle) ----------
-async function creerEtEnvoyerDevis({ partner, metres, format, titre, envoyer = true }) {
-  const ls = await lignes({ metres, format }, partner);
+async function creerEtEnvoyerDevis({ partner, metres, format, titre, envoyer = true, remise: rm = null }) {
+  const ls = await lignes({ metres, format, remise: rm }, partner);
   const vals = {
     partner_id: partner.id,
     company_id: companyId,
@@ -309,8 +311,8 @@ async function completerTelephone(numero, telIntl) {
 }
 
 // ---------- Facture hebdo ----------
-async function creerEtEnvoyerFacture({ partner, metres, format, titre }) {
-  const ls = await lignes({ metres, format }, partner);
+async function creerEtEnvoyerFacture({ partner, metres, format, titre, remise: rm = null }) {
+  const ls = await lignes({ metres, format, remise: rm }, partner);
   const id = await kw('account.move', 'create', [{
     move_type: 'out_invoice',
     partner_id: partner.id,

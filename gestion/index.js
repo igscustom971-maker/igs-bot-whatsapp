@@ -321,7 +321,11 @@ module.exports = function mountGestion(app) {
     catch (err) { console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
   };
   app.post('/gestion/api/planches/:cle/supprimer', auth.requireUser, action(req => planches.supprimer(req.params.cle, qui(req), { fichiers: req.body?.fichiers, devis: !!req.body?.devis })));
-  app.post('/gestion/api/planches/ajouter', auth.requireUser, action(req => planches.ajouter(req.body || {}, qui(req))));
+  app.post('/gestion/api/planches/ajouter', auth.requireUser, async (req, res) => {
+    // Doublon possible sur un compteur hebdo : 409 pour que le dashboard demande confirmation
+    try { res.json(await planches.ajouter(req.body || {}, qui(req))); }
+    catch (err) { if (err.doublon) return res.status(409).json({ error: err.message, doublon: true }); console.error('Gestion action :', err.message); res.status(400).json({ error: err.message }); }
+  });
   app.get('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.clientPlanche(req.params.cle)));
   app.post('/gestion/api/planches/:cle/client', auth.requireUser, action(req => planches.choisirClient(req.params.cle, req.body?.partnerId, qui(req))));
   app.post('/gestion/api/odoo/clients', auth.requireUser, action(async req => ({ client: await require('./odoo').createPartner(req.body || {}) })));
@@ -444,6 +448,12 @@ module.exports = function mountGestion(app) {
     catch (err) { console.error('Gestion visuel planche :', err.message); res.status(400).json({ error: err.message }); }
   });
   // Planches : même chose (dossier Technique/Planches/BORDEREAUX), à tout moment
+  app.post('/gestion/api/planches/:cle/remise', auth.requireUser, async (req, res) => {
+    try { res.json({ planche: await planches.setRemise(req.params.cle, req.body?.remise ?? null, qui(req)) }); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.get('/gestion/api/planches/:cle/suivi', auth.requireUser, async (req, res) => {
+    try { res.json(await planches.suiviHebdo(req.params.cle)); } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.get('/gestion/api/planches/:cle/bordereaux', auth.requireUser, async (req, res) => {
     try { res.json({ bordereaux: await planches.bordereaux(req.params.cle) }); }
     catch (err) { res.status(400).json({ error: err.message }); }
