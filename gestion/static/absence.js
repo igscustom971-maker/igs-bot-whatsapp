@@ -7,7 +7,7 @@
     box.innerHTML = '<h3>🌙 Message d’absence</h3>'
       + '<div class="note" style="margin-bottom:8px">Envoyé par Leïla quand l’atelier est fermé (soir, nuit, week-end), une fois par client et par fermeture. Il remplace le message d’absence de WhatsApp Business (à désactiver dans l’appli).</div>'
       + '<label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="abs-on"' + (d.active ? ' checked' : '') + '> Activé</label>'
-      + '<div class="field"><label>Message (soir, nuit, week-end)</label><textarea id="abs-t" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">' + E(d.texte) + '</textarea></div>'
+      + '<div class="field"><label>Message (soir, nuit, week-end) · {retour} = « dès lundi », « dès demain » ou « dès ce matin » selon le moment</label><textarea id="abs-t" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">' + E(d.texte) + '</textarea></div>'
       + '<div class="field" style="margin-top:8px"><label>Message pendant les congés ({date} = date de retour)</label><textarea id="abs-c" rows="3" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">' + E(d.texte_conges) + '</textarea></div>'
       + '<div class="btnrow" style="margin-top:8px"><button class="btn primary" id="abs-ok">Enregistrer</button></div><div class="msg" id="abs-msg"></div>'
       + '<div class="note" style="margin-top:10px">🔁 <b>Reprise du lundi</b> : quand la fenêtre WhatsApp de 24 h est fermée, Leïla envoie le modèle approuvé par Meta '

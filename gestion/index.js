@@ -127,7 +127,7 @@ module.exports = function mountGestion(app) {
   const LEILA_POST = ['contexte', 'contexte-ajouter', 'note-client', 'message-programme', 'message-programme-annuler', 'importer-historique', 'simuler', 'planning', 'catalogue'];
   const LEILA_EQUIPE = ['activer', 'desactiver', 'auto', 'statut'];
   // Message d'absence de Leïla (remplace celui de WhatsApp Business) : texte et activation
-  const ABS = { texte: "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est fermé pour le moment (ouvert du lundi au vendredi). Nous vous répondons dès la réouverture. Pour gagner du temps, vous pouvez déjà nous préciser votre demande (produit, quantité, visuel, date souhaitée) 😊", texte_conges: "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est en congés jusqu'au {date} inclus. Nous vous répondons dès notre retour 😊" };
+  const ABS = { texte: "Bonjour,\n\nMerci pour votre message ! Nous sommes actuellement fermés. Nos horaires sont du lundi au vendredi de 8h30 à 17h30.\n\nNous revenons vers vous {retour}.\n\nL'équipe IGS CUSTOM BAR 💫", texte_conges: "Bonjour,\n\nMerci pour votre message ! Nous sommes actuellement fermés pour congés jusqu'au {date} inclus.\n\nNous revenons vers vous dès notre retour.\n\nL'équipe IGS CUSTOM BAR 💫" };
   app.get('/gestion/api/leila-absence', auth.requireUser, auth.requireAdmin, async (req, res) => {
     try { const v = JSON.parse((await require('../supabase').getSetting('leila_absence')) || '{}'); res.json({ active: v.active !== false, texte: v.texte || ABS.texte, texte_conges: v.texte_conges || ABS.texte_conges, modele: process.env.WHATSAPP_MODELE_REPRISE || null }); }
     catch (err) { res.status(400).json({ error: err.message }); }

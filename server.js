@@ -108,8 +108,16 @@ function mettreEnAttente(from, text, at = Date.now()) {
 // Pas pendant les heures d'ouverture (l'équipe répond), ni si Leïla est désactivée, ni à un simple « merci ».
 // Réglages (texte, actif) dans bot_settings « leila_absence », modifiables depuis l'onglet Leïla du dashboard.
 // ============================================
-const ABSENCE_DEFAUT = "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est fermé pour le moment (ouvert du lundi au vendredi). Nous vous répondons dès la réouverture. Pour gagner du temps, vous pouvez déjà nous préciser votre demande (produit, quantité, visuel, date souhaitée) 😊";
-const ABSENCE_CONGES_DEFAUT = "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est en congés jusqu'au {date} inclus. Nous vous répondons dès notre retour 😊";
+// {retour} = « dès lundi » (week-end, vendredi soir), « dès demain » (soir de semaine), « dès ce matin » (avant l'ouverture)
+const ABSENCE_DEFAUT = "Bonjour,\n\nMerci pour votre message ! Nous sommes actuellement fermés. Nos horaires sont du lundi au vendredi de 8h30 à 17h30.\n\nNous revenons vers vous {retour}.\n\nL'équipe IGS CUSTOM BAR 💫";
+const ABSENCE_CONGES_DEFAUT = "Bonjour,\n\nMerci pour votre message ! Nous sommes actuellement fermés pour congés jusqu'au {date} inclus.\n\nNous revenons vers vous dès notre retour.\n\nL'équipe IGS CUSTOM BAR 💫";
+function retourTexte(now = new Date()) {
+  const t = getGuadeloupeTime(now);
+  if (['Sat', 'Sun'].includes(t.weekday)) return 'dès lundi';
+  const avantOuverture = t.hour * 60 + t.minute < minutesDe(planning.ouverture);
+  if (avantOuverture) return 'dès ce matin';
+  return t.weekday === 'Fri' ? 'dès lundi' : 'dès demain';
+}
 const absencesEnvoyees = {}; // from -> ms du dernier message d'absence (mémoire + bot_settings)
 async function reglageAbsence() {
   try { return { active: true, texte: ABSENCE_DEFAUT, texte_conges: ABSENCE_CONGES_DEFAUT, ...JSON.parse((await db.getSetting('leila_absence')) || '{}') }; }
@@ -133,7 +141,7 @@ async function messageAbsence(from, text) {
   if (Date.now() - (absencesEnvoyees[from] || 0) < 14 * 3600e3) return;
   if ((lastIsmaelReplyAt[from] || 0) > Date.now() - 2 * 3600e3) return;
   const fin = CLOSED_UNTIL && getGuadeloupeDateKey(new Date()) <= CLOSED_UNTIL ? CLOSED_UNTIL : closureOverrideUntil;
-  const texte = motif === 'conges' ? String(r.texte_conges || ABSENCE_CONGES_DEFAUT).replace('{date}', fin ? new Date(`${fin}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'notre retour') : String(r.texte || ABSENCE_DEFAUT);
+  const texte = motif === 'conges' ? String(r.texte_conges || ABSENCE_CONGES_DEFAUT).replace('{date}', fin ? new Date(`${fin}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'notre retour') : String(r.texte || ABSENCE_DEFAUT).replace(/\{retour\}/g, retourTexte());
   absencesEnvoyees[from] = Date.now();
   if (!(await sendWhatsAppMessage(from, texte))) return;
   noterEnvoiLeila(from, texte);
