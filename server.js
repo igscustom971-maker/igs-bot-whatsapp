@@ -2137,12 +2137,45 @@ async function veilleUrgences() {
 // Tourne toute seule chaque minute (plus besoin d'UptimeRobot pour ça) ; UptimeRobot garde juste le serveur éveillé.
 let routineEnCours = false;
 let dernierEssaiRecapManuel = 0;
+// Chaque matin de semaine à 8 h : liste à Ismaël des clients qui ont écrit pendant la fermeture et dont la fenêtre
+// WhatsApp de 24 h est dépassée (Leïla ne peut plus leur écrire) : réponse manuelle depuis l'appli. Retirés de la
+// file d'attente ; les autres (fenêtre encore ouverte) sont traités par Leïla à l'ouverture comme d'habitude.
+let repriseManuelleJour = null;
+async function clientsAReprendreDuMatin() {
+  const now = new Date(), t = getGuadeloupeTime(now);
+  if (!['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(t.weekday) || t.hour !== 8 || isClosedForBreak(now)) return;
+  const jour = getGuadeloupeDateKey(now);
+  if (repriseManuelleJour === jour) return;
+  repriseManuelleJour = jour;
+  if ((await db.getSetting('leila_reprise_manuelle_jour').catch(() => null)) === jour) return;
+  await db.setSetting('leila_reprise_manuelle_jour', jour).catch(() => {});
+  const lignes = [];
+  for (const from of Object.keys(backlogMessages)) {
+    if (rattrapageEnCours.has(from)) continue;
+    const items = backlogMessages[from] || [];
+    const lastReplyAt = Math.max((await db.getLastAssistantAt(from).catch(() => 0)) || 0, lastIsmaelReplyAt[from] || 0);
+    const utiles = items.filter(it => it.at > lastReplyAt && !isPureAcknowledgment(it.text));
+    if (!utiles.length) continue;
+    const dernierClient = Math.max(derniereReception[from] || 0, ...items.map(it => it.at));
+    if (Date.now() - dernierClient <= 23.5 * 3600e3) continue; // fenêtre encore ouverte : Leïla répondra
+    const nom = await db.getClientName(from).catch(() => null);
+    const quand = new Date(utiles[0].at).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'long', hour: '2-digit', minute: '2-digit' });
+    lignes.push(`• *${nom || from}* (wa.me/${from}) – ${quand}\n  « ${normalizeIncoming(utiles.map(it => it.text).join(' / ')).displayText.replace(/\s+/g, ' ').slice(0, 160)} »`);
+    delete backlogMessages[from];
+  }
+  if (!lignes.length) return;
+  await sauverAttente();
+  await envoyerAIsmael(`📋 *Clients à reprendre à la main* (${lignes.length})\nIls ont écrit pendant la fermeture et la fenêtre WhatsApp de 24 h est dépassée : Leïla ne peut plus leur écrire.\n\n${lignes.slice(0, 25).join('\n')}${lignes.length > 25 ? `\n… et ${lignes.length - 25} autre(s)` : ''}\n\nRéponds-leur depuis l'application WhatsApp Business : dès qu'ils réécrivent, Leïla reprend la conversation.`, 'Clients à reprendre');
+  console.log(`Reprise manuelle : ${lignes.length} client(s) signalé(s) à Ismaël (fenêtre de 24 h dépassée)`);
+}
+
 async function routine() {
   if (routineEnCours) return;
   routineEnCours = true;
   try {
     await checkMorningRecapDue();
     await checkDailyRecapDue();
+    await clientsAReprendreDuMatin();
     await flushBacklogIfActive();
     await veilleUrgences();
     // Récap d'une session manuelle qui n'avait pas pu partir : nouvel essai toutes les 30 min

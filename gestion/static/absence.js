@@ -10,9 +10,7 @@
       + '<div class="field"><label>Message (soir, nuit, week-end) · {retour} = « dès lundi », « dès demain » ou « dès ce matin » selon le moment</label><textarea id="abs-t" rows="4" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">' + E(d.texte) + '</textarea></div>'
       + '<div class="field" style="margin-top:8px"><label>Message pendant les congés ({date} = date de retour)</label><textarea id="abs-c" rows="3" style="width:100%;font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px">' + E(d.texte_conges) + '</textarea></div>'
       + '<div class="btnrow" style="margin-top:8px"><button class="btn primary" id="abs-ok">Enregistrer</button></div><div class="msg" id="abs-msg"></div>'
-      + '<div class="note" style="margin-top:10px">🔁 <b>Reprise du lundi</b> : quand la fenêtre WhatsApp de 24 h est fermée, Leïla envoie le modèle approuvé par Meta '
-      + (d.modele ? '« <b>' + E(d.modele) + '</b> »' : '<b style="color:#b91c1c">(pas encore configuré : variable WHATSAPP_MODELE_REPRISE sur Render)</b>')
-      + ', puis répond au client dès qu’il réécrit.</div>';
+      + '<div class="note" style="margin-top:10px">📋 <b>Chaque matin de semaine à 8 h</b>, Leïla t’envoie la liste des clients qui ont écrit pendant la fermeture et dont la fenêtre WhatsApp de 24 h est dépassée : à reprendre à la main depuis l’application. Les autres sont traités par Leïla à l’ouverture.</div>';
     document.getElementById('abs-ok').onclick = async function () {
       var m = document.getElementById('abs-msg');
       try {
