@@ -126,6 +126,20 @@ module.exports = function mountGestion(app) {
   const LEILA_GET = ['activer', 'desactiver', 'auto', 'statut', 'fermer', 'lever-fermeture', 'test-horaires-on', 'test-horaires-off', 'contexte-voir', 'note-client-voir', 'backlog', 'test-recap', 'messages-programmes', 'planning-voir', 'catalogue-voir'];
   const LEILA_POST = ['contexte', 'contexte-ajouter', 'note-client', 'message-programme', 'message-programme-annuler', 'importer-historique', 'simuler', 'planning', 'catalogue'];
   const LEILA_EQUIPE = ['activer', 'desactiver', 'auto', 'statut'];
+  // Message d'absence de Leïla (remplace celui de WhatsApp Business) : texte et activation
+  const ABS = { texte: "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est fermé pour le moment (ouvert du lundi au vendredi). Nous vous répondons dès la réouverture. Pour gagner du temps, vous pouvez déjà nous préciser votre demande (produit, quantité, visuel, date souhaitée) 😊", texte_conges: "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est en congés jusqu'au {date} inclus. Nous vous répondons dès notre retour 😊" };
+  app.get('/gestion/api/leila-absence', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try { const v = JSON.parse((await require('../supabase').getSetting('leila_absence')) || '{}'); res.json({ active: v.active !== false, texte: v.texte || ABS.texte, texte_conges: v.texte_conges || ABS.texte_conges, modele: process.env.WHATSAPP_MODELE_REPRISE || null }); }
+    catch (err) { res.status(400).json({ error: err.message }); }
+  });
+  app.post('/gestion/api/leila-absence', auth.requireUser, auth.requireAdmin, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const v = { active: b.active !== false, texte: String(b.texte || '').trim().slice(0, 900) || ABS.texte, texte_conges: String(b.texte_conges || '').trim().slice(0, 900) || ABS.texte_conges };
+      await require('../supabase').setSetting('leila_absence', JSON.stringify(v));
+      res.json({ ok: true, ...v });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
   app.post('/gestion/api/leila/:action', auth.requireUser, async (req, res) => {
     const action = String(req.params.action);
     if (![...LEILA_GET, ...LEILA_POST].includes(action)) return res.status(404).json({ error: 'Action inconnue' });

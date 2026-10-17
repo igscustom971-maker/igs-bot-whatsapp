@@ -205,6 +205,7 @@ function mount(app) {
   app.get('/gestion/apprentissage.js', statique('apprentissage.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/sefi-bdc.js', statique('sefi-bdc.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/depot.js', statique('depot.js', 'text/javascript; charset=utf-8', 300));
+  app.get('/gestion/absence.js', statique('absence.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/rouleau.js', statique('rouleau.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/todo.js', statique('todo.js', 'text/javascript; charset=utf-8', 300));
   app.get('/gestion/tailles-edit.js', statique('tailles-edit.js', 'text/javascript; charset=utf-8', 300));

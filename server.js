@@ -98,7 +98,64 @@ function sauverAttente() {
 function mettreEnAttente(from, text, at = Date.now()) {
   if (!backlogMessages[from]) backlogMessages[from] = [];
   backlogMessages[from].push({ text, at });
+  messageAbsence(from, text).catch(e => console.error('Message d\'absence :', e.message));
   return sauverAttente();
+}
+
+// ============================================
+// MESSAGE D'ABSENCE DE LEÏLA (remplace le message d'absence de WhatsApp Business)
+// Atelier fermé (soir, nuit, week-end, congés) : une réponse immédiate au client, une fois par période de fermeture.
+// Pas pendant les heures d'ouverture (l'équipe répond), ni si Leïla est désactivée, ni à un simple « merci ».
+// Réglages (texte, actif) dans bot_settings « leila_absence », modifiables depuis l'onglet Leïla du dashboard.
+// ============================================
+const ABSENCE_DEFAUT = "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est fermé pour le moment (ouvert du lundi au vendredi). Nous vous répondons dès la réouverture. Pour gagner du temps, vous pouvez déjà nous préciser votre demande (produit, quantité, visuel, date souhaitée) 😊";
+const ABSENCE_CONGES_DEFAUT = "Bonjour 👋 Merci pour votre message ! L'atelier IGS Custom Bar est en congés jusqu'au {date} inclus. Nous vous répondons dès notre retour 😊";
+const absencesEnvoyees = {}; // from -> ms du dernier message d'absence (mémoire + bot_settings)
+async function reglageAbsence() {
+  try { return { active: true, texte: ABSENCE_DEFAUT, texte_conges: ABSENCE_CONGES_DEFAUT, ...JSON.parse((await db.getSetting('leila_absence')) || '{}') }; }
+  catch { return { active: true, texte: ABSENCE_DEFAUT, texte_conges: ABSENCE_CONGES_DEFAUT }; }
+}
+function atelierFerme(now = new Date()) {
+  if (isClosedForBreak(now)) return 'conges';
+  const t = getGuadeloupeTime(now);
+  if (['Sat', 'Sun'].includes(t.weekday)) return 'weekend';
+  return isWithinBusinessHours(t) ? null : 'soir';
+}
+async function messageAbsence(from, text) {
+  if (from === RECAP_PHONE_NUMBER || manualOverride === false) return;
+  const motif = atelierFerme();
+  if (!motif) return;
+  if (isPureAcknowledgment(normalizeIncoming(text).realText || '') && !normalizeIncoming(text).hasMedia) return;
+  const r = await reglageAbsence();
+  if (!r.active) return;
+  // Une fois par période de fermeture : pas de 2e message dans les 14 h, ni si l'équipe vient de répondre
+  if (!absencesEnvoyees[from]) { try { absencesEnvoyees[from] = Number((JSON.parse((await db.getSetting('leila_absences')) || '{}'))[from]) || 0; } catch {} }
+  if (Date.now() - (absencesEnvoyees[from] || 0) < 14 * 3600e3) return;
+  if ((lastIsmaelReplyAt[from] || 0) > Date.now() - 2 * 3600e3) return;
+  const fin = CLOSED_UNTIL && getGuadeloupeDateKey(new Date()) <= CLOSED_UNTIL ? CLOSED_UNTIL : closureOverrideUntil;
+  const texte = motif === 'conges' ? String(r.texte_conges || ABSENCE_CONGES_DEFAUT).replace('{date}', fin ? new Date(`${fin}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'notre retour') : String(r.texte || ABSENCE_DEFAUT);
+  absencesEnvoyees[from] = Date.now();
+  if (!(await sendWhatsAppMessage(from, texte))) return;
+  noterEnvoiLeila(from, texte);
+  // Gardé dans l'historique comme message automatique : ne compte pas comme une réponse (le rattrapage répondra au fond)
+  await db.appendMessage(from, 'assistant', `[Message automatique] ${texte}`).catch(() => {});
+  try { const m = JSON.parse((await db.getSetting('leila_absences')) || '{}'); m[from] = Date.now(); for (const [k, v] of Object.entries(m)) if (Date.now() - v > 7 * 86400e3) delete m[k]; await db.setSetting('leila_absences', JSON.stringify(m)); } catch {}
+  console.log(`Message d'absence (${motif}) envoyé à ${from}`);
+}
+
+// Modèle WhatsApp approuvé par Meta, pour reprendre contact quand la fenêtre de 24 h est fermée (message du week-end
+// traité le lundi). Nom du modèle : WHATSAPP_MODELE_REPRISE (sans variable), langue WHATSAPP_MODELE_LANGUE (fr).
+async function envoyerModeleReprise(to) {
+  const nom = process.env.WHATSAPP_MODELE_REPRISE;
+  if (!nom) return false;
+  try {
+    const res = await fetch(`https://api.dualhook.com/v25.0/${WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${DUALHOOK_API_KEY}` },
+      body: JSON.stringify({ messaging_product: 'whatsapp', to, type: 'template', template: { name: nom, language: { code: process.env.WHATSAPP_MODELE_LANGUE || 'fr' } } }),
+    });
+    if (!res.ok) { console.error(`Modèle de reprise refusé pour ${to} (${res.status}) : ${(await res.text()).slice(0, 300)}`); return false; }
+    return true;
+  } catch (err) { console.error(`Modèle de reprise ${to} :`, err.message); return false; }
 }
 
 // Pour savoir si Ismaël a déjà répondu manuellement depuis son app (via l'écho WhatsApp Coexistence)
@@ -998,6 +1055,7 @@ async function traiterMessageEntrant(message, profil) {
   // Fermeture prolongée (congés) : Leïla ne répond à rien et ne met rien en rattrapage
   if (isClosedForBreak(new Date())) {
     console.log(`Fermeture prolongée en cours — message enregistré, laissé à l'équipe`);
+    messageAbsence(from, text).catch(e => console.error('Message d\'absence :', e.message));
     return;
   }
 
@@ -1430,6 +1488,23 @@ async function flushBacklogIfActive() {
       }
       if (fresh.length === 0) {
         console.log(`Rattrapage ignoré pour ${from} : déjà traité par l'équipe, trop ancien ou sans objet (${items.length} msg écartés)`);
+        await retirer();
+        continue;
+      }
+      // Fenêtre WhatsApp de 24 h fermée (dernier message du client trop ancien) : Leïla ne peut plus écrire librement.
+      // Modèle approuvé par Meta pour reprendre contact ; la réponse du client rouvre la fenêtre et Leïla reprend avec
+      // tout l'historique. Sans modèle configuré : noté au récap pour l'équipe.
+      const dernierClient = Math.max(derniereReception[from] || 0, ...items.map(it => it.at));
+      if (Date.now() - dernierClient > 23.5 * 3600e3) {
+        const ok = await envoyerModeleReprise(from);
+        const dk = getGuadeloupeDateKey(new Date());
+        if (!dailyLogs[dk]) dailyLogs[dk] = [];
+        const nomConnu = await db.getClientName(from).catch(() => null);
+        dailyLogs[dk].push({ at: Date.now(), from, display: nomConnu ? `${nomConnu} - ${from}` : from, urgent: !ok,
+          summary: ok ? `Message du ${new Date(fresh[0].at).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'long', hour: '2-digit', minute: '2-digit' })} : fenêtre WhatsApp fermée, message de reprise de contact envoyé (Leïla répondra dès que le client réécrit) : « ${normalizeIncoming(fresh.map(it => it.text).join(' / ')).displayText.slice(0, 140)} »`
+            : `Message du ${new Date(fresh[0].at).toLocaleString('fr-FR', { timeZone: 'America/Guadeloupe', weekday: 'long', hour: '2-digit', minute: '2-digit' })} sans réponse : fenêtre WhatsApp de 24 h fermée, à reprendre depuis l'application : « ${normalizeIncoming(fresh.map(it => it.text).join(' / ')).displayText.slice(0, 140)} »` });
+        if (ok) await db.appendMessage(from, 'assistant', '[Message automatique] Reprise de contact (modèle WhatsApp) après le week-end').catch(() => {});
+        console.log(`Rattrapage ${from} : fenêtre de 24 h fermée, ${ok ? 'modèle de reprise envoyé' : 'pas de modèle configuré, noté au récap'}`);
         await retirer();
         continue;
       }

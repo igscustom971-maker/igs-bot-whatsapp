@@ -530,7 +530,7 @@ ${view === 'accueil' ? `
       ${user.role === 'admin' ? `<div class="stack">
         <div class="card" id="ap-card"><h3>🎓 Apprentissage</h3><div class="note" style="margin-bottom:8px">Chaque soir, Leïla compare ce qu’elle aurait répondu à tes vraies réponses aux clients, note la ressemblance sur 5 et en tire des leçons (ton, longueur, emojis, façon de traiter une situation). Bilan sur ton WhatsApp le lundi.</div>
           <div id="ap-zone" class="note">Chargement…</div>
-          <script src="/gestion/apprentissage.js" defer></script></div>
+          <script src="/gestion/apprentissage.js" defer></script>${user.role === 'admin' ? '<div class="card" id="abs-card" style="margin-top:14px"></div><script src="/gestion/absence.js" defer></script>' : ''}</div>
         <div class="card"><h3>Catalogue et tarifs</h3><div class="note" style="margin-bottom:6px">Ce que Leïla sait des produits, prix, planches et livraison. Modifie le texte puis enregistre : c’est pris en compte dès le message suivant.</div>
           <textarea id="lei-cat" class="lei-ta" style="min-height:320px" placeholder="Chargement…"></textarea>
           <div class="btnrow"><button class="btn primary" data-lei="catalogue">Enregistrer le catalogue</button><button class="btn" data-lei="catalogue-defaut">Remettre le texte d’origine</button></div></div>

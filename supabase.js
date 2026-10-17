@@ -128,6 +128,9 @@ async function getLastAssistantAt(phoneNumber) {
     .select('created_at')
     .eq('phone_number', phoneNumber)
     .eq('role', 'assistant')
+    // Messages automatiques (absence, commande prête, BAT…) : ne comptent pas comme une réponse au client
+    .not('content', 'like', '[Message automatique%')
+    .not('content', 'like', '[BAT envoyé%')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
