@@ -123,11 +123,15 @@ async function reglageAbsence() {
   try { return { active: true, texte: ABSENCE_DEFAUT, texte_conges: ABSENCE_CONGES_DEFAUT, ...JSON.parse((await db.getSetting('leila_absence')) || '{}') }; }
   catch { return { active: true, texte: ABSENCE_DEFAUT, texte_conges: ABSENCE_CONGES_DEFAUT }; }
 }
+// En semaine : rien avant 18 h (l'équipe finit souvent après la fermeture), ni avant l'ouverture… sauf la nuit (avant 8 h 30)
+const ABSENCE_SOIR = process.env.ABSENCE_HEURE_SOIR || '18:00';
 function atelierFerme(now = new Date()) {
   if (isClosedForBreak(now)) return 'conges';
   const t = getGuadeloupeTime(now);
   if (['Sat', 'Sun'].includes(t.weekday)) return 'weekend';
-  return isWithinBusinessHours(t) ? null : 'soir';
+  const m = t.hour * 60 + t.minute;
+  if (m < minutesDe(planning.ouverture)) return 'nuit';
+  return m >= minutesDe(ABSENCE_SOIR) ? 'soir' : null;
 }
 async function messageAbsence(from, text) {
   if (from === RECAP_PHONE_NUMBER || manualOverride === false) return;
@@ -139,7 +143,9 @@ async function messageAbsence(from, text) {
   // Une fois par période de fermeture : pas de 2e message dans les 14 h, ni si l'équipe vient de répondre
   if (!absencesEnvoyees[from]) { try { absencesEnvoyees[from] = Number((JSON.parse((await db.getSetting('leila_absences')) || '{}'))[from]) || 0; } catch {} }
   if (Date.now() - (absencesEnvoyees[from] || 0) < 14 * 3600e3) return;
-  if ((lastIsmaelReplyAt[from] || 0) > Date.now() - 2 * 3600e3) return;
+  // Conversation en cours (tu lui réponds hors horaires, ou Leïla vient de répondre) : pas de message d'absence
+  if ((lastIsmaelReplyAt[from] || 0) > Date.now() - 3 * 3600e3) return;
+  if ((await db.getLastAssistantAt(from).catch(() => 0)) > Date.now() - 3 * 3600e3) return;
   const fin = CLOSED_UNTIL && getGuadeloupeDateKey(new Date()) <= CLOSED_UNTIL ? CLOSED_UNTIL : closureOverrideUntil;
   const texte = motif === 'conges' ? String(r.texte_conges || ABSENCE_CONGES_DEFAUT).replace('{date}', fin ? new Date(`${fin}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }) : 'notre retour') : String(r.texte || ABSENCE_DEFAUT).replace(/\{retour\}/g, retourTexte());
   absencesEnvoyees[from] = Date.now();
